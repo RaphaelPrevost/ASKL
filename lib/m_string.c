@@ -265,7 +265,7 @@ public m_string *string_encaps(const char *string, size_t len)
 
     new->_data = (char *) string;
     new->_len = len; new->_alloc = len;
-    new->_flags = _STRING_FLAG_ENCAPS;
+    new->_flags = _STRING_ENCAPSULATED;
     new->parent = NULL;
     new->_parts_alloc = new->parts = 0;
     new->token = NULL;
@@ -286,7 +286,7 @@ public m_string *string_vfmt(m_string *str, const char *fmt, va_list args)
         return NULL;
     }
 
-    if (str && str->_flags & _STRING_FLAG_RDONLY) {
+    if (str && str->_flags & _STRING_READ_ONLY) {
         debug("string_vfmt(): illegal write attempt.\n");
         return NULL;
     }
@@ -353,7 +353,7 @@ public m_string *string_catfmt(m_string *str, const char *fmt, ...)
         return NULL;
     }
 
-    if (str && str->_flags & _STRING_FLAG_RDONLY) {
+    if (str && str->_flags & _STRING_READ_ONLY) {
         debug("string_catfmt(): illegal write attempt.\n");
         va_end(args);
         return NULL;
@@ -777,7 +777,7 @@ public int string_wchar(m_string *string)
     if (! string || ! DATA(string)) return -1;
 
     /* check if writing and resizing the string is allowed */
-    if (string->_flags & _STRING_FLAG_STATIC) return -1;
+    if (string->_flags & _STRING_IMMUTABLE) return -1;
 
     /* find the size of the wchar string */
     if ( (bufsize = mbstowcs(NULL, DATA(string), 0)) != (size_t) -1) {
@@ -818,7 +818,7 @@ public int string_mbyte(m_string *string)
     if (! string || ! DATA(string)) return -1;
 
     /* check if writing and resizing the string is allowed */
-    if (string->_flags & _STRING_FLAG_STATIC) return -1;
+    if (string->_flags & _STRING_IMMUTABLE) return -1;
 
     /* find the size of the multibyte buffer */
     if ( (l = wcstombs(NULL, (wchar_t *) DATA(string), 0)) != (size_t) -1) {
@@ -984,7 +984,7 @@ public int string_swap(m_string *string)
         return -1;
     }
 
-    if (string->_flags & _STRING_FLAG_RDONLY) {
+    if (string->_flags & _STRING_READ_ONLY) {
         debug("string_swap(): illegal write attempt.\n");
         return -1;
     }
@@ -1098,9 +1098,9 @@ public m_string *string_free(m_string *string)
 
     string_free_token(string);
 
-    if (string->_flags & _STRING_FLAG_NALLOC) return NULL;
+    if (string->_flags & _STRING_STATIC_ALLOC) return NULL;
 
-    if (~string->_flags & _STRING_FLAG_NOFREE)
+    if (~string->_flags & _STRING_DISABLE_FREE)
         free(string->_data);
     free(string);
 
@@ -1261,7 +1261,7 @@ public int string_dim(m_string *string, size_t size)
     }
 
     /* check if the resize makes sense */
-    if ( (string->_flags & _STRING_FLAG_ENCAPS && need > 0) ||
+    if ( (string->_flags & _STRING_ENCAPSULATED && need > 0) ||
           string->_alloc + need <= 0) {
         debug("string_dim(): illegal resize attempt.\n");
         return -1;
@@ -1275,7 +1275,7 @@ public int string_dim(m_string *string, size_t size)
     }
 
     /* resize the internal buffer, ensure the buffer is on wchar_t boundary */
-    if (need > 0 && ~string->_flags & _STRING_FLAG_NALLOC) {
+    if (need > 0 && ~string->_flags & _STRING_STATIC_ALLOC) {
         /* a string is never actually shrunk, only realloc to expand */
         allocsize = (string->_alloc + need + sizeof(wchar_t)) * sizeof(*data);
         if ((size_t) allocsize < SIZE(string)) {
@@ -1413,16 +1413,27 @@ public m_string *string_movs(m_string *to, off_t o, const char *from, size_t l)
     /** @brief move a C string or a part of it into a m_string */
 
     m_string *ret = NULL;
+    unsigned int i = 0, deleted = 0;
 
-    if ( (ret = _string_mov(to, o, from, l)) )
-        string_free_token(to);
+    if ( (ret = _string_mov(to, o, from, l)) ) {
+        if (o) {
+            /* preserve tokens before the offset */
+            for (i = 0; i < PARTS(ret); i ++) {
+                if (TOKEN_END(ret, i) >= DATA(ret) + o) {
+                    string_free_token(TOKEN(ret, i));
+                    deleted ++;
+                }
+            }
+            ret->parts -= deleted;
+        } else string_free_token(ret);
+    }
 
     return ret;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static void CALLBACK _string_update_size(m_string *s, size_t diff)
+static void CALLBACK _string_update_size(m_string *s, ssize_t diff)
 {
     while (s) {
         s->_len += diff;
@@ -1433,42 +1444,97 @@ static void CALLBACK _string_update_size(m_string *s, size_t diff)
 
 /* -------------------------------------------------------------------------- */
 
-public int string_suppr(m_string *string, off_t o, size_t l)
+public int string_suppr(m_string *string, off_t offset, size_t length)
 {
     /** @brief remove a subsection of a string */
+    unsigned int i = 0, j = 0;
+    off_t off = 0, end = 0;
+    int within = -1, after = -1, straddling = 0;
+    m_string *parent = string, *top = NULL, *last = NULL;
 
-    unsigned int i = 0;
-    m_string *parent = string;
-
-    if (! string || o < 0 || o + l > SIZE(string)) {
+    if (! string || offset < 0 || ! length || offset + length > SIZE(string)) {
         debug("string_suppr(): bad parameters.\n");
         return -1;
     }
 
-    /* get the parent and compute the absolute offset */
+    /* get the parent */
     while (parent->parent) parent = parent->parent;
-    o += DATA(string) - DATA(parent); i = o + l;
 
-    if (parent->_flags & _STRING_FLAG_ENCAPS && ! o) {
-        /* shortcut if a static buffer is used and offset is 0 */
-        parent->_data += l;
-    } else if (i < SIZE(parent)) {
-        /* handle the repositioning of the tokens manually */
-        if (! _string_mov(parent, o, DATA(parent) + i, SIZE(parent) + 1 - i)) {
-            debug("string_suppr(): string_movs() failed.\n");
-            return -1;
+    off = offset + DATA(string) - DATA(parent);
+    end = off + length;
+    top = parent;
+
+    /* if the subsection is actually the last token, cut to the chase */
+    if (PARTS(parent) && (DATA(LAST_TOKEN(parent)) == DATA(parent) + off)) {
+        if (likely(STRING_END(LAST_TOKEN(parent)) == DATA(parent) + end))
+            goto _update_length;
+    }
+
+    /* find the first tokens within or after the deleted subsection */
+    do {
+        straddling = 0;
+        for (i = 0; i < PARTS(top); i ++) {
+            off_t token_off, token_end;
+            token_off = TOKEN_DATA(top, i) - DATA(parent);
+            token_end = TOKEN_END(top, i) - DATA(parent);
+
+            if (within == -1 && token_off >= off && token_off < end) {
+                /* found the first token within the subsection */
+                if (token_end > end) {
+                    /* found a straddling token, check subtokens instead */
+                    top = TOKEN(top, i);
+                    straddling = 1;
+                    break;
+                } else within = i;
+            } else if (after == -1 && token_off >= end) {
+                /* found the first token after the subsection */
+                after = i; break;
+            }
+        }
+    } while (straddling);
+
+    if (! _string_mov(parent, off, DATA(parent) + end, SIZE(parent) + 1 - end))
+        return -1;
+
+    if (within > 0) {
+        /* truncate the last tokens before the subsection, if any */
+        for (last = TOKEN(top, within - 1); PARTS(last); last = LAST_TOKEN(last)) {
+            int diff = DATA(parent) + off - STRING_END(LAST_TOKEN(last));
+            if (diff > 0) {
+                last->_len -= diff;
+                last->_alloc -= diff;
+            }
         }
     }
 
-    /* find the beginning of the move using the absolute offset */
-    for (i = 0; i < PARTS(parent); i ++)
-        if (TOKEN_DATA(parent, i) - DATA(parent) >= (int) (o + l)) break;
+    /* move the subsequent tokens, if any */
+    if (after > 0) {
+        for (i = after; i < PARTS(top); i ++) {
+            __move_subtokens(TOKEN(top, i), -length, NULL);
+            if (within != -1) {
+                if (within < (int) i) {
+                    string_free_token(TOKEN(top, within));
+                    top->token[within] = top->token[i];
+                    for (j = 0; j < top->token[within].parts; j ++)
+                        SUBTOKEN(top, within, j)->parent = TOKEN(
+                            top, within
+                        );
+                    within ++;
+                } else within = -1;
+            }
+        }
+    }
 
-    /* shift the tokens from this position on */
-    while (i < PARTS(parent)) __move_subtokens(TOKEN(parent, i ++), - l, NULL);
+    /* update the subtoken count */
+    if (within != -1 && after != -1) top->parts = within;
 
-    /* update the length of the parent string and of the token */
-    _string_update_size(string, - l);
+_update_length:
+    /* find the last subtoken aligned with the end of the parent string */
+    for (last = top; PARTS(last); last = LAST_TOKEN(last))
+        if (STRING_END(LAST_TOKEN(last)) != STRING_END(parent)) break;
+
+    /* truncate from that last subtoken up to the parent string */
+    _string_update_size(last, -length);
 
     return 0;
 }
@@ -1485,9 +1551,10 @@ public m_string *string_cats(m_string *to, const char *from, size_t len)
     if (to) {
         while (to->parent) to = to->parent;
         while (to->parts) {
-            if (STRING_END(to) == STRING_END(LAST_TOKEN(to)))
+            if (STRING_END(to) == STRING_END(LAST_TOKEN(to))) {
+                if (LAST_TOKEN(to)->_flags & _STRING_VALIDATED) break;
                 to = LAST_TOKEN(to);
-            else break;
+            } else break;
         }
     }
 
@@ -1603,7 +1670,7 @@ public int string_upper(m_string *string)
     }
 
     /* check if writing to the string is allowed */
-    if (string->_flags & _STRING_FLAG_RDONLY) {
+    if (string->_flags & _STRING_READ_ONLY) {
         debug("string_upper(): illegal write attempt.\n");
         return -1;
     }
@@ -1630,7 +1697,7 @@ public int string_lower(m_string *string)
     }
 
     /* check if writing to the string is allowed */
-    if (string->_flags & _STRING_FLAG_RDONLY) {
+    if (string->_flags & _STRING_READ_ONLY) {
         debug("string_lower(): illegal write attempt.\n");
         return -1;
     }
@@ -1831,7 +1898,7 @@ public int string_splits(m_string *s, const char *pattern, size_t len)
                 /* the token inherit parent's flags and set the "no free" bit */
                 o = offset[i - s->parts];
                 t[i].parent = s;
-                t[i]._flags = s->_flags | _STRING_FLAG_NOFREE;
+                t[i]._flags = s->_flags | _STRING_DISABLE_FREE;
                 t[i]._data = s->_data + p;
                 t[i]._len = (o != -1) ? (size_t) o : SIZE(s);
                 t[i]._len -= p;
@@ -2158,7 +2225,7 @@ public m_string *string_add_token(m_string *s, off_t start, off_t end)
 
     /* the token inherits the parent's flags and adds the "no free" bit */
     token->parent = s;
-    token->_flags = s->_flags | _STRING_FLAG_NOFREE;
+    token->_flags = s->_flags | _STRING_DISABLE_FREE;
     token->_data = s->_data + start;
     token->_alloc = token->_len = end - start;
     token->_parts_alloc = token->parts = 0;
@@ -2232,7 +2299,7 @@ public m_string *string_pop_token(m_string *s)
 {
     m_string *ret = NULL;
 
-    if (! s || ! DATA(s) || ! PARTS(s)) {
+    if (! s || ! DATA(s) || ! PARTS(s) || ! TOKEN_SIZE(s, 0)) {
         debug("string_pop_token(): bad parameters.\n");
         return NULL;
     }
@@ -2240,28 +2307,7 @@ public m_string *string_pop_token(m_string *s)
     if (! (ret = string_alloc(TOKEN_DATA(s, 0), TOKEN_SIZE(s, 0))) )
         return NULL;
 
-    string_suppr(s, TOKEN_DATA(s, 0) - DATA(s), SIZE(ret));
-    memmove(s->token, s->token + 1, -- s->parts * sizeof(*s->token));
-
-    if (! PARTS(s)) s->_len = 0;
-
-    return ret;
-}
-
-/* -------------------------------------------------------------------------- */
-
-public m_string *string_dequeue_token(m_string *s)
-{
-    m_string *ret = NULL;
-
-    if (! s || ! PARTS(s)) {
-        debug("string_dequeue_token(): bad parameters.\n");
-        return NULL;
-    }
-
-    ret = string_suppr_token(s, PARTS(s) - 1);
-
-    if (unlikely(! PARTS(s))) s->_len = 0;
+    string_suppr(TOKEN(s, 0), 0, TOKEN_SIZE(s, 0));
 
     return ret;
 }
@@ -2323,7 +2369,7 @@ public int string_parse(m_string *string, const char *pattern, size_t len)
 
         token = new_token;
         token[i].parent = string;
-        token[i]._flags = string->_flags | _STRING_FLAG_NOFREE;
+        token[i]._flags = string->_flags | _STRING_DISABLE_FREE;
         token[i]._data = string->_data + off[0];
         token[i]._len = off[1] - off[0] + ! (off[1] - off[0]);
         token[i]._alloc = token[i]._len;
@@ -2343,7 +2389,7 @@ public int string_parse(m_string *string, const char *pattern, size_t len)
 
         for (j = 2, k = 0; j + 1 < (unsigned) r * 2; j += 2, k ++) {
             token[i].token[k].parent = & token[i];
-            token[i].token[k]._flags = string->_flags | _STRING_FLAG_NOFREE;
+            token[i].token[k]._flags = string->_flags | _STRING_DISABLE_FREE;
             token[i].token[k]._data = string->_data + off[j];
             token[i].token[k]._len = off[j + 1] - off[j] + ! (off[j + 1] - off[j]);
             token[i].token[k]._alloc = token[i].token[k]._len;
@@ -3202,6 +3248,8 @@ public int string_urlencode(m_string *url, int flags)
 #define _RAD 0x08   /* '.' decimal separator (radix point) found */
 #define _EXP 0x10   /* 'e' or 'E' exponent found */
 #define _BUG 0x20   /* only used in quirks mode */
+#define _EOF 0x40   /* reached the End Of File */
+#define _INC 0x80   /* incomplete input */
 
 public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
 {
@@ -3233,22 +3281,56 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                         string_free_token(json->token + i);
                     json->parts = 0;
 
-                    s->_flags &= ~_STRING_FLAG_BUFFER;
+                    s->_flags &= ~_STRING_BUFFERING;
                     break;
                 }
             }
-        } else if (HAS_ERROR(LAST_TOKEN(json))) {
+        } else if (IS_ERROR(LAST_TOKEN(json))) {
             /* input was incomplete */
-            if (PARTS(LAST_TOKEN(json))) json = LAST_TOKEN(json);
+            state |= _INC;
 
-            pos = DATA(LAST_TOKEN(json)) - DATA(json);
-            /* XXX make sure the opening quotation mark is accounted for */
-            if (IS_STRING(LAST_TOKEN(json))) pos --;
+            while (PARTS(json)) {
+                if (! IS_ERROR(LAST_TOKEN(json))) {
+                    /* restart parsing at the last known-good character */
+                    pos = STRING_END(LAST_TOKEN(json)) - DATA(json);
 
-            string_free_token(LAST_TOKEN(json)); json->parts --;
+                    if (IS_STRING(LAST_TOKEN(json))) {
+                        /* last character must be a quote */
+                        if (json->_data[pos] == LAST_TOKEN(json)->_data[-1])
+                            pos ++;
+                    }
 
-            state = -(IS_OBJECT(json) && ! IS_STRING(LAST_TOKEN(json))) & _KEY;
-            state |= _VAL;
+                    /* odd count of object elements means a key is expected */
+                    if (IS_OBJECT(json) && (PARTS(json) & 1)) state |= _KEY;
+
+                    break;
+                } else {
+                    /* number, as bool/null only emit a token if complete */
+                    if (IS_PRIMITIVE(LAST_TOKEN(json))) {
+                        /* discard incomplete number */
+                        json->parts --;
+                        continue;
+                    }
+                    json = LAST_TOKEN(json);
+                }
+            }
+
+            if (! PARTS(json)) {
+                if (IS_OBJECT(json->parent) && (PARTS(json->parent) & 1))
+                    state |= _KEY;
+
+                if (IS_TYPE(json, JSON_ARRAY | JSON_OBJECT)) {
+                    /* skip the opening bracket */
+                    pos = (
+                        (IS_OBJECT(json) && *json->_data == '{') ||
+                        (IS_ARRAY(json) && *json->_data == '[')
+                    );
+                    state = (
+                        (state & ~_KEY) | (-(IS_OBJECT(json) > 0) & _KEY) |
+                        _VAL
+                    );
+                }
+            }
         } else string_free_token(json);
     } else {
         /* skip UTF-8 BOM if present */
@@ -3256,6 +3338,8 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
             pos += 3;
         string_free_token(json);
     }
+
+    if (ctx) ctx->strict = strict;
 
     for ( ; pos < SIZE(json); pos ++) {
 
@@ -3302,21 +3386,21 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                 if (unlikely(! json)) goto _nomem;
 
                 json->_flags &= ~JSON_TYPE;
-                json->_flags |= (JSON_STRING | _STRING_FLAG_ERRORS);
+                json->_flags |= (JSON_STRING | _STRING_HAS_ERROR);
                 state &= ~_VAL; pos = -1;
             } else return 0; /* EOF */
 
             {   /* optimize for long strings */
-                uint32_t prefetch;
-                if (likely(pos + sizeof(prefetch) < SIZE(json))) {
-                    memcpy(& prefetch, json->_data, sizeof(prefetch));
-                    if (__zero(prefetch ^ (~0U / 255 * json->_data[-1])))
+                uint32_t bytes;
+                if (likely(pos + sizeof(bytes) < SIZE(json))) {
+                    memcpy(& bytes, json->_data, sizeof(bytes));
+                    if (__zero(bytes ^ (~0U / 255 * json->_data[-1])))
                         break; /* " or ' */
-                    if (unlikely(__less(prefetch, ' ')))
+                    if (unlikely(__less(bytes, ' ')))
                         break; /* unescaped special char */
-                    if (likely(! (prefetch = __zero(prefetch ^ 0x5c5c5c5cU)))) {
-                        pos += sizeof(prefetch); break;
-                    } else pos += __zero_idx(prefetch); /* \ */
+                    if (likely(! (bytes = __zero(bytes ^ 0x5c5c5c5cU)))) {
+                        pos += sizeof(bytes); break;
+                    } else pos += __zero_idx(bytes); /* \ */
                 } else break;
             }
         } /* FALLTHRU */
@@ -3331,6 +3415,11 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                     "allowed in strings.\n"
                 );
                 goto _error;
+            }
+
+            if (unlikely(pos + 1 == SIZE(json))) {
+                debug("string_parse_json(): incomplete escape sequence.\n");
+                return 0; /* EOF */
             }
 
             switch (json->_data[++ pos]) {
@@ -3352,19 +3441,32 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
             case  't': break;
 
             case  'u': { /* unicode escape sequence */
-                uint32_t prefetch;
-                if (likely(pos + 1 + sizeof(prefetch) < SIZE(json))) {
-                    memcpy(& prefetch, json->_data + pos + 1, sizeof(prefetch));
-                    if (! __less(prefetch, '0') && ! __more(prefetch, 'f'))
-                    if (likely(! __between(prefetch, '9', 'A')))
-                    if (likely(! __between(prefetch, 'F', 'a'))) {
-                        pos += sizeof(prefetch); break;
+                uint32_t bytes;
+                if (likely(pos + 1 + sizeof(bytes) < SIZE(json))) {
+                    memcpy(& bytes, json->_data + pos + 1, sizeof(bytes));
+                    if (! __less(bytes, '0') && ! __more(bytes, 'f'))
+                    if (likely(! __between(bytes, '9', 'A')))
+                    if (likely(! __between(bytes, 'F', 'a'))) {
+                        pos += sizeof(bytes); break;
                     }
+                } else {
+                    for (pos = pos + 1; pos < SIZE(json); pos ++) {
+                        if (json->_data[pos] < '0' || json->_data[pos] > 'f')
+                            goto _error;
+                        if (json->_data[pos] > '9' && json->_data[pos] < 'A')
+                            goto _error;
+                        if (json->_data[pos] > 'F' && json->_data[pos] < 'a')
+                            goto _error;
+                    }
+                    debug(
+                        "string_parse_json(): incomplete Unicode "
+                        "escape sequence.\n"
+                    );
+                    return 0; /* EOF */
                 }
-                debug("string_parse_json(): incomplete escape sequence.\n");
             }
 
-            /* unexpected char */
+            /* unexpected character */
             default: goto _error;
             }
         } break;
@@ -3401,7 +3503,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                         if (unlikely(! json)) goto _nomem;
 
                         json->_flags &= ~JSON_TYPE;
-                        json->_flags |= JSON_PRIMITIVE;
+                        json->_flags |= (JSON_PRIMITIVE | _STRING_HAS_ERROR);
                         pos = 0; state &= ~(_KEY | _VAL); state |= _BUG;
                         break;
                     }
@@ -3419,15 +3521,48 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                 }
             }
 
+            state |= _EOF;
+
             switch (*p) {
-            case 'f': if (memcmp(p + 1, "alse", MIN(SIZE(json) - pos, 4)))
-                          goto _error; p += 4; break;
-            case 'n': if (memcmp(p + 1, "ull", MIN(SIZE(json) - pos, 3)))
-                          goto _error; p += 3; break;
-            case 't': if (memcmp(p + 1, "rue", MIN(SIZE(json) - pos, 3)))
-                          goto _error; p += 3; break;
+            case 'f': switch (MIN((SIZE(json) - (pos + 1)), 4)) {
+                      case 4: state &= ~_EOF;
+                              if (p[4] != 'e') goto _error;
+                      case 3: if (p[3] != 's') goto _error;
+                      case 2: if (p[2] != 'l') goto _error;
+                      case 1: if (p[1] != 'a') goto _error;
+                              if (ctx)
+                                  ctx->primitive.current.type = (
+                                      JSON_PRIMITIVE_BOOL
+                                  );
+                              p += 4;
+                      } break;
+            case 'n': switch (MIN((SIZE(json) - (pos + 1)), 3)) {
+                      case 3: state &= ~_EOF;
+                              if (p[3] != 'l') goto _error;
+                      case 2: if (p[2] != 'l') goto _error;
+                      case 1: if (p[1] != 'u') goto _error;
+                              if (ctx)
+                                  ctx->primitive.current.type = (
+                                      JSON_PRIMITIVE_NULL
+                                  );
+                              p += 3;
+                      } break;
+            case 't': switch (MIN((SIZE(json) - (pos + 1)), 3)) {
+                      case 3: state &= ~_EOF;
+                              if (p[3] != 'e') goto _error;
+                      case 2: if (p[2] != 'u') goto _error;
+                      case 1: if (p[1] != 'r') goto _error;
+                              if (ctx)
+                                  ctx->primitive.current.type = (
+                                      JSON_PRIMITIVE_BOOL | JSON_PRIMITIVE_TRUE
+                                  );
+                              p += 3;
+                      } break;
             default:  goto _error;
             }
+
+            /* EOF */
+            if (unlikely(state & _EOF)) return 0;
 
             state &= ~(_VAL | _RAD | _EXP | _SIG);
 
@@ -3460,7 +3595,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                         if (unlikely(! json)) goto _nomem;
 
                         json->_flags &= ~JSON_TYPE;
-                        json->_flags |= JSON_PRIMITIVE;
+                        json->_flags |= (JSON_PRIMITIVE | _STRING_HAS_ERROR);
                         pos = 0; state &= ~(_KEY | _VAL); state |= _BUG;
                         break;
                     } else if ((state & _BUG) && (IS_PRIMITIVE(json)))
@@ -3473,7 +3608,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
 
             state &= ~_SIG;
             state |= (_EXP | _VAL);
-            if (ctx) ctx->primitive.exp = pos;
+            if (ctx) ctx->primitive.current.exp = pos;
         } break;
 
         /* . */
@@ -3485,15 +3620,15 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
 
             state &= ~_SIG; state |= _RAD;
 
-            if (ctx) ctx->primitive.rad = pos;
+            if (ctx) ctx->primitive.current.rad = pos;
 
             {   /* optimize for large numbers */
-                uint32_t prefetch;
-                if (likely(pos + 1 + sizeof(prefetch) < SIZE(json))) {
-                    memcpy(& prefetch, p + 1, sizeof(prefetch));
-                    prefetch = __more(prefetch, '9') | __less(prefetch, '0');
-                    if ( (prefetch = __zero_idx(prefetch)) ) {
-                        pos += prefetch; break;
+                uint32_t bytes;
+                if (likely(pos + 1 + sizeof(bytes) < SIZE(json))) {
+                    memcpy(& bytes, p + 1, sizeof(bytes));
+                    bytes = __more(bytes, '9') | __less(bytes, '0');
+                    if ( (bytes = __zero_idx(bytes)) ) {
+                        pos += bytes; break;
                     }
                 }
             }
@@ -3532,13 +3667,14 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                 json = string_add_token(json, pos, SIZE(json));
                 if (unlikely(! json)) goto _nomem;
 
-                json->_flags &= ~JSON_TYPE; json->_flags |= JSON_PRIMITIVE;
+                json->_flags &= ~JSON_TYPE;
+                json->_flags |= (JSON_PRIMITIVE | _STRING_HAS_ERROR);
                 pos = 0; state &= ~(_RAD | _EXP); leading_digit = 0;
                 if (ctx) {
-                    ctx->primitive.type = JSON_PRIMITIVE_NUMBER;
-                    ctx->primitive.neg = 1;
-                    ctx->primitive.rad = 0;
-                    ctx->primitive.exp = 0;
+                    ctx->primitive.current.type = JSON_PRIMITIVE_NUMBER;
+                    ctx->primitive.current.neg = 1;
+                    ctx->primitive.current.rad = 0;
+                    ctx->primitive.current.exp = 0;
                 }
             } else if ((state & (_SIG | _EXP | _VAL)) != (_EXP | _VAL)) {
                 debug("string_parse_json(): unexpected minus sign.\n");
@@ -3564,11 +3700,11 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
             state &= ~_VAL;
 
             {   /* optimize for large numbers */
-                uint32_t prefetch;
-                if (likely(pos + 1 + sizeof(prefetch) < SIZE(json))) {
-                    memcpy(& prefetch, p + 1, sizeof(prefetch));
-                    prefetch = __more(prefetch, '9') | __less(prefetch, '0');
-                    pos += __zero_idx(prefetch);
+                uint32_t bytes;
+                if (likely(pos + 1 + sizeof(bytes) < SIZE(json))) {
+                    memcpy(& bytes, p + 1, sizeof(bytes));
+                    bytes = __more(bytes, '9') | __less(bytes, '0');
+                    pos += __zero_idx(bytes);
                 }
             }
         } else {
@@ -3583,7 +3719,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                             if (unlikely(! json)) goto _nomem;
 
                             json->_flags &= ~JSON_TYPE;
-                            json->_flags |= JSON_PRIMITIVE;
+                            json->_flags |= (JSON_PRIMITIVE | _STRING_HAS_ERROR);
                             pos = 0; state &= ~(_KEY | _VAL); state |= _BUG;
                             break;
                         }
@@ -3609,10 +3745,11 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                 json = string_add_token(json, pos, SIZE(json));
                 if (unlikely(! json)) goto _nomem;
 
-                json->_flags &= ~JSON_TYPE; json->_flags |= JSON_PRIMITIVE;
+                json->_flags &= ~JSON_TYPE;
+                json->_flags |= (JSON_PRIMITIVE | _STRING_HAS_ERROR);
                 if (ctx) {
-                    ctx->primitive.number = 0;
-                    ctx->primitive.type = JSON_PRIMITIVE_NUMBER;
+                    ctx->primitive.data = 0;
+                    ctx->primitive.current.type = JSON_PRIMITIVE_NUMBER;
                 }
 
                 pos = 0;
@@ -3711,7 +3848,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
 
             json->_flags &= ~JSON_TYPE;
             json->_flags |= (-(pos) & JSON_OBJECT) | (-(! pos) & JSON_ARRAY);
-            json->_flags |= _STRING_FLAG_ERRORS;
+            json->_flags |= _STRING_HAS_ERROR;
 
             state = (state & ~_KEY) | (-(pos) & _KEY) | _VAL;
 
@@ -3763,6 +3900,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
                 /* check if the brackets are matching */
                 if (*json->_data == *p - 2) goto _token;
 
+                if (state & _INC) goto _token;
                 debug("string_parse_json(): mismatched bracket (%c).\n",
                       *json->_data);
                 goto _error;
@@ -3791,22 +3929,22 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
 
             if (*++ p == '/') {
                 do {
-                    uint32_t prefetch;
-                    memcpy(& prefetch, p, sizeof(prefetch));
-                    if (__zero(prefetch ^ 0x0a0a0a0aU)) {
+                    uint32_t bytes;
+                    memcpy(& bytes, p, sizeof(bytes));
+                    if (__zero(bytes ^ 0x0a0a0a0aU)) {
                         while (*p ++ != '\n');
                         p --; break;
                     }
-                    p += sizeof(prefetch);
+                    p += sizeof(bytes);
                 } while (p < DATA(json) + SIZE(json));
             } else if (*p ++ == '*') {
                 do {
-                    uint32_t prefetch;
-                    memcpy(& prefetch, p, sizeof(prefetch));
-                    if (__zero(prefetch ^ 0x2a2a2a2aU)) {
+                    uint32_t bytes;
+                    memcpy(& bytes, p, sizeof(bytes));
+                    if (__zero(bytes ^ 0x2a2a2a2aU)) {
                         while (*p ++ != '*');
                         if (*p == '/') break;
-                    } else p += sizeof(prefetch);
+                    } else p += sizeof(bytes);
                 } while (p < DATA(json) + SIZE(json));
             }
 
@@ -3820,7 +3958,8 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
             json = string_add_token(json, pos, SIZE(json));
             if (unlikely(! json)) goto _nomem;
 
-            json->_flags &= ~JSON_TYPE; json->_flags |= JSON_PRIMITIVE;
+            json->_flags &= ~JSON_TYPE;
+            json->_flags |= (JSON_PRIMITIVE | _STRING_HAS_ERROR);
             pos = 0; state &= ~(_KEY | _VAL); state |= _BUG;
             break;
         } else if ((state & _BUG) && (IS_PRIMITIVE(json))) break;
@@ -3830,15 +3969,15 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
             if (leading_digit != '0' || ++ pos > 2) goto _error;
 
             do {
-                uint32_t prefetch;
-                memcpy(& prefetch, json->_data + pos, sizeof(prefetch));
-                if (__less(prefetch, '0') || __more(prefetch, 'f'))
+                uint32_t bytes;
+                memcpy(& bytes, json->_data + pos, sizeof(bytes));
+                if (__less(bytes, '0') || __more(bytes, 'f'))
                     break;
-                if (__between(prefetch, '9', 'A'))
+                if (__between(bytes, '9', 'A'))
                     break;
-                if (__between(prefetch, 'F', 'a'))
+                if (__between(bytes, 'F', 'a'))
                     break;
-                pos += sizeof(prefetch);
+                pos += sizeof(bytes);
             } while (pos < 18); /* 64 bits */
 
             /* check the next characters */
@@ -3866,7 +4005,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
 
 _token: if (likely(json->_len != pos))
         json->_len = json->_alloc = pos + 1;
-_delim: json->_flags &= ~_STRING_FLAG_ERRORS;
+_delim: json->_flags = (json->_flags & ~_STRING_HAS_ERROR) | _STRING_VALIDATED;
         parent = json->parent;
 
         /* parser callback */
@@ -3885,7 +4024,7 @@ _delim: json->_flags &= ~_STRING_FLAG_ERRORS;
             } else if (ctx->data && (state & _KEY) == 0) {
                 if ( (callback = ctx->data(json, ctx)) )
                     return (callback == 1) ? 0 : -1;
-                ctx->primitive.number = 0;
+                ctx->primitive.data = 0;
             }
         }
 
@@ -3906,7 +4045,7 @@ _error:
     return -1;
 
 _nomem:
-    s->_flags |= _STRING_FLAG_BUFFER;
+    s->_flags |= _STRING_BUFFERING;
     return 1;
 }
 
@@ -3916,6 +4055,8 @@ _nomem:
 #undef _RAD
 #undef _EXP
 #undef _BUG
+#undef _EOF
+#undef _INC
 
 /* -------------------------------------------------------------------------- */
 #endif

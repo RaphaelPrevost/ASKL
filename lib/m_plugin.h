@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  Concrete Server                                                            *
- *  Copyright (c) 2005-2020 Raphael Prevost <raph@el.bzh>                      *
+ *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -76,7 +76,7 @@ typedef struct m_plugin {
 #define PLUGIN_EVENT_SOCKET_DISCONNECTED 0x04
 #define PLUGIN_EVENT_SOCKET_RECONNECTION 0x08
 #define PLUGIN_EVENT_REQUEST_TRANSMITTED 0x10
-#define PLUGIN_EVENT_REQUEST_NOTSENDABLE 0x20
+#define PLUGIN_EVENT_REQUEST_UNDELIVERED 0x20
 #define PLUGIN_EVENT_OUT_OF_BAND_MESSAGE 0x40
 #define PLUGIN_EVENT_SERVER_SHUTTINGDOWN 0x80
 
@@ -119,9 +119,9 @@ private int plugin_open(const char *path, const char *name);
  * If one of these symbols is missing, the function will fail.
  * Additionally, the plugin_event_handler symbol will be loaded if it is found.
  *
- * After this function is called, the plugin is loaded and publicly
- * accessible using the ID returned. To initialize the plugin,
- * @ref plugin_start() must be called.
+ * After this function is called, the plugin is loaded and publicly accessible
+ * using the ID returned. To initialize the plugin, @ref plugin_start() must
+ * be called.
  *
  * The plugin can be retrieved by name if a name was provided upon loading.
  *
@@ -211,7 +211,7 @@ private char *plugin_getpath(const char *plugin, size_t len);
  * Given path should be relative to the plugin root path, set using the
  * @ref plugin_setpath() function.
  *
- * This function ensure that the relative path is within the plugin root
+ * This function ensures that the relative path is within the plugin root
  * directory; if it is outside, the function will fail and return NULL.
  *
  * The returned C string must be deleted using free() after use.

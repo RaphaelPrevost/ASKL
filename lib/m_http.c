@@ -462,7 +462,7 @@ static m_string *_http_split_pipeline(m_string *buf, m_string *input, int *http)
 
     /* buffering or streaming mode? */
     if (PARTS(input)) {
-        if (IS_FRAG(TOKEN(input, 0))) {
+        if (IS_FRAGMENT(TOKEN(input, 0))) {
             stream = off = TOKEN_SIZE(input, 0);
         } else if (PARTS(input) == 2) {
             /* encapsulate the parsed request */
@@ -477,8 +477,8 @@ static m_string *_http_split_pipeline(m_string *buf, m_string *input, int *http)
             for (i = 0; i < v; i ++) tokens[i].parent = TOKEN(input, 0);
             TOKEN(input, 0)->token = tokens;
             TOKEN(input, 0)->parts = TOKEN(input, 0)->_parts_alloc = v;
-            TOKEN(input, 0)->_flags |= _STRING_FLAG_HTTP;
-            TOKEN(input, 0)->_flags |= _STRING_FLAG_FRAG;
+            TOKEN(input, 0)->_flags |= _STRING_HTTP_REQUEST;
+            TOKEN(input, 0)->_flags |= _STRING_PARTIAL_DATA;
         }
     }
 
@@ -679,7 +679,7 @@ static int _http_valid(m_string *input)
     }
 
     /* the request is good enough and properly parsed */
-    input->_flags |= _STRING_FLAG_HTTP;
+    input->_flags |= _STRING_HTTP_REQUEST;
 
     /* prepare storage for progress */
     if (http_set_progress(input, TOKEN_SIZE(input, 1)) == -1) {
@@ -691,14 +691,14 @@ _check_content_length:
     /* check the Content-Length header to know if the request is complete */
     if (! IS_CHUNK(input) && (len = http_get_contentlength(input)) ) {
         /* check if this is a big request */
-        if (len > 50) input->_flags |= _STRING_FLAG_LARGE;
+        if (len > 50) input->_flags |= _STRING_LARGE_BUFFER;
         /* request is starved */
         if (http_get_progress(input) < len) return -2;
     } else if (IS_CHUNK(input) || (buf = http_get_header(input, "Transfer-Encoding")) ) {
         if (IS_CHUNK(input) || ! memcmp(buf, "chunked", 7)) {
-            input->_flags |= (_STRING_FLAG_LARGE |
-                              _STRING_FLAG_CHUNK |
-                              _STRING_FLAG_BUFFER);
+            input->_flags |= (_STRING_LARGE_BUFFER |
+                              _STRING_HTTP_CHUNKED |
+                              _STRING_BUFFERING);
 
             if (! TOKEN_SIZE(input, 1)) return -2;
 
@@ -710,8 +710,8 @@ _check_content_length:
                 if (errno != ERANGE || buf != TOKEN_DATA(input, 1)) {
                     /* real zero */
                     if (o) string_dim(TOKEN(input, 1), o);
-                    input->_flags &= ~_STRING_FLAG_BUFFER;
-                    input->_flags &= ~_STRING_FLAG_CHUNK;
+                    input->_flags &= ~_STRING_BUFFERING;
+                    input->_flags &= ~_STRING_HTTP_CHUNKED;
                     return 1;
                 } else goto _badchunk;
             }
@@ -741,8 +741,8 @@ _check_content_length:
             );
             string_dim(TOKEN(input, 1), o + len);
             http_inc_progress(input, len);
-            input->_flags &= ~_STRING_FLAG_ERRORS;
-            input->_flags &= ~_STRING_FLAG_BUFFER;
+            input->_flags &= ~_STRING_HAS_ERROR;
+            input->_flags &= ~_STRING_BUFFERING;
             return -2;
         }
     }
@@ -751,7 +751,7 @@ _check_content_length:
 
 _badchunk:
     debug("_http_valid(): bad chunk.\n");
-    input->_flags |= _STRING_FLAG_ERRORS;
+    input->_flags |= _STRING_HAS_ERROR;
     return -1;
 }
 
@@ -788,7 +788,7 @@ public m_string *http_get_request(int *r, m_string **buf, m_string *input)
 
     /* processing a pipeline */
     default: if (http_requests > PARTS(input)) {
-                if (PARTS(input) && IS_FRAG(TOKEN(input, 0)))
+                if (PARTS(input) && IS_FRAGMENT(TOKEN(input, 0)))
                     *buf = string_free(input);
                 return NULL;
              }
@@ -839,11 +839,11 @@ public m_string *http_get_request(int *r, m_string **buf, m_string *input)
 
         /* check if the current request is still starving */
         if (starved) {
-            if (! IS_FRAG(req)) {
+            if (! IS_FRAGMENT(req)) {
                 if (IS_LARGE(req)) {
                     /* prepare for streaming */
                     *buf = string_dupextend(req, HTTP_BUFFER);
-                    (*buf)->_flags |= _STRING_FLAG_LARGE;
+                    (*buf)->_flags |= _STRING_LARGE_BUFFER;
                 } else *buf = string_dup(req);
                 return NULL;
             } else {
@@ -871,7 +871,7 @@ public m_string *http_get_request(int *r, m_string **buf, m_string *input)
     }
 
     /* check for errors */
-    if (HAS_ERROR(req)) {
+    if (IS_ERROR(req)) {
         *buf = string_free(req);
         return NULL;
     }

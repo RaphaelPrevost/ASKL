@@ -40,13 +40,14 @@
 #ifdef _ENABLE_TRIE
 
 #include "m_core_def.h"
+#include "m_value.h"
 
 /** @defgroup trie module::trie */
 
 typedef struct m_trie {
     pthread_rwlock_t *_lock;
     void *_root;
-    void (*_freeval)(void *);
+    void (*_freeval)(m_value *);
 } m_trie;
 
 /**
@@ -60,7 +61,7 @@ typedef struct m_trie {
 
 /* -------------------------------------------------------------------------- */
 
-public m_trie *trie_alloc(void (*freeval)(void *));
+public m_trie *trie_alloc(void (*freeval)(m_value *));
 
 /**
  * @ingroup trie
@@ -77,7 +78,7 @@ public m_trie *trie_alloc(void (*freeval)(void *));
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert(m_trie *t, const char *key, size_t ulen, void *value);
+public int trie_insert(m_trie *t, const char *key, size_t ulen, m_value *value);
 
 /**
  * @ingroup trie
@@ -103,7 +104,7 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, void *value);
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert_r(m_trie *t, const char *key, size_t ulen, void *value);
+public int trie_insert_r(m_trie *t, const char *key, size_t ulen, m_value *value);
 
 /**
  * @ingroup trie
@@ -121,13 +122,13 @@ public int trie_insert_r(m_trie *t, const char *key, size_t ulen, void *value);
 
 /* -------------------------------------------------------------------------- */
 
-public void *trie_findexec(m_trie *t, const char *key, size_t ulen,
-                           void *(CALLBACK *f)(void *));
+public m_value trie_lookup(m_trie *t, const char *key, size_t ulen,
+                           m_value (CALLBACK *f)(m_value *));
 
 /**
  * @ingroup trie
- * @fn trie_findexec(m_trie *t, const char *key, size_t ulen,
- *                   void *(CALLBACK *f)(void *))
+ * @fn trie_lookup(m_trie *t, const char *key, size_t ulen,
+ *                 void *(CALLBACK *f)(void *))
  * @param t a pointer to a trie
  * @param key the name which will be used to retrieve the stored data
  * @param ulen the length of the key
@@ -139,7 +140,7 @@ public void *trie_findexec(m_trie *t, const char *key, size_t ulen,
  * NULL instead.
  * If a callback function @b f was provided to process the data, it will be
  * called with the retrieved data in parameter and its return value will be
- * returned by @b trie_findexec
+ * returned by @b trie_lookup
  * 
  * @note The callback function @b f should avoid altering the data passed in
  * parameter unless it can do so in a thread-safe way.
@@ -148,7 +149,7 @@ public void *trie_findexec(m_trie *t, const char *key, size_t ulen,
 
 /* -------------------------------------------------------------------------- */
 
-public void *trie_remove(m_trie *t, const char *key, size_t ulen);
+public m_value trie_remove(m_trie *t, const char *key, size_t ulen);
 
 /**
  * @ingroup trie
@@ -167,16 +168,16 @@ public void *trie_remove(m_trie *t, const char *key, size_t ulen);
 
 /* -------------------------------------------------------------------------- */
 
-public void *trie_update(m_trie *t, const char *key, size_t ulen, void *value);
+public m_value trie_update(m_trie *t, const char *key, size_t ulen, m_value *value);
 
 /* -------------------------------------------------------------------------- */
 
-public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, void *));
+public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, m_value *));
 
 /* -------------------------------------------------------------------------- */
 
 public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
-                                int (*function)(const char *, size_t, void *));
+                                int (*function)(const char *, size_t, m_value *));
 
 /* -------------------------------------------------------------------------- */
 

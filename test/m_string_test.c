@@ -21,7 +21,7 @@ static void print_tokens(const m_string *s, unsigned int indent)
             IS_ARRAY(s) ? "(array)" :
             IS_STRING(s) ? "(string)" :
             IS_PRIMITIVE(s) ? "(primitive)" : ""));
-    if (HAS_ERROR(s)) printf(" (!) ");
+    if (IS_ERROR(s)) printf(" (!) ");
     if (! IS_TYPE(s, JSON_TYPE))
         printf("(size=%zu)", SIZE(s));
     printf("\n");
@@ -80,7 +80,7 @@ int test_string(void)
         "{ : }",
         "[1,,3]",
         "\"bad\":",
-        "\"unescaped\tstring\"",
+        "\"u\\\\qn\nescaped\t\t\tstring\"",
         "\"bad escaped unicode \\u1?34\"",
         "{ : 1}",
         "{\"a\": 1,,}",
@@ -167,9 +167,16 @@ int test_string(void)
     }
     printf("(*) Parsing incomplete JSON:\n");
     z = string_alloc(incomplete_json1, strlen(incomplete_json1));
-    string_parse_json(z, JSON_STRICT, NULL);
+    if (string_parse_json(z, JSON_STRICT, NULL) == -1)
+        printf("(!) Error!\n");
     print_tokens(z, 0);
+    /* XXX remove all but the last token */
+    printf("(*) Flushing parsed data:\n");
+    string_suppr(z, 0, DATA(LAST_TOKEN(LAST_TOKEN(z))) - DATA(z));
+    print_tokens(z, 0);
+    printf("(*) Adding the missing JSON:\n");
     string_cats(z, incomplete_json2, strlen(incomplete_json2));
+    print_tokens(z, 0);
     string_parse_json(z, JSON_STRICT, NULL);
     print_tokens(z, 0);
     z = string_free(z);
@@ -527,11 +534,12 @@ int test_string(void)
     string_upper(TOKEN(z, 1));
 
     print_tokens(z, 0);
-
+    int limit = 0;
     while ( (a = string_pop_token(z)) ) {
         printf("(*) Dequeued token: %.*s\n", (int) SIZE(a), DATA(a));
         print_tokens(z, 0);
         string_free(a);
+        if (limit ++ > 5) exit(EXIT_FAILURE);
     }
 
     z = string_free(z);

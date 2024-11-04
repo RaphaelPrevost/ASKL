@@ -236,7 +236,7 @@ static inline uint32_t __bswap32(uint32_t i)
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint32_t __zero_idx(uint32_t i)
+static inline unsigned int __zero_idx(uint32_t i)
 {
     #if defined(BIG_ENDIAN_HOST)
     i = _bswap32(i);
@@ -246,14 +246,14 @@ static inline uint32_t __zero_idx(uint32_t i)
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint32_t __msb_idx(uint32_t i)
+static inline unsigned int __msb_idx(uint32_t i)
 {
     return 31 - __clz(i);
 }
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint32_t __msb_idx64(const uint64_t i)
+static inline unsigned int __msb_idx64(const uint64_t i)
 {
     return 63 - __clzll(i);
 }

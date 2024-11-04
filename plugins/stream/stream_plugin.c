@@ -204,7 +204,7 @@ public void plugin_event_handler(uint16_t socket_id, uint16_t ingress_id,
         stream_drop_packets(socket_id);
     } break;
 
-    case PLUGIN_EVENT_REQUEST_NOTSENDABLE: {
+    case PLUGIN_EVENT_REQUEST_UNDELIVERED: {
         /* retransmit failed heartbeat */
         m_reply *r = event_data;
         debug("Stream: retransmit failed heartbeat.\n");

@@ -33,30 +33,55 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef M_PARSER_H
+#ifndef M_VALUE_H
 
-#define M_PARSER_H
-
-#if defined(_ENABLE_PARSER) && defined(_ENABLE_JSON) && defined(_ENABLE_TRIE)
+#define M_VALUE_H
 
 #include "m_core_def.h"
-#include "m_trie.h"
-#include "m_string.h"
 
-/* -------------------------------------------------------------------------- */
+/** @defgroup value core::value */
 
-public int jsonpath_init(m_json_parser *ctx);
-
-public int jsonpath_print(m_json_parser *ctx);
-
-/* -------------------------------------------------------------------------- */
-
-public int jsonpath_free(m_json_parser *ctx);
-
-/* -------------------------------------------------------------------------- */
-
-/* _ENABLE_JSON && _ENABLE_TRIE */
+#if UINTPTR_MAX == 0xffffffff
+typedef struct m_value {
+    union {
+        void *pointer;
+        uintptr_t integer;
+        float decimal; /* assume IEEE754 32-bits single precision format */
+    } data;
+    uint16_t type;
+} m_value;
+#elif UINTPTR_MAX == 0xffffffffffffffff
+#pragma pack(push, 1)
+typedef struct m_value {
+    union {
+        void *pointer;
+        uintptr_t integer;
+        double decimal; /* assume IEEE754 64-bits double precision format */
+    } data;
+    uint16_t type;
+} m_value;
+#pragma pack(pop)
+#else
+#error Unsupported platform
 #endif
 
-#endif
+#define VALUE_POINTER 0x0
+#define VALUE_INTEGER 0x1
+#define VALUE_DECIMAL 0x2
 
+#define VALUE_BOOL   0x10
+#define VALUE_TRUE   0x20
+#define VALUE_NULL   0x40
+
+/**
+ * @ingroup value
+ * @struct m_value
+ *
+ * This structure allows some level of type-checking within the included data
+ * structures such as @ref m_trie or m_hashtable.
+ * 
+ */
+
+/* -------------------------------------------------------------------------- */
+
+#endif

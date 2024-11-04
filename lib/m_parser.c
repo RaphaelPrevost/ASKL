@@ -432,24 +432,6 @@ static const uint16_t u32toa_lut[] = {
 
 /* -------------------------------------------------------------------------- */
 
-private int CALLBACK json_init(int type, struct m_json_parser *ctx)
-{
-    struct jsonpath_context *context = ctx->context;
-
-    if (ctx->key.current)
-        string_enqueue_tokens(context->path, ctx->key.current, ctx->key.len);
-
-    if (type == JSON_ARRAY) {
-        /* add the index token */
-        string_enqueue_tokens(context->path, "0", 1);
-        context->count = 0;
-    }
-
-    return 0;
-}
-
-/* -------------------------------------------------------------------------- */
-
 static char *u32toa(uint32_t u32, char *out, size_t len)
 {
     uint32_t prev = 0;
@@ -485,7 +467,7 @@ static inline uint32_t atou32(const char *in, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static uint32_t __increment_index(m_string *path)
+static uint32_t increment_index(m_string *path)
 {
     uint32_t index = 0;
     char *ret = NULL, buffer[12];
@@ -501,7 +483,7 @@ static uint32_t __increment_index(m_string *path)
         memcpy((char *) DATA(LAST_TOKEN(path)), ret, buflen);
     } else {
         string_suppr_token(path, PARTS(path) - 1);
-        string_enqueue_tokens(path, ret, buflen);
+        string_push_tokens(path, ret, buflen);
     }
 
     return index;
@@ -518,11 +500,10 @@ static ssize_t json_string(char *out, const char *input, size_t len, int strict)
 
     while (i + 4 <= len) {
         if (unlikely(surrogate)) {
-            if (input[i ++] == '\\') goto _unesc;
-            else {
-                debug("utf8cpy(): unpaired high surrogate.\n");
+            if (unlikely(input[i ++] != '\\')) {
+                debug("json_string(): unpaired high surrogate.\n");
                 goto _error;
-            }
+            } else goto _unesc;
         }
 
         memcpy(& word, input + i, sizeof(word));
@@ -593,14 +574,14 @@ _utf8:  case  'u': {
             } else if ((codepoint & 0xfc00) == 0xd800) {
                 /* high surrogate */
                 if (surrogate) {
-                    debug("utf8cpy(): consecutive high surrogates.\n");
+                    debug("json_string(): consecutive high surrogates.\n");
                     goto _error;
                 }
                 surrogate = codepoint;
             } else if ((codepoint & 0xfc00) == 0xdc00) {
                 /* low surrogate */
                 if (! surrogate) {
-                    debug("utf8cpy(): unpaired low surrogate.\n");
+                    debug("json_string(): unpaired low surrogate.\n");
                     goto _error;
                 }
 
@@ -618,7 +599,7 @@ _utf8:  case  'u': {
                     out[pos ++] = (char) (0x80 | (codepoint & 0x3f));
                 } else {
                     debug(
-                        "utf8cpy(): invalid escaped codepoint: 0x%06x.\n",
+                        "json_string(): invalid escaped codepoint: 0x%06x.\n",
                         codepoint
                     );
                     goto _error;
@@ -636,7 +617,7 @@ _utf8:  case  'u': {
 
 _check: if (((c = input[i]) & 0xe0) == 0xc0) {
             if ((c & 0xfe) == 0xc0) {
-                debug("utf8cpy(): overlong 2-byte sequence.\n");
+                debug("json_string(): overlong 2-byte sequence.\n");
                 goto _error;
             }
             if ( (i + 1 < len) && (input[i + 1] & 0xc0) == 0x80) {
@@ -648,11 +629,11 @@ _check: if (((c = input[i]) & 0xe0) == 0xc0) {
                  ( (input[i + 1] & 0xc0) == 0x80) &&
                  ( (input[i + 2] & 0xc0) == 0x80) ) {
                 if (unlikely(c == 0xe0 && (input[i + 1] & 0xe0) == 0x80)) {
-                    debug("utf8cpy(): overlong 3-byte sequence.\n");
+                    debug("json_string(): overlong 3-byte sequence.\n");
                     goto _error;
                 }
                 if (unlikely(c == 0xed && (input[i + 1] & 0xe0) == 0xa0)) {
-                    debug("utf8cpy(): unescaped UTF-16 surrogate.\n");
+                    debug("json_string(): unescaped UTF-16 surrogate.\n");
                     goto _error;
                 }
                 out[pos ++] = input[i ++];
@@ -665,11 +646,11 @@ _check: if (((c = input[i]) & 0xe0) == 0xc0) {
                  ( (input[i + 2] & 0xc0) == 0x80) &&
                  ( (input[i + 3] & 0xc0) == 0x80) ) {
                 if (unlikely(c == 0xf0 && (uint8_t) input[i + 1] < 0x90)) {
-                    debug("utf8cpy(): overlong 4-byte sequence.\n");
+                    debug("json_string(): overlong 4-byte sequence.\n");
                     goto _error;
                 }
                 if (unlikely(c == 0xf4 && (uint8_t) input[i + 1] > 0x8f)) {
-                    debug("utf8cpy(): invalid codepoint.\n");
+                    debug("json_string(): invalid codepoint.\n");
                     goto _error;
                 }
                 out[pos ++] = input[i ++];
@@ -681,7 +662,7 @@ _check: if (((c = input[i]) & 0xe0) == 0xc0) {
     }
 
     if (surrogate) {
-        debug("utf8cpy(): lone high surrogate.\n");
+        debug("json_string(): lone high surrogate.\n");
         goto _error;
     }
 
@@ -707,7 +688,9 @@ _check: if (((c = input[i]) & 0xe0) == 0xc0) {
                     if (! continuation --) goto _error;
                     if ( (byte == 0xe0 && (c & 0xe0) == 0x80) ||
                          (byte == 0xed && (c & 0xe0) == 0xa0) ) {
-                        debug("utf8cpy(): ill-formed multi-byte sequence.\n");
+                        debug(
+                            "json_string(): ill-formed multi-byte sequence.\n"
+                        );
                         goto _error;
                     }
                 } else {
@@ -731,7 +714,7 @@ _check: if (((c = input[i]) & 0xe0) == 0xc0) {
 
 _error:
     debug(
-        "utf8cpy(): illegal character 0x%02x at %zu.\n",
+        "json_string(): illegal character 0x%02x at %zu.\n",
         (uint8_t) input[i], i
     );
     return -1;
@@ -891,54 +874,55 @@ static double json_number(const char *s, size_t len, int neg, int rad, int exp)
 
 /* -------------------------------------------------------------------------- */
 
-private int CALLBACK json_data(m_string *data, struct m_json_parser *ctx)
+static int path_append(m_string *path, const char *key, size_t len, int strict)
+{
+    size_t slen = 0;
+    ssize_t ret = 0;
+
+    if (PARTS(path))
+        slen = DATA(LAST_TOKEN(path)) - DATA(path) + SIZE(LAST_TOKEN(path));
+
+    /* make room for the new data */
+    if (string_extend(path, slen + len + 1) == -1) return -1;
+
+    /* copy the data */
+    if ( (ret = json_string(path->_data + slen, key, len, strict)) == -1)
+        return -1;
+    path->_len = slen + ret;
+
+    /* append the token */
+    if (! string_add_token(path, slen, slen + ret)) return -1;
+
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void trie_destructor(m_value *val)
+{
+    if (val->type == VALUE_POINTER) free(val->data.pointer);
+}
+
+/* -------------------------------------------------------------------------- */
+
+private int CALLBACK json_init(int type, m_json_parser *ctx)
 {
     struct jsonpath_context *context = ctx->context;
-    double number = 0.0;
-    char *string = NULL;
 
-    if (IS_PRIMITIVE(data)) {
-        if (ctx->primitive.type == JSON_PRIMITIVE_NUMBER) {
-            number = json_number(
-                DATA(data),
-                SIZE(data),
-                ctx->primitive.neg,
-                ctx->primitive.rad,
-                ctx->primitive.exp
-            );
-            if (! isfinite(number)) return -1;
-        }
-    } else if (IS_STRING(data)) {
-        if (! (string = malloc((SIZE(data) + 1) * sizeof(*string))) ) {
-            perror(ERR(json_data, malloc));
-            return -1;
-        }
-        
-        if (json_string(string, DATA(data), SIZE(data), 1) == -1) {
-            free(string);
-            return -1;
-        }
+    if (ctx->key.current) {
+        int ret = path_append(
+            context->path,
+            ctx->key.current,
+            ctx->key.len,
+            ctx->strict
+        );
+        if (ret == -1) return -1;
     }
 
-    if (ctx->parent == JSON_ARRAY) {
-        if (unlikely(! context->count)) string_merges(context->path, "/", 1);
-        trie_insert(
-            context->tree,
-            DATA(context->path), SIZE(context->path),
-            (void *) (uintptr_t) number
-        );
-        context->count = __increment_index(context->path);
-    } else if (ctx->key.current) {
-        string_enqueue_tokens(context->path, ctx->key.current, ctx->key.len);
-        string_merges(context->path, "/", 1);
-        trie_insert(
-            context->tree,
-            DATA(context->path), SIZE(context->path),
-            (void *) (uintptr_t) number
-        );
-        if (likely(PARTS(context->path)))
-            string_suppr_token(context->path, PARTS(context->path) - 1);
-        if (unlikely(! PARTS(context->path))) context->path->_len = 0;
+    if (type == JSON_ARRAY) {
+        /* add the index token */
+        string_push_tokens(context->path, "0", 1);
+        context->count = 0;
     }
 
     return 0;
@@ -946,8 +930,94 @@ private int CALLBACK json_data(m_string *data, struct m_json_parser *ctx)
 
 /* -------------------------------------------------------------------------- */
 
+private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
+{
+    struct jsonpath_context *context = ctx->context;
+    m_value val = { 0 };
+    double number = 0.0;
+    char *string = NULL;
+
+    if (IS_PRIMITIVE(data)) {
+        switch (ctx->primitive.current.type) {
+        case JSON_PRIMITIVE_NUMBER: {
+            number = json_number(
+                DATA(data),
+                SIZE(data),
+                ctx->primitive.current.neg,
+                ctx->primitive.current.rad,
+                ctx->primitive.current.exp
+            );
+
+            if (! isfinite(number)) return -1;
+
+            val.data.decimal = number;
+            val.type = VALUE_DECIMAL;
+        } break;
+
+        case JSON_PRIMITIVE_NULL: val.type = VALUE_NULL; break;
+
+        default:
+            if (ctx->primitive.current.type & JSON_PRIMITIVE_BOOL) {
+                val.type = VALUE_BOOL;
+                if (ctx->primitive.current.type & JSON_PRIMITIVE_TRUE)
+                    val.type |= VALUE_TRUE;
+            }
+        }
+    } else if (IS_STRING(data)) {
+        if (! (string = malloc((SIZE(data) + 1) * sizeof(*string))) ) {
+            perror(ERR(json_data, malloc));
+            return -1;
+        }
+
+        if (json_string(string, DATA(data), SIZE(data), ctx->strict) == -1) {
+            free(string);
+            return -1;
+        }
+
+        val.data.pointer = string;
+        val.type = VALUE_POINTER;
+    }
+
+    if (ctx->parent == JSON_ARRAY) {
+        if (unlikely(! context->count)) string_merges(context->path, "/", 1);
+        trie_insert(
+            context->tree,
+            DATA(context->path), SIZE(context->path),
+            & val
+        );
+        context->count = increment_index(context->path);
+    } else if (ctx->key.current) {
+        int ret = path_append(
+            context->path,
+            ctx->key.current,
+            ctx->key.len,
+            ctx->strict
+        );
+        if (ret == -1) return -1;
+        string_merges(context->path, "/", 1);
+        trie_insert(
+            context->tree,
+            DATA(context->path), SIZE(context->path),
+            & val
+        );
+        if (likely(PARTS(context->path)))
+            string_suppr_token(context->path, PARTS(context->path) - 1);
+        if (unlikely(! PARTS(context->path))) context->path->_len = 0;
+    }
+
+    if (! ctx->parent) {
+        /* TODO */
+        debug("End of JSON document!\n");
+    }
+
+    return (ctx->parent) ? 0 : 1;
+}
+
+/* -------------------------------------------------------------------------- */
+
 private int CALLBACK json_exit(int type, struct m_json_parser *ctx)
 {
+    m_value val = { 0 };
     struct jsonpath_context *context = ctx->context;
 
     if (type == JSON_ARRAY) {
@@ -960,7 +1030,7 @@ private int CALLBACK json_exit(int type, struct m_json_parser *ctx)
             trie_insert(
                 context->tree,
                 DATA(context->path), SIZE(context->path),
-                NULL
+                & val
             );
         }
     }
@@ -972,9 +1042,14 @@ private int CALLBACK json_exit(int type, struct m_json_parser *ctx)
     if (unlikely(! PARTS(context->path))) context->path->_len = 0;
 
     if (ctx->parent == JSON_ARRAY)
-        context->count = __increment_index(context->path);
+        context->count = increment_index(context->path);
 
-    return 0;
+    if (! ctx->parent) {
+        /* TODO */
+        debug("End of JSON document!\n");
+    }
+
+    return (ctx->parent) ? 0 : 1;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -992,7 +1067,7 @@ public int jsonpath_init(m_json_parser *ctx)
         perror(ERR(jsonpath_init, malloc)); goto _err_alloc;
     }
 
-    if (! (private_context->tree = trie_alloc(NULL)) )
+    if (! (private_context->tree = trie_alloc(trie_destructor)) )
         goto _err_trie;
 
     if (! (private_context->path = string_alloc(NULL, 0)) )
@@ -1001,6 +1076,7 @@ public int jsonpath_init(m_json_parser *ctx)
     ctx->context = private_context;
     ctx->key.current = NULL;
     ctx->key.len = 0;
+    ctx->primitive.data = 0;
     ctx->init = json_init;
     ctx->data = json_data;
     ctx->exit = json_exit;
@@ -1013,6 +1089,31 @@ _err_trie:
     free(private_context);
 _err_alloc:
     return -1;
+}
+
+/* -------------------------------------------------------------------------- */
+
+int trie_print(const char *k, size_t len, m_value *val)
+{
+    printf("%.*s = ", (int) len, k);
+    switch (val->type) {
+    case VALUE_POINTER: printf("%s\n", (char *) val->data.pointer); break;
+    case VALUE_DECIMAL: printf("%02f\n", val->data.decimal); break;
+    case VALUE_NULL: printf("<NULL>\n"); break;
+    default:
+    if (val->type & VALUE_BOOL)
+        printf("%s\n", (val->type & VALUE_TRUE) ? "TRUE" : "FALSE");
+    }
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public int jsonpath_print(m_json_parser *ctx)
+{
+    struct jsonpath_context *context = ctx->context;
+    trie_foreach(context->tree, trie_print);
+    return 0;
 }
 
 /* -------------------------------------------------------------------------- */

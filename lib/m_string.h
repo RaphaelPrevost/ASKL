@@ -75,31 +75,30 @@ typedef struct m_search_string {
 } m_search_string;
 
 /* private string flags */
-#define _STRING_FLAG_FIXLEN 0x0001 /* disable string resizing */
-#define _STRING_FLAG_RDONLY 0x0002 /* disable string writing */
-#define _STRING_FLAG_STATIC 0x0003 /* disable writing and resizing */
-#define _STRING_FLAG_NOFREE 0x0004 /* disable free() on string content */
-#define _STRING_FLAG_ENCAPS 0x0005 /* disable all dynamic allocation */
-/*                          0x0008    reserved */
-#define _STRING_FLAG_NALLOC 0x0010 /* static, stack allocated string */
-#define _STRING_FLAG_ERRORS 0x0020 /* this string contains errors */
-#define HAS_ERROR(x) ((x)->_flags & _STRING_FLAG_ERRORS)
-#define _STRING_FLAG_BUFFER 0x0040 /* this string is used for buffering */
-#define IS_BUFFER(x) ((x)->_flags & _STRING_FLAG_BUFFER)
-#define _STRING_FLAG_MASKXT 0x001F /* mask extension flags */
-/*                          0x0080    reserved */
-
+#define _STRING_FIXED_LENGTH 0x0001 /* disable string resizing */
+#define _STRING_READ_ONLY    0x0002 /* disable string writing */
+#define _STRING_IMMUTABLE    0x0003 /* disable writing and resizing */
+#define _STRING_DISABLE_FREE 0x0004 /* disable free() on string content */
+#define _STRING_ENCAPSULATED 0x0005 /* disable all dynamic allocation */
+#define _STRING_STATIC_ALLOC 0x0008 /* static, stack allocated string */
+#define _STRING_EXTENSION    0x000f /* mask extension flags */
+#define _STRING_VALIDATED    0x0010 /* this string has been validated */
+#define _STRING_HAS_ERROR    0x0020 /* this string contains errors */
+#define IS_ERROR(x) ((x)->_flags & _STRING_HAS_ERROR)
+#define _STRING_BUFFERING    0x0040 /* this string is used for buffering */
+#define IS_BUFFER(x) ((x)->_flags & _STRING_BUFFERING)
+/*                           0x0080    reserved */
 #ifdef _ENABLE_HTTP
-#define _STRING_FLAG_HTTP   0x0100 /* HTTP request */
-#define IS_HTTP(x) ((x)->_flags & _STRING_FLAG_HTTP)
+#define _STRING_HTTP_REQUEST 0x0100 /* HTTP request */
+#define IS_HTTP(x) ((x)->_flags & _STRING_HTTP_REQUEST)
 #endif
-#define _STRING_FLAG_FRAG   0x0200 /* used by the server for streaming */
-#define IS_FRAG(x) ((x)->_flags & _STRING_FLAG_FRAG)
-#define _STRING_FLAG_LARGE  0x0400 /* large request */
-#define IS_LARGE(x) ((x)->_flags & _STRING_FLAG_LARGE)
+#define _STRING_PARTIAL_DATA 0x0200 /* used by the server for streaming */
+#define IS_FRAGMENT(x) ((x)->_flags & _STRING_PARTIAL_DATA)
+#define _STRING_LARGE_BUFFER 0x0400 /* large request */
+#define IS_LARGE(x) ((x)->_flags & _STRING_LARGE_BUFFER)
 #ifdef _ENABLE_HTTP
-#define _STRING_FLAG_CHUNK  0x0800 /* HTTP 1.1 Chunked encoding */
-#define IS_CHUNK(x) ((x)->_flags & _STRING_FLAG_CHUNK)
+#define _STRING_HTTP_CHUNKED 0x0800 /* HTTP 1.1 Chunked encoding */
+#define IS_CHUNK(x) ((x)->_flags & _STRING_HTTP_CHUNKED)
 #endif
 
 #ifdef _ENABLE_JSON
@@ -115,9 +114,10 @@ typedef struct m_json_parser {
             uint8_t neg;
             uint8_t rad;
             uint8_t exp;
-        };
-        uint32_t number;
+        } current;
+        uint32_t data;
     } primitive;
+    int strict;
     int parent;
     int (CALLBACK *init)(int, struct m_json_parser *);
     int (CALLBACK *data)(m_string *, struct m_json_parser *);
@@ -130,9 +130,10 @@ typedef struct m_json_parser {
 #define JSON_PRIMITIVE      0x8000
 #define JSON_TYPE           0xF000
 
-#define JSON_PRIMITIVE_NUMBER 0x1
-#define JSON_PRIMITIVE_BOOL   0x2
-#define JSON_PRIMITIVE_NULL   0x4
+#define JSON_PRIMITIVE_NUMBER  0x1
+#define JSON_PRIMITIVE_NULL    0x2
+#define JSON_PRIMITIVE_BOOL    0x4
+#define JSON_PRIMITIVE_TRUE   0x10
 
 #define IS_OBJECT(x) ((x)->_flags & JSON_OBJECT)
 #define IS_ARRAY(x) ((x)->_flags & JSON_ARRAY)
@@ -147,7 +148,7 @@ typedef struct m_json_parser {
 
 #define STRING_STATIC_INITIALIZER(s, l) \
 { (l), 0, \
-  _STRING_FLAG_STATIC | _STRING_FLAG_ENCAPS | _STRING_FLAG_NALLOC, \
+  _STRING_IMMUTABLE | _STRING_ENCAPSULATED | _STRING_STATIC_ALLOC, \
   (char *) (s), NULL, NULL, 0, 0 \
 }
 
@@ -170,7 +171,7 @@ typedef struct m_json_parser {
  * behaviour will be specified in the function documentation.
  *
  * @ref parent is a pointer to the parent string of a token (which may be
- * a token itself). You can check if a string is not a token by checking
+ * a token itself). You can test if a string is a token or not by checking
  * the parent field value; if it is NULL, then the string is not a token.
  *
  * Even if these members are public, the macros @ref TOKEN and @ref PARTS have
@@ -1297,8 +1298,8 @@ public m_string *string_rems(m_string *str, const char *rem, size_t len);
  *
  * Please see the documentation of @ref string_reps() for further details.
  *
- * Since it uses @ref string_reps() as a backend, this function cause the
- * destruction of all the tokens of the main string.
+ * @note Since it calls @ref string_reps(), this function cause the destruction
+ * of all the tokens of the main string.
  *
  */
 
@@ -1319,8 +1320,8 @@ public m_string *string_rem(m_string *string, const m_string *rem);
  *
  * Please see the documentation of @ref string_reps() for further details.
  *
- * Since it uses @ref string_reps() as a backend, this function cause the
- * destruction of all the tokens of the main string.
+ * @note Since it calls @ref string_reps(), this function cause the destruction
+ * of all the tokens of the main string.
  *
  */
 
@@ -1334,13 +1335,36 @@ public m_string *string_add_token(m_string *s, off_t start, off_t end);
 
 /* -------------------------------------------------------------------------- */
 
-public int string_push_token(m_string *string, m_string *token);
-#define string_enqueue_token(s, t) string_push_token((s), (t))
+public int string_push_tokens(m_string *string, const char *token, size_t len);
+
+/**
+ * @ingroup string
+ * @fn int string_push_tokens(m_string *string, const char *token, size_t len)
+ * @param string the string to which the token will be appended
+ * @param token the data to append
+ * @param len the length of the data
+ * @return -1 if an error happens, 0 otherwise
+ *
+ * This function will append the data at the end of the given @ref string and
+ * create an associated token.
+ *
+ */
 
 /* -------------------------------------------------------------------------- */
 
-public int string_push_tokens(m_string *string, const char *token, size_t len);
-#define string_enqueue_tokens(s, t, l) string_push_tokens((s), (t), (l))
+public int string_push_token(m_string *string, m_string *token);
+
+/**
+ * @ingroup string
+ * @fn int string_push_token(m_string *string, m_string *token)
+ * @param string the string to which the token will be appended
+ * @param token the data to append
+ * @return -1 if an error happens, 0 otherwise
+ *
+ * This function is simply a wrapper around @ref string_push_tokens(), please
+ * see the documentation of @ref string_push_tokens().
+ *
+ */
 
 /* -------------------------------------------------------------------------- */
 
@@ -1349,10 +1373,6 @@ public m_string *string_suppr_token(m_string *s, unsigned int index);
 /* -------------------------------------------------------------------------- */
 
 public m_string *string_pop_token(m_string *string);
-
-/* -------------------------------------------------------------------------- */
-
-public m_string *string_dequeue_token(m_string *string);
 
 /* -------------------------------------------------------------------------- */
 #ifdef HAS_PCRE
@@ -1595,6 +1615,12 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx);
  * - leading decimal point,
  * - leading plus sign,
  * - NaN, Infinity, -Infinity.
+ * 
+ * This function tokenizes the input and checks for correctness but will not
+ * interpret the data. This task is left to the parser. The builtin parser
+ * ( @ref module::parser ) performs UTF-8 validation, escape sequences
+ * conversions and turns JSON numbers into native IEEE754 double-precision
+ * floating-point numbers.
  *
  * The function is designed to handle streaming and partial input. If several
  * JSON messages are concatenated, each will be parsed as distinct tokens.
@@ -1602,7 +1628,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx);
  * valid tokens can be processed first, and parsing resumed later when more
  * data become available.
  *
- * @note Use the macro @ref HAS_ERROR to test if a token is incomplete.
+ * @note Use the macro @ref IS_ERROR to test if a token is incomplete.
  *
  */
 

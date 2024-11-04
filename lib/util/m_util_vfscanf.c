@@ -150,19 +150,18 @@ public int m_vsnscanf(const char *buffer, size_t bufsize, const char *fmt0,
     int n;                  /* handy integer */
     int flags;              /* flags as defined above */
     char *p0;               /* saves original value of p when necessary */
-    int nassigned;          /* number of fields assigned */
     int nread;              /* number of characters consumed from fp */
     int base;               /* base argument to strtoq/strtouq */
-    u_quad_t (*ccfn)();     /* conversion function (strtoq/strtouq) */
     char ccltab[256];       /* character class table for %[...] */
     char buf[BUF];          /* buffer for numeric conversions */
+    /* conversion function (strtoq/strtouq) */
+    u_quad_t (*ccfn)(const char *, char **, int);
     u_char *b = (u_char *) buffer;
 
     /* `basefix' is used to avoid `if' tests in the integer scanner */
     static short basefix[17] =
     { 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
 
-    nassigned = 0;
     nread = 0;
     base = 0;       /* XXX just to keep gcc happy */
     ccfn = NULL;    /* XXX just to keep gcc happy */
@@ -420,7 +419,7 @@ literal:
 
                 memcpy((void *) va_arg(ap, char *), b, width);
 
-                nread += width; b += width; nassigned ++;
+                nread += width; b += width;
             }
             break;
 
@@ -460,7 +459,6 @@ literal:
                 if (n == 0)
                     goto match_failure;
                 *p = '\0';
-                nassigned++;
             }
             nread += n;
             break;
@@ -491,7 +489,6 @@ literal:
                 }
                 *p = '\0';
                 nread += p - p0;
-                nassigned++;
             }
             continue;
 
@@ -673,7 +670,6 @@ literal:
                     *va_arg(ap, char *) = (char) res;
                 else
                     *va_arg(ap, int *) = (int) res;
-                nassigned++;
             }
 
             nread += (flags & BINARY) ? width : (size_t) (p - buf);
@@ -784,7 +780,6 @@ literal:
                     *va_arg(ap, double *) = res;
                 else
                     *va_arg(ap, float *) = res;
-                nassigned++;
             }
 
             nread += (flags & BINARY) ? width : (size_t) (p - buf);

@@ -412,6 +412,8 @@ static void *_read_loop(void *range)
         }
     }
 
+    printf("(-) %i missing keys\n", missing);
+
     pthread_exit(NULL);
 }
 

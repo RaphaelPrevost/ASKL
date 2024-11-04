@@ -54,7 +54,7 @@ static void print_tokens(const m_string *s, unsigned int indent)
          IS_STRING(s) ? "(string)" :
          IS_PRIMITIVE(s) ? "(primitive)" : "")
     );
-    if (HAS_ERROR(s)) printf(" (!) ");
+    if (IS_ERROR(s)) printf(" (!) ");
     if (! IS_TYPE(s, JSON_TYPE))
         printf("(size=%zu)", SIZE(s));
     printf("\n");
@@ -77,14 +77,6 @@ static void print_tokens(const m_string *s, unsigned int indent)
 
 /* -------------------------------------------------------------------------- */
 
-int trie_print(const char *k, size_t len, void *val)
-{
-    printf("%.*s\n", (int) len, k);
-    return 0;
-}
-
-/* -------------------------------------------------------------------------- */
-
 int main(int argc, char **argv)
 {
     char *src = NULL;
@@ -93,16 +85,19 @@ int main(int argc, char **argv)
     unsigned int i = 0;
     struct stat info;
     int fd = -1, ret = 0;
+    m_json_parser ctx;
 
-    if (argc > 1) {
+    jsonpath_init(& ctx);
+
+    if (argc > 1) { /* whole document in memory */
         if (stat(argv[1], & info) == -1) {
             fprintf(stderr, "%s: failed to stat %s.\n", argv[0], argv[1]);
-            exit(EXIT_FAILURE);
+            goto _failure;
         }
 
         if ( (fd = open(argv[1], O_RDONLY)) == -1) {
             fprintf(stderr, "%s: failed to open %s.\n", argv[0], argv[1]);
-            exit(EXIT_FAILURE);
+            goto _failure;
         }
 
         len = info.st_size;
@@ -110,50 +105,71 @@ int main(int argc, char **argv)
 
         if (! src) {
             fprintf(stderr, "%s: failed to map the file.\n", argv[0]);
-            exit(EXIT_FAILURE);
-        }
-    } else {
-        if (! (src = malloc(BUFSIZ)) ) {
-            fprintf(stderr, "%s: cannot allocate buffer.\n", argv[0]);
-            exit(EXIT_FAILURE);
+            goto _failure;
         }
 
-        if ( (len = read(STDIN_FILENO, src, BUFSIZ)) == -1) {
+        if (! (json = string_encaps(src, len)) ) {
+            munmap(src, len);
+            goto _failure;
+        }
+
+        do {
+            ret = string_parse_json(json, JSON_STRICT, & ctx);
+        } while (ret > 0);
+
+        munmap(src, len);
+
+        if (ret == 0) goto _success;
+
+    } else { /* streaming */
+        char buffer[65536], key[65536];
+
+        if ( (len = read(STDIN_FILENO, buffer, sizeof(buffer))) == -1) {
             fprintf(stderr, "%s: cannot read stdin.\n", argv[0]);
-            exit(EXIT_FAILURE);
+            goto _failure;
         }
-    }
 
-    json = string_encaps(src, len);
+        if (! (json = string_alloc(buffer, len)) ) {
+            fprintf(stderr, "%s: cannot allocate buffer.\n", argv[0]);
+            goto _failure;
+        }
 
-    m_json_parser ctx;
-    
-    jsonpath_init(& ctx);
+        while (1) {
+            if ( (ret = string_parse_json(json, JSON_STRICT, & ctx) == -1) )
+                goto _failure;
 
-    do {
-        ret = string_parse_json(json, JSON_STRICT, & ctx);
-        printf("Parsing interrupted.\n");
-    } while (ret > 0);
+            if ( (len = read(STDIN_FILENO, buffer, sizeof(buffer))) == -1) {
+                fprintf(stderr, "%s: cannot read stdin.\n", argv[0]);
+                goto _failure;
+            } else if (len == 0) goto _success; /* EOF */
 
-    //if (argc == 1) trie_foreach(context.tree, trie_print);
-
-    //trie_free(context.tree);
-
-    if (ret == 0 && json->token) {
-        /* check if there is errors */
-        for (i = 0; i < PARTS(json); i ++) {
-            if (HAS_ERROR(TOKEN(json, i))) {
-                fprintf(stderr, "%s: incomplete input.\n", argv[0]);
-                if (argc == 1) print_tokens(json, 0);
-                exit(EXIT_FAILURE);
+            /* copy the context current key, if any, before flushing the data */
+            if (ctx.key.current) {
+                memcpy(key, ctx.key.current, ctx.key.len);
+                ctx.key.current = key;
             }
+
+            /* flush parsed data */
+            if (PARTS(json) && PARTS(FIRST_TOKEN(json)) > 1) {
+                m_string *penultimate = & (
+                    FIRST_TOKEN(json)->token[FIRST_TOKEN(json)->parts - 2]
+                );
+                string_suppr(json, 0, DATA(penultimate) - DATA(json));
+            }
+
+            /* append the buffer */
+            string_cats(json, buffer, len);
         }
-        if (argc == 1) print_tokens(json, 0);
-        exit(EXIT_SUCCESS);
     }
 
     fprintf(stderr, "%s: parse error.\n", argv[0]);
+_failure:
+    jsonpath_free(& ctx);
     exit(EXIT_FAILURE);
+
+_success:
+    //jsonpath_free(& ctx);
+    exit(EXIT_SUCCESS);
 }
 
 /* -------------------------------------------------------------------------- */

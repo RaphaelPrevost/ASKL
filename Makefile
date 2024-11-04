@@ -69,7 +69,7 @@ CONFIG  = -D_ENABLE_SERVER \
           -D_ENABLE_FILE \
           -D_ENABLE_PCRE \
           -D_ENABLE_JSON \
-		  -D_ENABLE_PARSER \
+          -D_ENABLE_PARSER \
           -D_ENABLE_CONFIG \
           -D_BUILTIN_PLUGIN \
           -D_USE_BIG_FDS=4095

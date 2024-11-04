@@ -41,14 +41,14 @@
 
 typedef struct _m_node {
     void *child[2];
-    uint32_t byte;
+    uint16_t byte;
     uint8_t val;
     uint8_t otherbits;
 } _m_node;
 
 typedef struct _m_leaf {
-    void *val;
-    size_t len;
+    m_value val;
+    uint16_t len;
     char key[];
 } _m_leaf;
 
@@ -60,7 +60,7 @@ typedef struct _m_leaf {
 
 /* -------------------------------------------------------------------------- */
 
-public m_trie *trie_alloc(void (*freeval)(void *))
+public m_trie *trie_alloc(void (*freeval)(m_value *))
 {
     /** @brief allocate an empty crit-bit tree */
 
@@ -95,7 +95,7 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert_r(m_trie *t, const char *key, size_t ulen, void *value)
+public int trie_insert_r(m_trie *t, const char *key, size_t ulen, m_value *value)
 {
     int ret = 0;
 
@@ -115,7 +115,7 @@ public int trie_insert_r(m_trie *t, const char *key, size_t ulen, void *value)
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert(m_trie *t, const char *key, size_t ulen, void *value)
+public int trie_insert(m_trie *t, const char *key, size_t ulen, m_value *value)
 {
     const uint8_t *const ubytes = (void *) key;
     uint8_t *p = NULL, c = 0;
@@ -145,7 +145,7 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, void *value)
             return -1;
         }
 
-        leaf->val = value; leaf->len = ulen;
+        leaf->val = *value; leaf->len = ulen;
         memcpy(leaf->key, key, ulen);
         leaf->key[ulen] = '\0';
 
@@ -177,15 +177,16 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, void *value)
     ulen32 = ((leaf->len < ulen) ? leaf->len : ulen) & ~0x3;
 
     if (ulen32 > sizeof(uint32_t)) {
+        uint32_t bytes; unsigned int index;
         for (newbyte = 0; newbyte < ulen32; newbyte += sizeof(uint32_t)) {
-            uint32_t index = __zero_idx(
-                *(uint32_t *)(p + newbyte) ^ *(uint32_t *)(ubytes + newbyte)
-            );
+            /* ubytes may not be aligned */
+            memcpy(& bytes, ubytes + newbyte, sizeof(bytes));
+            index = __zero_idx(*(uint32_t *)(p + newbyte) ^ bytes);
             if (index < sizeof(uint32_t)) {
                 newbyte += index;
+                c = p[newbyte];
                 newotherbits = p[newbyte] ^ ubytes[newbyte];
                 newotherbits = __msb(newotherbits) ^ 0xff;
-                c = p[newbyte];
                 goto different_byte_found;
             }
         }
@@ -221,7 +222,7 @@ different_byte_found:
         return -1;
     }
 
-    leaf->val = value; leaf->len = ulen;
+    leaf->val = *value; leaf->len = ulen;
     memcpy(leaf->key, key, ulen);
     leaf->key[ulen] = '\0';
 
@@ -244,26 +245,26 @@ different_byte_found:
 
 /* -------------------------------------------------------------------------- */
 
-public void *trie_findexec(m_trie *t, const char *key, size_t ulen,
-                           void *(CALLBACK *function)(void *))
+public m_value trie_lookup(m_trie *t, const char *key, size_t ulen,
+                           m_value (CALLBACK *function)(m_value *))
 {
     uint8_t *p = NULL, c = 0;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
     unsigned int direction = 0;
-    void *ret = NULL;
+    m_value ret = { 0 };
     const uint8_t *ubytes = (void *) key;
 
     if (! t || ! key || ! ulen) {
         debug("trie_findexec(): bad parameters.\n");
-        return NULL;
+        return ret;
     }
 
     pthread_rwlock_rdlock(t->_lock);
 
     if (! (p = t->_root) ) {
         pthread_rwlock_unlock(t->_lock);
-        return NULL;
+        return ret;
     }
 
     /* traverse the tree to find the node */
@@ -278,7 +279,7 @@ public void *trie_findexec(m_trie *t, const char *key, size_t ulen,
 
     /* check for exact match */
     if (leaf->len == ulen && memcmp(leaf->key, key, ulen) == 0)
-        ret = (function) ? function(leaf->val) : leaf->val;
+        ret = (function) ? function(& leaf->val) : leaf->val;
 
     pthread_rwlock_unlock(t->_lock);
 
@@ -287,19 +288,19 @@ public void *trie_findexec(m_trie *t, const char *key, size_t ulen,
 
 /* -------------------------------------------------------------------------- */
 
-public void *trie_remove(m_trie *t, const char *key, size_t ulen)
+public m_value trie_remove(m_trie *t, const char *key, size_t ulen)
 {
     uint8_t *p = NULL, c = 0;
     void **wherep = NULL, **whereq = NULL;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
     int direction = 0;
-    void *ret = NULL;
+    m_value ret = { 0 };
     const uint8_t *ubytes = (void *) key;
 
     if (! t || ! key || ! ulen) {
         debug("trie_remove(): bad parameters.\n");
-        return NULL;
+        return ret;
     }
 
     pthread_rwlock_wrlock(t->_lock);
@@ -342,25 +343,25 @@ _err:
 
 /* -------------------------------------------------------------------------- */
 
-public void *trie_update(m_trie *t, const char *key, size_t ulen, void *value)
+public m_value trie_update(m_trie *t, const char *key, size_t ulen, m_value *value)
 {
     uint8_t *p = NULL, c = 0;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
-    void *ret = NULL;
+    m_value ret = { 0 };
     int direction = 0;
     const uint8_t *ubytes = (void *) key;
 
     if (! t || ! key || ! ulen) {
         debug("trie_update(): bad parameters.\n");
-        return NULL;
+        return ret;
     }
 
     pthread_rwlock_wrlock(t->_lock);
 
     if (! (p = t->_root) ) {
         pthread_rwlock_unlock(t->_lock);
-        return NULL;
+        return ret;
     }
 
     /* traverse the tree to find the node */
@@ -376,7 +377,7 @@ public void *trie_update(m_trie *t, const char *key, size_t ulen, void *value)
     /* check for exact match and update the value */
     if (leaf->len == ulen && ! memcmp(leaf->key, key, ulen)) {
         ret = leaf->val;
-        leaf->val = value;
+        leaf->val = *value;
     }
 
     pthread_rwlock_unlock(t->_lock);
@@ -386,7 +387,7 @@ public void *trie_update(m_trie *t, const char *key, size_t ulen, void *value)
 
 /* -------------------------------------------------------------------------- */
 
-static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, void *))
+static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, m_value *))
 {
     uint8_t *p = NULL;
     _m_node *node = NULL;
@@ -411,8 +412,8 @@ static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, void *))
     } else {
         leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
 
-        if ( (ret[0] = f(leaf->key, leaf->len, leaf->val)) == -1) {
-            if (t->_freeval) t->_freeval(leaf->val);
+        if ( (ret[0] = f(leaf->key, leaf->len, & leaf->val)) == -1) {
+            if (t->_freeval) t->_freeval(& leaf->val);
             posix_memfree(leaf);
         }
 
@@ -428,7 +429,7 @@ _free_node:
 
 /* -------------------------------------------------------------------------- */
 
-public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, void *))
+public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, m_value *))
 {
     if (! t) {
         debug("trie_foreach(): bad parameters.\n");
@@ -449,7 +450,7 @@ public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, void *))
 
 /* -------------------------------------------------------------------------- */
 
-static int _delete(UNUSED const char *k, UNUSED size_t l, UNUSED void *v)
+static int _delete(UNUSED const char *k, UNUSED size_t l, UNUSED m_value *v)
 {
     return -1;
 }
@@ -467,7 +468,7 @@ public m_trie *trie_free(m_trie *t)
 
 /* -------------------------------------------------------------------------- */
 
-static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, void *))
+static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, m_value *))
 {
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
@@ -488,7 +489,7 @@ static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, void *))
     }
 
     leaf = (_m_leaf *) (top - offsetof(_m_leaf, key));
-    ret = f(leaf->key, leaf->len, leaf->val);
+    ret = f(leaf->key, leaf->len, & leaf->val);
 
     return ret;
 }
@@ -496,7 +497,7 @@ static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, void *))
 /* -------------------------------------------------------------------------- */
 
 public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
-                                int (*function)(const char *, size_t, void *))
+                                int (*function)(const char *, size_t, m_value *))
 {
     const uint8_t *ubytes = (void *) prefix;
     uint8_t *p = NULL, *top = NULL, c = 0;

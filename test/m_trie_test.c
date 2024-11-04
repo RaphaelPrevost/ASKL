@@ -13,10 +13,10 @@ static int timeout = 0;
 
 /* -------------------------------------------------------------------------- */
 
-static int callback(const char *element, size_t len, void *arg)
+static int callback(const char *element, size_t len, m_value *arg)
 {
     printf("%.*s [size=%zu] = %" PRIuPTR "\n",
-           (int) len, element, len, (uintptr_t) arg);
+           (int) len, element, len, arg->data.integer);
     return 1;
 }
 
@@ -34,6 +34,7 @@ static void _timeout(int dummy)
 int test_trie(void)
 {
     m_trie *t = NULL;
+    m_value val = { 0 };
     uintptr_t i = 0, j = 0;
     int missing = 0;
     char key[BUFSIZ];
@@ -52,14 +53,16 @@ int test_trie(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i); key[len] = 0;
-        trie_insert(t, key, len, (void *) (uintptr_t) i);
+        val.data.integer = i;
+        val.type = VALUE_INTEGER;
+        trie_insert(t, key, len, & val);
     }
     stop = clock();
     printf("(-) Time elapsed = ");
     printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
     printf(" s\n");
 
-    if (trie_insert(t, key, len, (void *) (uintptr_t) i) != -1) {
+    if (trie_insert(t, key, len, & val) != -1) {
         printf("(!) Inserting duplicate key: FAILURE\n");
         return -1;
     } else printf("(*) Inserting duplicate key: SUCCESS\n");
@@ -68,7 +71,8 @@ int test_trie(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i); key[len] = 0;
-        if ( (j = (uintptr_t) trie_findexec(t, key, len, NULL)) != i) {
+        val = trie_lookup(t, key, len, NULL);
+        if (val.data.integer != i) {
             missing ++;
             printf("(!) Key %" PRIuPTR  " is missing ! (found %" PRIuPTR  " instead)\n", i, j);
         }
@@ -88,7 +92,8 @@ int test_trie(void)
     while (! timeout && missing < _CACHE_RNDDL) {
         i = rand() % _CACHE_ITEMS;
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if (trie_remove(t, key, len)) missing ++;
+        val = trie_remove(t, key, len);
+        if (val.type == VALUE_INTEGER) missing ++;
     }
     timeout = 1;
 
@@ -98,7 +103,9 @@ int test_trie(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        trie_update(t, key, len, (void *) (uintptr_t) (i + 1) );
+        val.data.integer = i + 1;
+        val.type = VALUE_INTEGER;
+        trie_update(t, key, len, & val);
     }
     stop = clock();
     printf("(-) Time elapsed = ");
@@ -113,7 +120,8 @@ int test_trie(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if ((uintptr_t) trie_remove(t, key, len) != i + 1) missing ++;
+        val = trie_remove(t, key, len);
+        if (val.data.integer != i + 1) missing ++;
     }
     stop = clock();
     printf("(-) Time elapsed = ");
@@ -127,7 +135,8 @@ int test_trie(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if ((uintptr_t) trie_findexec(t, key, len, NULL) != i + 1)
+        val = trie_lookup(t, key, len, NULL);
+        if (val.data.integer != i + 1)
             missing ++;
         else printf("(!) found phantom key %" PRIuPTR  " !\n", i);
     }
@@ -138,11 +147,17 @@ int test_trie(void)
     printf("(-) %i missing keys\n", missing);
 
     printf("(*) Overwriting a key.\n");
-    i = (uintptr_t) trie_insert(t, key, len, (void *) 0x888);
-    if (i) printf("(!) Key insertion returned 0x%" PRIxPTR  "\n", i);
-    i = (uintptr_t) trie_update(t, key, len, (void *) 0x8989);
-    if (i != 0x888) printf("(!) Key overwrite returned 0x%" PRIxPTR  "\n", i);
-    if ( (i = (uintptr_t) trie_remove(t, key, len)) != 0x8989)
+    val.data.integer = 0x888;
+    val.type = VALUE_INTEGER;
+    if (trie_insert(t, key, len, & val) == -1)
+        printf("(!) Key insertion failed\n");
+    val.data.integer = 0x8989;
+    val.type = VALUE_INTEGER;
+    val = trie_update(t, key, len, & val);
+    if (val.data.integer != 0x888)
+        printf("(!) Key overwrite returned 0x%" PRIxPTR  "\n", i);
+    val = trie_remove(t, key, len);
+    if (val.data.integer != 0x8989)
         printf("(!) Retrieved key is 0x%" PRIxPTR  ", expected 0x8989.\n", i);
     else
         printf("(*) Value was successfully overwritten.\n");

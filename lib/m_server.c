@@ -701,7 +701,7 @@ static void *_server_loop(UNUSED void *dummy)
         s = _server_receive(& buffer);
 
         /* clean the input buffer */
-        buffer._flags &= _STRING_FLAG_MASKXT;
+        buffer._flags &= _STRING_EXTENSION;
         string_free_token(& buffer);
         buffer._data = data; buffer._alloc = sizeof(data);
         buffer._len = 0;
@@ -814,7 +814,7 @@ static int _server_reinit_cb(m_socket *s)
                 p->plugin_event_handler(
                     SOCKET_ID(s),
                     INGRESS_ID(s),
-                    PLUGIN_EVENT_REQUEST_NOTSENDABLE,
+                    PLUGIN_EVENT_REQUEST_UNDELIVERED,
                     retransmit
                 );
             }
