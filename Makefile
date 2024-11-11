@@ -411,7 +411,7 @@ json_checker:
 	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
 	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
 	lib/ports/m_ports.c lib/m_string.c lib/m_trie.c \
-	lib/m_parser.c \
+	lib/m_variant.c lib/m_parser.c \
 	test/json/json_checker.c -o json_checker
 
 json_debug:
@@ -422,7 +422,7 @@ json_debug:
 	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
 	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
 	lib/ports/m_ports.c lib/m_string.c lib/m_trie.c \
-	lib/m_parser.c \
+	lib/m_variant.c lib/m_parser.c \
 	test/json/json_checker.c -o json_checker
 
 clean:

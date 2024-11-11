@@ -33,55 +33,117 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef M_VALUE_H
-
-#define M_VALUE_H
-
-#include "m_core_def.h"
-
-/** @defgroup value core::value */
-
-#if UINTPTR_MAX == 0xffffffff
-typedef struct m_value {
-    union {
-        void *pointer;
-        uintptr_t integer;
-        float decimal; /* assume IEEE754 32-bits single precision format */
-    } data;
-    uint16_t type;
-} m_value;
-#elif UINTPTR_MAX == 0xffffffffffffffff
-#pragma pack(push, 1)
-typedef struct m_value {
-    union {
-        void *pointer;
-        uintptr_t integer;
-        double decimal; /* assume IEEE754 64-bits double precision format */
-    } data;
-    uint16_t type;
-} m_value;
-#pragma pack(pop)
-#else
-#error Unsupported platform
-#endif
-
-#define VALUE_POINTER 0x0
-#define VALUE_INTEGER 0x1
-#define VALUE_DECIMAL 0x2
-
-#define VALUE_BOOL   0x10
-#define VALUE_TRUE   0x20
-#define VALUE_NULL   0x40
-
-/**
- * @ingroup value
- * @struct m_value
- *
- * This structure allows some level of type-checking within the included data
- * structures such as @ref m_trie or m_hashtable.
- * 
- */
+#include "m_variant.h"
 
 /* -------------------------------------------------------------------------- */
 
-#endif
+public variant CALLBACK value_from_pointer(void *ptr)
+{
+    variant v;
+    v.type = VALUE_POINTER;
+    v.value.pointer = ptr;
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK value_from_integer(uint64_t i)
+{
+    variant v;
+    v.type = VALUE_INTEGER;
+    v.value.integer = i;
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK value_from_decimal(double d)
+{
+    variant v;
+    v.type = VALUE_DECIMAL;
+    v.value.decimal = d;
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK value_from_boolean(int b)
+{
+    variant v;
+    v.type = VALUE_BOOL;
+    if (b) v.type |= VALUE_TRUE;
+    v.value.integer = 0;
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK value_from_string(m_string *s)
+{
+    variant v;
+    v.type = (VALUE_POINTER | _VALUE_STRING);
+    v.value.pointer = s;
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK value_null(void)
+{
+    variant v;
+    v.type = (VALUE_POINTER | VALUE_NULL);
+    v.value.pointer = NULL;
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public void * CALLBACK value_to_pointer(variant v)
+{
+    if (~v.type & VALUE_POINTER)
+        die("type error");
+
+    return v.value.pointer;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public uint64_t CALLBACK value_to_integer(variant v)
+{
+    if (v.type != VALUE_INTEGER)
+        die("type error");
+
+    return v.value.integer;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public double CALLBACK value_to_decimal(variant v)
+{
+    if (v.type != VALUE_DECIMAL)
+        die("type error");
+
+    return v.value.decimal;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public int CALLBACK value_to_boolean(variant v)
+{
+    if (~v.type & VALUE_BOOL)
+        die("type error");
+
+    return (v.type & VALUE_TRUE);
+}
+
+/* -------------------------------------------------------------------------- */
+
+public m_string * CALLBACK value_to_string(variant v)
+{
+    if (v.type != (VALUE_POINTER | _VALUE_STRING))
+        die("type error");
+
+    return v.value.pointer;
+}
+
+/* -------------------------------------------------------------------------- */

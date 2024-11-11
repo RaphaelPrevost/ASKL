@@ -47,7 +47,7 @@ typedef struct _m_node {
 } _m_node;
 
 typedef struct _m_leaf {
-    m_value val;
+    variant val;
     uint16_t len;
     char key[];
 } _m_leaf;
@@ -60,7 +60,7 @@ typedef struct _m_leaf {
 
 /* -------------------------------------------------------------------------- */
 
-public m_trie *trie_alloc(void (*freeval)(m_value *))
+public m_trie *trie_alloc(void (*freeval)(variant))
 {
     /** @brief allocate an empty crit-bit tree */
 
@@ -95,7 +95,7 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert_r(m_trie *t, const char *key, size_t ulen, m_value *value)
+public int trie_insert_r(m_trie *t, const char *key, size_t ulen, variant val)
 {
     int ret = 0;
 
@@ -106,7 +106,7 @@ public int trie_insert_r(m_trie *t, const char *key, size_t ulen, m_value *value
 
     pthread_rwlock_wrlock(t->_lock);
 
-    ret = trie_insert(t, key, ulen, value);
+    ret = trie_insert(t, key, ulen, val);
 
     pthread_rwlock_unlock(t->_lock);
 
@@ -115,7 +115,7 @@ public int trie_insert_r(m_trie *t, const char *key, size_t ulen, m_value *value
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert(m_trie *t, const char *key, size_t ulen, m_value *value)
+public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
 {
     const uint8_t *const ubytes = (void *) key;
     uint8_t *p = NULL, c = 0;
@@ -145,7 +145,7 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, m_value *value)
             return -1;
         }
 
-        leaf->val = *value; leaf->len = ulen;
+        leaf->val = value; leaf->len = ulen;
         memcpy(leaf->key, key, ulen);
         leaf->key[ulen] = '\0';
 
@@ -222,7 +222,7 @@ different_byte_found:
         return -1;
     }
 
-    leaf->val = *value; leaf->len = ulen;
+    leaf->val = value; leaf->len = ulen;
     memcpy(leaf->key, key, ulen);
     leaf->key[ulen] = '\0';
 
@@ -245,18 +245,18 @@ different_byte_found:
 
 /* -------------------------------------------------------------------------- */
 
-public m_value trie_lookup(m_trie *t, const char *key, size_t ulen,
-                           m_value (CALLBACK *function)(m_value *))
+public variant trie_lookup(m_trie *t, const char *key, size_t ulen,
+                           variant (CALLBACK *function)(variant))
 {
     uint8_t *p = NULL, c = 0;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
     unsigned int direction = 0;
-    m_value ret = { 0 };
+    variant ret = { 0 };
     const uint8_t *ubytes = (void *) key;
 
     if (! t || ! key || ! ulen) {
-        debug("trie_findexec(): bad parameters.\n");
+        debug("trie_lookup(): bad parameters.\n");
         return ret;
     }
 
@@ -279,7 +279,7 @@ public m_value trie_lookup(m_trie *t, const char *key, size_t ulen,
 
     /* check for exact match */
     if (leaf->len == ulen && memcmp(leaf->key, key, ulen) == 0)
-        ret = (function) ? function(& leaf->val) : leaf->val;
+        ret = (function) ? function(leaf->val) : leaf->val;
 
     pthread_rwlock_unlock(t->_lock);
 
@@ -288,14 +288,14 @@ public m_value trie_lookup(m_trie *t, const char *key, size_t ulen,
 
 /* -------------------------------------------------------------------------- */
 
-public m_value trie_remove(m_trie *t, const char *key, size_t ulen)
+public variant trie_remove(m_trie *t, const char *key, size_t ulen)
 {
     uint8_t *p = NULL, c = 0;
     void **wherep = NULL, **whereq = NULL;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
     int direction = 0;
-    m_value ret = { 0 };
+    variant ret = { 0 };
     const uint8_t *ubytes = (void *) key;
 
     if (! t || ! key || ! ulen) {
@@ -343,12 +343,12 @@ _err:
 
 /* -------------------------------------------------------------------------- */
 
-public m_value trie_update(m_trie *t, const char *key, size_t ulen, m_value *value)
+public variant trie_update(m_trie *t, const char *key, size_t ulen, variant v)
 {
     uint8_t *p = NULL, c = 0;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
-    m_value ret = { 0 };
+    variant ret = { 0 };
     int direction = 0;
     const uint8_t *ubytes = (void *) key;
 
@@ -377,7 +377,7 @@ public m_value trie_update(m_trie *t, const char *key, size_t ulen, m_value *val
     /* check for exact match and update the value */
     if (leaf->len == ulen && ! memcmp(leaf->key, key, ulen)) {
         ret = leaf->val;
-        leaf->val = *value;
+        leaf->val = v;
     }
 
     pthread_rwlock_unlock(t->_lock);
@@ -387,7 +387,7 @@ public m_value trie_update(m_trie *t, const char *key, size_t ulen, m_value *val
 
 /* -------------------------------------------------------------------------- */
 
-static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, m_value *))
+static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, variant))
 {
     uint8_t *p = NULL;
     _m_node *node = NULL;
@@ -412,8 +412,8 @@ static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, m_value *
     } else {
         leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
 
-        if ( (ret[0] = f(leaf->key, leaf->len, & leaf->val)) == -1) {
-            if (t->_freeval) t->_freeval(& leaf->val);
+        if ( (ret[0] = f(leaf->key, leaf->len, leaf->val)) == -1) {
+            if (t->_freeval) t->_freeval(leaf->val);
             posix_memfree(leaf);
         }
 
@@ -429,7 +429,7 @@ _free_node:
 
 /* -------------------------------------------------------------------------- */
 
-public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, m_value *))
+public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, variant))
 {
     if (! t) {
         debug("trie_foreach(): bad parameters.\n");
@@ -450,7 +450,7 @@ public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, m_value *))
 
 /* -------------------------------------------------------------------------- */
 
-static int _delete(UNUSED const char *k, UNUSED size_t l, UNUSED m_value *v)
+static int _delete(UNUSED const char *k, UNUSED size_t l, UNUSED variant v)
 {
     return -1;
 }
@@ -468,7 +468,7 @@ public m_trie *trie_free(m_trie *t)
 
 /* -------------------------------------------------------------------------- */
 
-static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, m_value *))
+static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, variant))
 {
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
@@ -489,7 +489,7 @@ static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, m_value *))
     }
 
     leaf = (_m_leaf *) (top - offsetof(_m_leaf, key));
-    ret = f(leaf->key, leaf->len, & leaf->val);
+    ret = f(leaf->key, leaf->len, leaf->val);
 
     return ret;
 }
@@ -497,7 +497,7 @@ static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, m_value *))
 /* -------------------------------------------------------------------------- */
 
 public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
-                                int (*function)(const char *, size_t, m_value *))
+                                int (*f)(const char *, size_t, variant))
 {
     const uint8_t *ubytes = (void *) prefix;
     uint8_t *p = NULL, *top = NULL, c = 0;
@@ -535,7 +535,7 @@ public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
     }
 
     /* start iterating through the child nodes */
-    _each_prefix(top, function);
+    _each_prefix(top, f);
 
     pthread_rwlock_unlock(t->_lock);
 }

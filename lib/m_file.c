@@ -92,24 +92,21 @@ static void _fs_refcount_breaklock(m_file *ref)
 
 /* -------------------------------------------------------------------------- */
 
-static m_value CALLBACK _fs_refcount_acquire(m_value *val)
+static variant CALLBACK _fs_refcount_acquire(variant val)
 {
-    m_value ret = { 0 };
-    m_file *ref = val->data.pointer;
+    variant ret = { 0 };
+    m_file *ref = value_to_pointer(val);
 
     if (! ref || _fs_refcount_lock(ref) == -1) return ret;
 
-    ret.data.pointer = ref;
-    ret.type = VALUE_POINTER;
-
-    return ret;
+    return val;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static void _fs_orphan(m_value *val)
+static void _fs_orphan(variant val)
 {
-    m_file *file = val->data.pointer;
+    m_file *file = value_to_pointer(val);
 
     if ((int) file->_refcount >= 0) {
         file->_view = NULL;
@@ -271,7 +268,6 @@ static m_file *_fs_openfile(m_view *v, unsigned int flags, const char *p,
                             size_t l, m_auth *a)
 {
     m_file *new = NULL;
-    m_value val = { 0 };
     char fullpath[PATH_MAX];
     int len = 0;
     int open_flags = 0x0;
@@ -298,8 +294,11 @@ _try_again:
     retry = 0;
 
     /* check if the file exists in the cache */
-    val = trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire);
-    if ( (new = val.data.pointer) ) {
+    new = value_to_pointer(
+        trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
+    );
+
+    if (new) {
         if (~flags & FILE_OPEN_SHARED ||
             new->flags & FILE_PRIVATE ||
             new->flags & FILE_DELETED ||
@@ -417,13 +416,10 @@ _try_again:
     new->_lockstate = 1;
     new->_refcount = 1;
 
-    val.data.pointer = new;
-    val.type = VALUE_POINTER;
-
     /* XXX should use different records depending on access rights */
 
     /* try to insert the new record in the cache */
-    if (trie_insert(v->_cache, new->path, len, & val)) {
+    if (trie_insert(v->_cache, new->path, len, value_from_pointer(new))) {
         debug("_fs_openfile(): cannot insert the new cache record.\n");
         goto _err_hash;
     }
@@ -474,19 +470,16 @@ public m_file *fs_openfile(m_view *v, const char *p, size_t l, m_auth *a)
 
 public m_file *fs_reopenfile(m_file *f)
 {
-    m_value val = { 0 };
+    variant val = { 0 };
 
     if (! f) {
         debug("fs_reopenfile(): bad parameters.\n");
         return NULL;
     }
 
-    val.data.pointer = f;
-    val.type = VALUE_POINTER;
+    val = _fs_refcount_acquire(value_from_pointer(f));
 
-    val = _fs_refcount_acquire(& val);
-
-    if ( (f = val.data.pointer) ) {
+    if ( (f = value_to_pointer(val)) ) {
         if (f->flags & FILE_PRIVATE || f->flags & FILE_DELETED) {
             /* if the initial opener didn't allow the use of a shared copy,
                or a private copy is already in use, or the mapping is
@@ -572,7 +565,6 @@ public int fs_isopened(m_view *v, const char *p, size_t l)
 
     char fullpath[PATH_MAX];
     int len = 0;
-    m_value val = { 0 };
 
     if (! p || ! l) {
         debug("fs_isopenfile(): bad parameters.\n");
@@ -583,9 +575,9 @@ public int fs_isopened(m_view *v, const char *p, size_t l)
         return 0;
 
     /* check if the file exists in the cache */
-    val = trie_lookup(v->_cache, fullpath, len, NULL);
-
-    return (val.data.pointer != NULL);
+    return (
+        value_to_pointer(trie_lookup(v->_cache, fullpath, len, NULL)) != NULL
+    );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -679,7 +671,7 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
 {
     char fullpath[PATH_MAX];
     int len = 0, flags = 0;
-    m_value val = { 0 };
+    variant val = { 0 };
     m_file *new = NULL, *prev = NULL;
 
     if (! p || ! l || ! data) {
@@ -698,9 +690,11 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
     }
 
     /* check if there is a previous mapping */
-    val = trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire);
+    prev = value_to_pointer(
+        trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
+    );
 
-    if ( (prev = val.data.pointer) ) {
+    if (prev) {
         /* check if the previous mapping is physical */
         flags = prev->flags; _fs_refcount_unlock(prev);
 
@@ -775,14 +769,15 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
     new->_lockstate = 1;
     new->_refcount = 0;
 
-    val.data.pointer = new;
-    val.type = VALUE_POINTER;
+    val = value_from_pointer(new);
 
     if (prev) {
         /* replace the old virtual mapping by the new one */
-        val = trie_update(v->_cache, new->path, new->pathlen, & val);
+        prev = value_to_pointer(
+            trie_update(v->_cache, new->path, new->pathlen, val)
+        );
 
-        if ( (prev = val.data.pointer) == new) {
+        if (prev == new) {
             debug("_fs_map(): cannot replace the existing mapping.\n");
             goto _err_hash;
         } else if (prev) {
@@ -793,7 +788,7 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
         }
     } else {
         /* we only create the mapping if it does not already exist */
-        if (trie_insert(v->_cache, new->path, new->pathlen, & val)) {
+        if (trie_insert(v->_cache, new->path, new->pathlen, val)) {
             debug("_fs_map(): cannot insert the new mapping.\n");
             goto _err_hash;
         }
@@ -872,7 +867,6 @@ public int fs_rename(m_view *v, const char *old, size_t oldlen,
 {
     char oldpath[PATH_MAX];
     char newpath[PATH_MAX];
-    m_value val = { 0 };
     m_file *f = NULL;
     int physical = 0;
 
@@ -895,8 +889,11 @@ public int fs_rename(m_view *v, const char *old, size_t oldlen,
 
     if (! physical) {
         /* get the old mapping data */
-        val = trie_lookup(v->_cache, oldpath, oldlen, _fs_refcount_acquire);
-        if (! (f = val.data.pointer) ) {
+        f = value_to_pointer(
+            trie_lookup(v->_cache, oldpath, oldlen, _fs_refcount_acquire)
+        );
+
+        if (! f) {
             debug("fs_rename(): mapping not found.\n");
             return -1;
         }
@@ -937,7 +934,6 @@ public int fs_delete(m_view *v, const char *p, size_t l)
 {
     char fullpath[PATH_MAX];
     int len = 0, physical = 0;
-    m_value val = { 0 };
     m_file *f = NULL;
 
     /* get the full path */
@@ -959,8 +955,11 @@ public int fs_delete(m_view *v, const char *p, size_t l)
             return -1;
         }
     } else {
-        val = trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire);
-        if (! (f = val.data.pointer) ) {
+        f = value_to_pointer(
+            trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
+        );
+
+        if (! f) {
             debug("fs_delete(): mapping not found.\n");
             return -1;
         }
@@ -978,7 +977,6 @@ public int fs_delete(m_view *v, const char *p, size_t l)
 
 public m_file *fs_closefile(m_file *file)
 {
-    m_value val = { 0 };
     m_file *ret = NULL;
 
     if (! file) return NULL;
@@ -1000,8 +998,9 @@ public m_file *fs_closefile(m_file *file)
 
         if (file->_view) {
             /* the file is not orphaned */
-            val = trie_remove(file->_view->_cache, file->path, file->pathlen);
-            ret = val.data.pointer;
+            ret = value_to_pointer(
+                trie_remove(file->_view->_cache, file->path, file->pathlen)
+            );
         } else ret = file;
 
         if (ret) {

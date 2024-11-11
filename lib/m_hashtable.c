@@ -75,14 +75,16 @@ static uint8_t _crc_lut[256] = {
     0xb6, 0xe8, 0x0a, 0x54, 0xd7, 0x89, 0x6b, 0x35
 };
 
+#pragma pack(push, 1)
 typedef struct _m_item {
     void *ptr;
-    void *val;
+    variant val;
     struct {
         uint16_t len;
         char str[];
     } key;
 } _m_item;
+#pragma pack(pop)
 
 typedef struct _m_bucket {
     struct _m_bucket *next;
@@ -90,287 +92,71 @@ typedef struct _m_bucket {
 } _m_bucket;
 
 /* -------------------------------------------------------------------------- */
+/* BITWISE OPERATIONS */
+/* -------------------------------------------------------------------------- */
 
-static uint32_t _hash(const char *data, size_t len, uint32_t initval)
+#include "ports/m_port_bitops.c"
+
+/* -------------------------------------------------------------------------- */
+/* wyhash32 (author: 王一 Wang Yi <godspeed_china@yeah.net>) */
+/* -------------------------------------------------------------------------- */
+
+static uint32_t _wyr32(const uint8_t *p)
 {
-    /* Bob Jenkins' lookup3 hash function, used for the bucket index */
-    uint32_t a, b, c;                         /* internal state */
-    union { const void *ptr; size_t i; } u;   /* needed for Mac Powerbook G4 */
-
-    #define rot(x, k) (((x) << (k)) | ((x) >> (32 - (k))))
-
-    #define mix(a, b, c) \
-    { \
-        a -= c; a ^= rot(c, 4); c += b; \
-        b -= a; b ^= rot(a, 6); a += c; \
-        c -= b; c ^= rot(b, 8); b += a; \
-        a -= c; a ^= rot(c,16); c += b; \
-        b -= a; b ^= rot(a,19); a += c; \
-        c -= b; c ^= rot(b, 4); b += a; \
-    }
-
-    #define final(a, b, c) \
-    { \
-        c ^= b; c -= rot(b,14); \
-        a ^= c; a -= rot(c,11); \
-        b ^= a; b -= rot(a,25); \
-        c ^= b; c -= rot(b,16); \
-        a ^= c; a -= rot(c, 4); \
-        b ^= a; b -= rot(a,14); \
-        c ^= b; c -= rot(b,24); \
-    }
-
-    /* set up the internal state */
-    a = b = c = 0x9e3779b9 + ((uint32_t) len) + initval;
-
-    u.ptr = data;
-
-    #ifdef LITTLE_ENDIAN_HOST
-    if ((u.i & 0x3) == 0) {
-        const uint32_t *k = (const uint32_t *) data; /* read 32-bit chunks */
-        #ifdef DEBUG
-        const uint8_t *k8;
-        #endif
-
-        /* all but last block: aligned reads and affect 32 bits of (a, b, c) */
-        while (len > 12) {
-            a += k[0]; b += k[1]; c += k[2];
-            mix(a, b, c);
-            len -= 12; k += 3;
-        }
-
-        /* - handle the last (probably partial) block
-         *
-         * "k[2]&0xffffff" actually reads beyond the end of the string, but
-         * then masks off the part it's not allowed to read.  Because the
-         * string is aligned, the masked-off tail is in the same word as the
-         * rest of the string.  Every machine with memory protection I've seen
-         * does it on word boundaries, so is OK with this.  But VALGRIND will
-         * still catch it and complain.  The masking trick does make the hash
-         * noticably faster for short strings (like English words).
-         */
-        #ifndef DEBUG
-
-        switch(len) {
-            case 12: c += k[2]; b += k[1]; a += k[0]; break;
-            case 11: c += k[2] & 0xffffff; b += k[1]; a += k[0]; break;
-            case 10: c += k[2] & 0xffff; b += k[1]; a += k[0]; break;
-            case 9 : c += k[2] & 0xff; b += k[1]; a += k[0]; break;
-            case 8 : b += k[1]; a += k[0]; break;
-            case 7 : b += k[1] & 0xffffff; a += k[0]; break;
-            case 6 : b += k[1] & 0xffff; a += k[0]; break;
-            case 5 : b += k[1] & 0xff; a += k[0]; break;
-            case 4 : a += k[0]; break;
-            case 3 : a += k[0] & 0xffffff; break;
-            case 2 : a += k[0] & 0xffff; break;
-            case 1 : a += k[0] & 0xff; break;
-            case 0 : return c; /* zero length strings require no mixing */
-        }
-
-        #else /* make valgrind happy */
-
-        k8 = (const uint8_t *) k;
-        switch(len) {
-            case 12: c += k[2]; b += k[1]; a += k[0]; break;
-            case 11: c += ((uint32_t) k8[10]) << 16;  /* fall through */
-            case 10: c += ((uint32_t) k8[9]) << 8;    /* fall through */
-            case 9 : c += k8[8];                      /* fall through */
-            case 8 : b += k[1]; a += k[0]; break;
-            case 7 : b += ((uint32_t) k8[6]) << 16;   /* fall through */
-            case 6 : b += ((uint32_t) k8[5]) << 8;    /* fall through */
-            case 5 : b += k8[4];                      /* fall through */
-            case 4 : a += k[0]; break;
-            case 3 : a += ((uint32_t) k8[2]) << 16;   /* fall through */
-            case 2 : a += ((uint32_t) k8[1]) << 8;    /* fall through */
-            case 1 : a += k8[0]; break;
-            case 0 : return c;
-        }
-
-        #endif /* !valgrind */
-
-    } else if ((u.i & 0x1) == 0) {
-        const uint16_t *k = (const uint16_t *) data; /* read 16-bit chunks */
-        const uint8_t *k8;
-
-        /* - all but last block: aligned reads and different mixing */
-        while (len > 12) {
-            a += k[0] + (((uint32_t) k[1]) << 16);
-            b += k[2] + (((uint32_t) k[3]) << 16);
-            c += k[4] + (((uint32_t) k[5]) << 16);
-            mix(a, b, c);
-            len -= 12; k += 6;
-        }
-
-        /* - handle the last (probably partial) block */
-        k8 = (const uint8_t *) k;
-        switch(len) {
-            case 12: c += k[4] + (((uint32_t) k[5]) << 16);
-                     b += k[2] + (((uint32_t) k[3]) << 16);
-                     a += k[0] + (((uint32_t) k[1]) << 16);
-                     break;
-            case 11: c += ((uint32_t) k8[10]) << 16;     /* fall through */
-            case 10: c += k[4];
-                     b += k[2] + (((uint32_t) k[3]) << 16);
-                     a += k[0] + (((uint32_t) k[1]) << 16);
-                     break;
-            case 9 : c += k8[8];                         /* fall through */
-            case 8 : b += k[2] + (((uint32_t) k[3]) << 16);
-                     a += k[0] + (((uint32_t) k[1]) << 16);
-                     break;
-            case 7 : b += ((uint32_t) k8[6]) << 16;      /* fall through */
-            case 6 : b += k[2];
-                     a += k[0]+(((uint32_t) k[1]) << 16);
-                     break;
-            case 5 : b += k8[4];                         /* fall through */
-            case 4 : a += k[0] + (((uint32_t) k[1]) << 16);
-                     break;
-            case 3 : a += ((uint32_t) k8[2]) << 16;      /* fall through */
-            case 2 : a += k[0];
-                     break;
-            case 1 : a += k8[0];
-                     break;
-            case 0 : return c; /* zero length requires no mixing */
-        }
-
-    } else { /* need to read the key one byte at a time */
-        const uint8_t *k = (const uint8_t *) data;
-
-        /* all but the last block: affect some 32 bits of (a, b, c) */
-        while (len > 12) {
-            a += k[0];
-            a += ((uint32_t) k[1]) << 8;
-            a += ((uint32_t) k[2]) << 16;
-            a += ((uint32_t) k[3]) << 24;
-            b += k[4];
-            b += ((uint32_t) k[5]) << 8;
-            b += ((uint32_t) k[6]) << 16;
-            b += ((uint32_t) k[7]) << 24;
-            c += k[8];
-            c += ((uint32_t) k[9]) << 8;
-            c += ((uint32_t) k[10]) << 16;
-            c += ((uint32_t) k[11]) << 24;
-            mix(a, b, c);
-            len -= 12; k += 12;
-        }
-
-        /* - last block: affect all 32 bits of (c) */
-        switch(len) {
-            case 12: c += ((uint32_t) k[11]) << 24;
-            case 11: c += ((uint32_t) k[10]) << 16;
-            case 10: c += ((uint32_t) k[9]) << 8;
-            case 9 : c += k[8];
-            case 8 : b += ((uint32_t) k[7]) << 24;
-            case 7 : b += ((uint32_t) k[6]) << 16;
-            case 6 : b += ((uint32_t) k[5]) << 8;
-            case 5 : b += k[4];
-            case 4 : a += ((uint32_t) k[3]) << 24;
-            case 3 : a += ((uint32_t) k[2]) << 16;
-            case 2 : a += ((uint32_t) k[1]) << 8;
-            case 1 : a += k[0]; break;
-            case 0 : return c;
-        }
-    }
-    #elif defined(BIG_ENDIAN_HOST)
-    if ((u.i & 0x3) == 0) {
-        const uint32_t *k = (const uint32_t *) data; /* read 32-bit chunks */
-        #ifdef DEBUG
-        const uint8_t *k8;
-        #endif
-
-        /* all but last block: aligned reads and affect 32 bits of (a, b, c) */
-        while (len > 12) {
-            a += k[0]; b += k[1]; c += k[2];
-            mix(a, b, c);
-            len -= 12; k += 3;
-        }
-
-        /* - handle the last (probably partial) block */
-        #ifndef DEBUG
-
-        switch(len) {
-            case 12: c += k[2]; b += k[1]; a += k[0]; break;
-            case 11: c += k[2] & 0xffffff00; b += k[1]; a += k[0]; break;
-            case 10: c += k[2] & 0xffff0000; b += k[1]; a += k[0]; break;
-            case 9 : c += k[2] & 0xff000000; b += k[1]; a += k[0]; break;
-            case 8 : b += k[1]; a += k[0]; break;
-            case 7 : b += k[1] & 0xffffff00; a += k[0]; break;
-            case 6 : b += k[1] & 0xffff0000; a += k[0]; break;
-            case 5 : b += k[1] & 0xff000000; a += k[0]; break;
-            case 4 : a += k[0]; break;
-            case 3 : a += k[0] & 0xffffff00; break;
-            case 2 : a += k[0] & 0xffff0000; break;
-            case 1 : a += k[0] & 0xff000000; break;
-            case 0 : return c; /* zero length strings require no mixing */
-        }
-
-        #else  /* make valgrind happy */
-
-        k8 = (const uint8_t *) k;
-        switch(len) {
-            case 12: c += k[2]; b += k[1]; a += k[0]; break;
-            case 11: c += ((uint32_t) k8[10]) << 8;  /* fall through */
-            case 10: c += ((uint32_t) k8[9]) << 16;  /* fall through */
-            case 9 : c += ((uint32_t) k8[8]) << 24;  /* fall through */
-            case 8 : b += k[1]; a += k[0]; break;
-            case 7 : b += ((uint32_t) k8[6]) << 8;   /* fall through */
-            case 6 : b += ((uint32_t) k8[5]) << 16;  /* fall through */
-            case 5 : b += ((uint32_t) k8[4]) << 24;  /* fall through */
-            case 4 : a += k[0]; break;
-            case 3 : a += ((uint32_t) k8[2]) << 8;   /* fall through */
-            case 2 : a += ((uint32_t) k8[1]) << 16;  /* fall through */
-            case 1 : a += ((uint32_t) k8[0]) << 24; break;
-            case 0 : return c;
-        }
-
-        #endif /* !VALGRIND */
-
-    } else { /* need to read the key one byte at a time */
-        const uint8_t *k = (const uint8_t *) data;
-
-        /* all but the last block: affect some 32 bits of (a, b, c) */
-        while (len > 12) {
-            a += ((uint32_t) k[0]) << 24;
-            a += ((uint32_t) k[1]) << 16;
-            a += ((uint32_t) k[2]) <<  8;
-            a += ((uint32_t) k[3]);
-            b += ((uint32_t) k[4]) << 24;
-            b += ((uint32_t) k[5]) << 16;
-            b += ((uint32_t) k[6]) <<  8;
-            b += ((uint32_t) k[7]);
-            c += ((uint32_t) k[8]) << 24;
-            c += ((uint32_t) k[9]) << 16;
-            c += ((uint32_t) k[10]) << 8;
-            c += ((uint32_t) k[11]);
-            mix(a, b, c);
-            len -= 12; k += 12;
-        }
-
-        /* - last block: affect all 32 bits of (c) */
-        switch(len) {
-            case 12: c += k[11];
-            case 11: c += ((uint32_t) k[10]) << 8;
-            case 10: c += ((uint32_t) k[9]) << 16;
-            case 9 : c += ((uint32_t) k[8]) << 24;
-            case 8 : b += k[7];
-            case 7 : b += ((uint32_t) k[6]) <<  8;
-            case 6 : b += ((uint32_t) k[5]) << 16;
-            case 5 : b += ((uint32_t) k[4]) << 24;
-            case 4 : a += k[3];
-            case 3 : a += ((uint32_t) k[2]) << 8;
-            case 2 : a += ((uint32_t) k[1]) << 16;
-            case 1 : a += ((uint32_t) k[0]) << 24; break;
-            case 0 : return c;
-        }
-    }
+    uint32_t result;
+    memcpy(& result, p, sizeof(result));
+    #if defined(BIG_ENDIAN_HOST)
+    return __bswap32(result);
     #else
-    #error unable to detect endianness
+    return result;
     #endif
-
-    final(a, b, c);
-
-    return c;
 }
 
+/* -------------------------------------------------------------------------- */
+
+static uint32_t _wyr24(const uint8_t *p, uint32_t k)
+{
+    return (((uint32_t) p[0]) << 16) | (((uint32_t) p[k >> 1]) << 8) | p[k - 1];
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void _wymix32(uint32_t *a, uint32_t *b)
+{
+    uint64_t c = *a ^ 0x53c5ca59u;
+    c *= *b ^ 0x74743c1bu;
+    *a = (uint32_t) c;
+    *b = (uint32_t) (c >> 32);
+}
+
+/* -------------------------------------------------------------------------- */
+
+static uint32_t _hash(const char *key, uint16_t len, uint32_t seed)
+{
+    const uint8_t *p = (const uint8_t *) key;
+    uint32_t i, see1 = len;
+
+    _wymix32(& seed, & see1);
+
+    for (i = len; i > 8; i -= 8, p += 8) {
+        seed ^= _wyr32(p);
+        see1 ^= _wyr32(p + 4);
+        _wymix32(& seed, & see1);
+    }
+
+    if (i >= 4) {
+        seed ^= _wyr32(p);
+        see1 ^= _wyr32(p + i - 4);
+    } else if (i) seed ^= _wyr24(p, i);
+
+    _wymix32(& seed, & see1);
+    _wymix32(& seed, & see1);
+
+    return seed ^ see1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* CRC8 */
 /* -------------------------------------------------------------------------- */
 
 static uint8_t _crc8(const char *string, size_t len)
@@ -382,7 +168,7 @@ static uint8_t _crc8(const char *string, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static int _cache_push(m_cache *h, _m_item *item, int replace, void **val)
+static int _cache_push(m_cache *h, _m_item *item, int replace, variant *val)
 {
     unsigned int i = 0;
     uintptr_t index = 0;
@@ -412,8 +198,10 @@ _loop:  if (! h->_bucket[index]) {
 
         if (replace) {
             slot = h->_bucket[index];
-            if (! memcmp(& item->key, & slot->key, item->key.len + sizeof(item->key.len)))
-                goto _replace;
+            if (likely(item->key.len == slot->key.len)) {
+                if (! memcmp(& item->key.str, & slot->key.str, item->key.len))
+                    goto _replace;
+            }
         }
 
         hash_cache[i] = index;
@@ -422,8 +210,10 @@ _loop:  if (! h->_bucket[index]) {
     if (replace) {
         /* couldn't find it, look in the basket */
         for (slot = h->_basket; slot; slot = slot->ptr) {
-            if (! memcmp(& item->key, & slot->key, item->key.len + sizeof(item->key.len)))
-                goto _replace;
+            if (likely(item->key.len == slot->key.len)) {
+                if (! memcmp(& item->key.str, & slot->key.str, item->key.len))
+                    goto _replace;
+            }
         }
     }
 
@@ -510,7 +300,7 @@ static int _cache_resize(m_cache *h, size_t size)
 
 /* -------------------------------------------------------------------------- */
 
-public m_cache *cache_alloc(void *(*freeval)(void *))
+public m_cache *cache_alloc(void (*freeval)(variant))
 {
     unsigned int i = 0;
     m_random *r = NULL;
@@ -538,8 +328,17 @@ public m_cache *cache_alloc(void *(*freeval)(void *))
     h->_index = NULL;
     h->_freeval = freeval;
 
-    for (i = 0; i < CACHE_HASHFNCOUNT; i ++)
+    for (i = 0; i < CACHE_HASHFNCOUNT; i ++) {
         h->_seed[i] = random_uint32(r);
+        /* known bad seeds */
+        if ((h->_seed[i] == 0x429dacdd) ||
+            (h->_seed[i] == 0x51a43a0f) ||
+            (h->_seed[i] == 0x522235ae) ||
+            (h->_seed[i] == 0x99ac2b20) ||
+            (h->_seed[i] == 0x9a4f1376) ||
+            (h->_seed[i] == 0xd637dbf3))
+            h->_seed[i] ++;
+    }
 
     if (_cache_resize(h, 4) == -1) {
         debug("cache_alloc(): cannot resize the hash table.\n");
@@ -566,8 +365,8 @@ _err_rand:
 
 /* -------------------------------------------------------------------------- */
 
-static void *_cache_add(m_cache *h, const char *key, size_t len, void *val,
-                        int replace)
+static variant _cache_add(m_cache *h, const char *key, size_t len, variant val,
+                          int replace)
 {
     _m_bucket *bucket = NULL;
 
@@ -591,7 +390,8 @@ static void *_cache_add(m_cache *h, const char *key, size_t len, void *val,
 
     if (! _cache_push(h, & bucket->item, replace, & val)) {
         bucket->next = h->_index; h->_index = bucket;
-        val = NULL;
+        val.type = VALUE_POINTER;
+        val.value.pointer = NULL;
     } else free(bucket);
 
     /* try to expand the hashtable if the load is too important */
@@ -605,31 +405,31 @@ static void *_cache_add(m_cache *h, const char *key, size_t len, void *val,
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_push(m_cache *h, const char *k, size_t l, void *v)
+public variant cache_push(m_cache *h, const char *k, size_t l, variant v)
 {
     return _cache_add(h, k, l, v, 1);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_add(m_cache *h, const char *k, size_t l, void *v)
+public variant cache_add(m_cache *h, const char *k, size_t l, variant v)
 {
     return _cache_add(h, k, l, v, -1);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_findexec(m_cache *h, const char *key, size_t len,
-                            void *(*function)(void *))
+public variant cache_lookup(m_cache *h, const char *key, size_t len,
+                            variant (*function)(variant))
 {
     unsigned int i = 0, j = 0;
     _m_item *ptr = NULL;
-    void *res = NULL;
+    variant res = { 0 };
     uint32_t mask = 0;
 
     if (! h || ! key || ! len) {
-        debug("cache_findexec(): bad parameters.\n");
-        return NULL;
+        debug("cache_lookup(): bad parameters.\n");
+        return res;
     }
 
     pthread_rwlock_rdlock(h->_lock);
@@ -664,19 +464,18 @@ _result:
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_find(m_cache *h, const char *key, size_t len)
+public variant cache_find(m_cache *h, const char *key, size_t len)
 {
-    return cache_findexec(h, key, len, NULL);
+    return cache_lookup(h, key, len, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void cache_foreach(m_cache *h,
-                          int (*function)(const char *, size_t, void *))
+public void cache_foreach(m_cache *h, int (*f)(const char *, size_t, variant))
 {
     _m_bucket *bucket = NULL;
 
-    if (! h || ! function) {
+    if (! h || ! f) {
         debug("cache_foreach(): bad parameters.\n");
         return;
     }
@@ -685,7 +484,7 @@ public void cache_foreach(m_cache *h,
 
     for (bucket = h->_index; bucket; bucket = bucket->next) {
         if (bucket->item.key.len) {
-            if (function(bucket->item.key.str, bucket->item.key.len, bucket->item.val) == -1) {
+            if (f(bucket->item.key.str, bucket->item.key.len, bucket->item.val) == -1) {
                 /* delete the record */
                 bucket->item.key.len = 0;
             }
@@ -701,7 +500,7 @@ public void cache_foreach(m_cache *h,
 
 public int cache_sort(m_cache *h, unsigned int order,
                       int (*cmp)(const char *key0, const char *key1, size_t len,
-                                 void *value0, void *value1))
+                                 variant value0, variant value1))
 {
     _m_bucket *l[2] = { NULL, NULL }, *bucket = NULL, *tail = NULL;
     unsigned int size = 1, merge = 0, i = 0;
@@ -764,23 +563,23 @@ public int cache_sort(m_cache *h, unsigned int order,
 /* -------------------------------------------------------------------------- */
 
 public int cache_sort_keys(const char *key0, const char *key1, size_t l,
-                           UNUSED void *val0, UNUSED void *val1)
+                           UNUSED variant val0, UNUSED variant val1)
 {
     return memcmp(key0, key1, l);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_pop(m_cache *h, const char *key, size_t len)
+public variant cache_pop(m_cache *h, const char *key, size_t len)
 {
     unsigned int i = 0, j = 0;
     _m_item *tmp = NULL, *prev = NULL;
-    void *result = NULL;
+    variant result = { 0 };
     uint32_t mask = 0;
 
     if (! h || ! key || ! len) {
         debug("cache_pop(): bad parameters.\n");
-        return NULL;
+        return result;
     }
 
     pthread_rwlock_wrlock(h->_lock);
@@ -825,7 +624,9 @@ public void *cache_pop(m_cache *h, const char *key, size_t len)
 
     pthread_rwlock_unlock(h->_lock);
 
-    return NULL;
+    result.type = VALUE_POINTER;
+    result.value.pointer = NULL;
+    return result;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -854,7 +655,7 @@ public size_t cache_footprint(m_cache *h, size_t *overhead)
             if (bucket->item.key.len) {
                 /* key length + key recorded size + next and value pointers */
                 ret += sizeof(char *) + bucket->item.key.len + sizeof(bucket->item.key.len) +
-                       sizeof(char *) + sizeof(void *);
+                       sizeof(char *) + sizeof(variant);
                 /* key length and value pointer are not overhead */
                 key += sizeof(bucket->item.key.len) + bucket->item.key.len + sizeof(void *);
             }
@@ -892,7 +693,7 @@ public m_cache *cache_free(m_cache *h)
 
 /* -------------------------------------------------------------------------- */
 
-public m_hashtable *hashtable_alloc(void *(*freeval)(void *))
+public m_hashtable *hashtable_alloc(void (*freeval)(variant))
 {
     unsigned int i = 0;
 
@@ -935,9 +736,12 @@ public size_t hashtable_footprint(m_hashtable *h, size_t *overhead)
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_insert(m_hashtable *h, const char *k, size_t l, void *v)
+public variant hashtable_insert(m_hashtable *h, const char *k, size_t l, variant v)
 {
-    if (! k || ! l) return NULL;
+    if (! k || ! l) {
+        variant val = { 0 };
+        return val;
+    }
 
     if (! h) return v;
 
@@ -946,9 +750,12 @@ public void *hashtable_insert(m_hashtable *h, const char *k, size_t l, void *v)
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_update(m_hashtable *h, const char *k, size_t l, void *v)
+public variant hashtable_update(m_hashtable *h, const char *k, size_t l, variant v)
 {
-    if (! k || ! l) return NULL;
+    if (! k || ! l) {
+        variant val = { 0 };
+        return val;
+    }
 
     if (! h) return v;
 
@@ -957,27 +764,33 @@ public void *hashtable_update(m_hashtable *h, const char *k, size_t l, void *v)
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_remove(m_hashtable *h, const char *key, size_t len)
+public variant hashtable_remove(m_hashtable *h, const char *key, size_t len)
 {
-    if (! h || ! key || ! len) return NULL;
+    if (! h || ! key || ! len) {
+        variant val = { 0 };
+        return val;
+    }
 
     return cache_pop(h->_segment[_crc8(key, len)], key, len);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_findexec(m_hashtable *h, const char *key,
-                                size_t len, void *(*function)(void *))
+public variant hashtable_lookup(m_hashtable *h, const char *key,
+                                size_t len, variant (*function)(variant))
 {
-    if (! h || ! key || ! len) return NULL;
+    if (! h || ! key || ! len) {
+        variant val = { 0 };
+        return val;
+    }
 
-    return cache_findexec(h->_segment[_crc8(key, len)], key, len, function);
+    return cache_lookup(h->_segment[_crc8(key, len)], key, len, function);
 }
 
 /* -------------------------------------------------------------------------- */
 
 public void hashtable_foreach(m_hashtable *h,
-                              int (*function)(const char *, size_t, void *))
+                              int (*function)(const char *, size_t, variant))
 {
     unsigned int i = 0;
 
@@ -993,9 +806,12 @@ public void hashtable_foreach(m_hashtable *h,
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_find(m_hashtable *h, const char *key, size_t len)
+public variant hashtable_find(m_hashtable *h, const char *key, size_t len)
 {
-    if (! h || ! key || ! len) return NULL;
+    if (! h || ! key || ! len) {
+        variant val = { 0 };
+        return val;
+    }
 
     return cache_find(h->_segment[_crc8(key, len)], key, len);
 }

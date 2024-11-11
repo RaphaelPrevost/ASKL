@@ -331,9 +331,9 @@ static int server_reply_process(m_reply *r, m_socket *s)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_UDP
-static int _server_poll_udp(UNUSED const char *k, UNUSED size_t l, void *value)
+static int _server_poll_udp(UNUSED const char *k, UNUSED size_t l, variant val)
 {
-    unsigned int id = (long) value;
+    unsigned int id = value_to_integer(val);
 
     if (! queue_empty(_work[id])) {
         socket_queue_add(_writable, id);
@@ -484,14 +484,13 @@ static m_socket *_server_receive(m_string *buffer)
     if (s->_flags & SOCKET_UDP) {
         unsigned int udp = 0;
         m_socket *z = NULL;
-
-        udp = (long) hashtable_find(
+        variant val = hashtable_find(
             _UDP,
             (char *) s->info->ai_addr,
             s->info->ai_addrlen
         );
 
-        if (! udp) {
+        if (! is_integer(val) || ! (udp = value_to_integer(val))) {
             SOCKET fd = 0;
             char host[NI_MAXHOST];
             char serv[NI_MAXSERV];
@@ -518,7 +517,7 @@ static m_socket *_server_receive(m_string *buffer)
                 _UDP,
                 (char *) z->info->ai_addr,
                 z->info->ai_addrlen,
-                (void *) (uintptr_t) SOCKET_ID(z)
+                value_from_integer(SOCKET_ID(z))
             );
 
         } else {
@@ -666,7 +665,7 @@ _release:
             _UDP,
             (char *) s->info->ai_addr,
             s->info->ai_addrlen,
-            (void *) (uintptr_t) SOCKET_ID(s)
+            value_from_integer(SOCKET_ID(s))
         );
     }
     else

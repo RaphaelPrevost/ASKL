@@ -40,14 +40,14 @@
 #ifdef _ENABLE_TRIE
 
 #include "m_core_def.h"
-#include "m_value.h"
+#include "m_variant.h"
 
 /** @defgroup trie module::trie */
 
 typedef struct m_trie {
     pthread_rwlock_t *_lock;
     void *_root;
-    void (*_freeval)(m_value *);
+    void (*_freeval)(variant);
 } m_trie;
 
 /**
@@ -61,11 +61,11 @@ typedef struct m_trie {
 
 /* -------------------------------------------------------------------------- */
 
-public m_trie *trie_alloc(void (*freeval)(m_value *));
+public m_trie *trie_alloc(void (*freeval)(variant));
 
 /**
  * @ingroup trie
- * @fn m_trie *trie_alloc(void (*freeval)(void *))
+ * @fn m_trie *trie_alloc(void (*freeval)(variant *))
  * @param freeval optional pointer to a cleanup function
  *
  * This function allocates a new crit-bit trie. If the @b freeval callback is
@@ -78,15 +78,15 @@ public m_trie *trie_alloc(void (*freeval)(m_value *));
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert(m_trie *t, const char *key, size_t ulen, m_value *value);
+public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value);
 
 /**
  * @ingroup trie
- * @fn trie_insert(m_trie *t, const char *key, size_t ulen, void *value)
+ * @fn trie_insert(m_trie *t, const char *key, size_t ulen, variant *value)
  * @param t a pointer to a trie
  * @param key the name which will be used to retrieve the stored data
  * @param ulen the length of the key
- * @param value a pointer to the data that will be stored in the trie
+ * @param value the data that will be stored in the trie
  * @return -1 if an error occurs, 0 otherwise
  *
  * This function stores in a given trie the data provided, associated to the
@@ -104,15 +104,15 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, m_value *value);
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert_r(m_trie *t, const char *key, size_t ulen, m_value *value);
+public int trie_insert_r(m_trie *t, const char *key, size_t ulen, variant val);
 
 /**
  * @ingroup trie
- * @fn trie_insert_r(m_trie *t, const char *key, size_t ulen, void *value)
+ * @fn trie_insert_r(m_trie *t, const char *key, size_t ulen, variant *val)
  * @param t a pointer to a trie
  * @param key the name which will be used to retrieve the stored data
  * @param ulen the length of the key
- * @param value a pointer to the data that will be stored in the trie
+ * @param val the data that will be stored in the trie
  * @return -1 if an error occurs, 0 otherwise
  *
  * This function is simply a thread-safe wrapper around @ref trie_insert(),
@@ -122,13 +122,13 @@ public int trie_insert_r(m_trie *t, const char *key, size_t ulen, m_value *value
 
 /* -------------------------------------------------------------------------- */
 
-public m_value trie_lookup(m_trie *t, const char *key, size_t ulen,
-                           m_value (CALLBACK *f)(m_value *));
+public variant trie_lookup(m_trie *t, const char *key, size_t ulen,
+                           variant (CALLBACK *f)(variant));
 
 /**
  * @ingroup trie
  * @fn trie_lookup(m_trie *t, const char *key, size_t ulen,
- *                 void *(CALLBACK *f)(void *))
+ *                 void *(CALLBACK *f)(variant *))
  * @param t a pointer to a trie
  * @param key the name which will be used to retrieve the stored data
  * @param ulen the length of the key
@@ -149,7 +149,7 @@ public m_value trie_lookup(m_trie *t, const char *key, size_t ulen,
 
 /* -------------------------------------------------------------------------- */
 
-public m_value trie_remove(m_trie *t, const char *key, size_t ulen);
+public variant trie_remove(m_trie *t, const char *key, size_t ulen);
 
 /**
  * @ingroup trie
@@ -168,16 +168,16 @@ public m_value trie_remove(m_trie *t, const char *key, size_t ulen);
 
 /* -------------------------------------------------------------------------- */
 
-public m_value trie_update(m_trie *t, const char *key, size_t ulen, m_value *value);
+public variant trie_update(m_trie *t, const char *key, size_t ulen, variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, m_value *));
+public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, variant));
 
 /* -------------------------------------------------------------------------- */
 
 public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
-                                int (*function)(const char *, size_t, m_value *));
+                                int (*function)(const char *, size_t, variant));
 
 /* -------------------------------------------------------------------------- */
 

@@ -898,9 +898,9 @@ static int path_append(m_string *path, const char *key, size_t len, int strict)
 
 /* -------------------------------------------------------------------------- */
 
-static void trie_destructor(m_value *val)
+static void trie_destructor(variant val)
 {
-    if (val->type == VALUE_POINTER) free(val->data.pointer);
+    if (is_pointer(val)) free(value_to_pointer(val));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -933,7 +933,7 @@ private int CALLBACK json_init(int type, m_json_parser *ctx)
 private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
 {
     struct jsonpath_context *context = ctx->context;
-    m_value val = { 0 };
+    variant val = { 0 };
     double number = 0.0;
     char *string = NULL;
 
@@ -950,17 +950,16 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
 
             if (! isfinite(number)) return -1;
 
-            val.data.decimal = number;
-            val.type = VALUE_DECIMAL;
+            val = value_from_decimal(number);
         } break;
 
-        case JSON_PRIMITIVE_NULL: val.type = VALUE_NULL; break;
+        case JSON_PRIMITIVE_NULL: val = value_null(); break;
 
         default:
             if (ctx->primitive.current.type & JSON_PRIMITIVE_BOOL) {
-                val.type = VALUE_BOOL;
-                if (ctx->primitive.current.type & JSON_PRIMITIVE_TRUE)
-                    val.type |= VALUE_TRUE;
+                val = value_from_boolean(
+                    (ctx->primitive.current.type & JSON_PRIMITIVE_TRUE)
+                );
             }
         }
     } else if (IS_STRING(data)) {
@@ -974,8 +973,7 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
             return -1;
         }
 
-        val.data.pointer = string;
-        val.type = VALUE_POINTER;
+        val = value_from_pointer(string);
     }
 
     if (ctx->parent == JSON_ARRAY) {
@@ -983,7 +981,7 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
         trie_insert(
             context->tree,
             DATA(context->path), SIZE(context->path),
-            & val
+            val
         );
         context->count = increment_index(context->path);
     } else if (ctx->key.current) {
@@ -998,7 +996,7 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
         trie_insert(
             context->tree,
             DATA(context->path), SIZE(context->path),
-            & val
+            val
         );
         if (likely(PARTS(context->path)))
             string_suppr_token(context->path, PARTS(context->path) - 1);
@@ -1017,7 +1015,7 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
 
 private int CALLBACK json_exit(int type, struct m_json_parser *ctx)
 {
-    m_value val = { 0 };
+    variant val = { 0 };
     struct jsonpath_context *context = ctx->context;
 
     if (type == JSON_ARRAY) {
@@ -1030,7 +1028,7 @@ private int CALLBACK json_exit(int type, struct m_json_parser *ctx)
             trie_insert(
                 context->tree,
                 DATA(context->path), SIZE(context->path),
-                & val
+                val
             );
         }
     }
@@ -1093,16 +1091,16 @@ _err_alloc:
 
 /* -------------------------------------------------------------------------- */
 
-int trie_print(const char *k, size_t len, m_value *val)
+int trie_print(const char *k, size_t len, variant val)
 {
     printf("%.*s = ", (int) len, k);
-    switch (val->type) {
-    case VALUE_POINTER: printf("%s\n", (char *) val->data.pointer); break;
-    case VALUE_DECIMAL: printf("%02f\n", val->data.decimal); break;
+    switch (val.type) {
+    case VALUE_POINTER: printf("%s\n", (char *) value_to_pointer(val)); break;
+    case VALUE_DECIMAL: printf("%02f\n", value_to_decimal(val)); break;
     case VALUE_NULL: printf("<NULL>\n"); break;
     default:
-    if (val->type & VALUE_BOOL)
-        printf("%s\n", (val->type & VALUE_TRUE) ? "TRUE" : "FALSE");
+    if (val.type & VALUE_BOOL)
+        printf("%s\n", (val.type & VALUE_TRUE) ? "TRUE" : "FALSE");
     }
     return 0;
 }

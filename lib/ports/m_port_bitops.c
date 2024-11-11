@@ -226,10 +226,43 @@ static inline uint32_t __bswap32(uint32_t i)
     #else
 
     /* portable software implementation */
-    return ((i >> 24) & 0x000000ff) |
-           ((i >> 8)  & 0x0000ff00) |
-           ((i << 8)  & 0x00ff0000) |
-           ((i << 24) & 0xff000000);
+    return (
+        ((i >> 24) & 0x000000ff) |
+        ((i >> 8)  & 0x0000ff00) |
+        ((i << 8)  & 0x00ff0000) |
+        ((i << 24) & 0xff000000)
+    );
+
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline uint64_t __bswap64(uint64_t i)
+{
+    #if (defined(__GNUC__))
+
+    return __builtin_bswap64(i);
+
+    #elif (defined(_MSC_VER) && (_MSC_VER >= 1400))
+
+    #pragma intrinsic(_byteswap_uint64)
+
+    return _byteswap_uint64(i);
+
+    #else
+
+    /* portable software implementation */
+    return (
+        (i << 56) |
+        ((i & 0xff00) << 40) |
+        ((i & 0xff0000) << 24) |
+        ((i & 0xff000000) << 8) |
+        ((i & 0xff00000000) >> 8) |
+        ((i & 0xff0000000000) >> 24) |
+        ((i & 0xff000000000000) >> 40) |
+        ((i & 0xff00000000000000) >> 56)
+    );
 
     #endif
 }

@@ -383,7 +383,7 @@ static void *_insert_loop(void *range)
 
     for (i = r; i <= r + _CACHE_THRNG; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        hashtable_insert(v, key, len, (void *) i);
+        hashtable_insert(v, key, len, value_from_integer(i));
     }
 
     pthread_exit(NULL);
@@ -394,6 +394,7 @@ static void *_insert_loop(void *range)
 static void *_read_loop(void *range)
 {
     uintptr_t i = 0, j = 0;
+    variant val;
     int missing = 0;
     size_t len = 0;
     char key[BUFSIZ];
@@ -406,9 +407,19 @@ static void *_read_loop(void *range)
 
     for (i = r; i <= r + _CACHE_THRNG; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if ( (j = (uintptr_t) hashtable_find(v, key, len)) != i) {
+        val = hashtable_find(v, key, len);
+        if (is_integer(val)) {
+            if ( (j = value_to_integer(val)) != i) {
+                missing ++;
+                printf(
+                    "(!) Key %" PRIuPTR " is missing ! "
+                    "(found %" PRIuPTR " instead)\n",
+                    i, j
+                );
+            }
+        } else {
             missing ++;
-            printf("(!) Key %" PRIuPTR " is missing ! (found %" PRIuPTR " instead)\n", i, j);
+            printf("(!) Key %" PRIuPTR " is missing ! ", i);
         }
     }
 
@@ -419,7 +430,7 @@ static void *_read_loop(void *range)
 
 /* -------------------------------------------------------------------------- */
 
-static int _print_and_delete_key(const char *key, size_t len, UNUSED void *val)
+static int _print_and_delete_key(const char *key, size_t len, UNUSED variant val)
 {
     printf("%.*s\n", (int) len, key);
     return -1;
@@ -431,6 +442,7 @@ int test_hashtable(void)
 {
     m_cache *h = NULL;
     uintptr_t i = 0, j = 0;
+    variant val = { 0 };
     int missing = 0;
     size_t len = 0;
     char key[BUFSIZ];
@@ -450,7 +462,7 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        cache_push(h, key, len, (void *) i);
+        cache_push(h, key, len, value_from_integer(i));
     }
     stop = clock();
     printf("(-) Time elapsed = ");
@@ -466,9 +478,19 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if ( (j = (uintptr_t) cache_find(h, key, len)) != i) {
+        val = cache_find(h, key, len);
+        if (is_integer(val)) {
+            if ( (j = value_to_integer(val)) != i) {
+                missing ++;
+                printf(
+                    "(!) Key %" PRIuPTR " is missing ! "
+                    "(found %" PRIuPTR " instead)\n",
+                    i, j
+                );
+            }
+        } else {
             missing ++;
-            printf("(!) Key %" PRIuPTR " is missing ! (found %" PRIuPTR " instead)\n", i, j);
+            printf("(!) Key %" PRIuPTR " is missing !\n", i);
         }
     }
     stop = clock();
@@ -484,7 +506,7 @@ int test_hashtable(void)
     while (! timeout && missing < _CACHE_RNDDL) {
         i = rand() % _CACHE_ITEMS;
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if (cache_pop(h, key, len)) missing ++;
+        if (is_integer(cache_pop(h, key, len))) missing ++;
     }
     timeout = 1;
 
@@ -503,8 +525,11 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if ( (j = (uintptr_t) cache_find(h, key, len)) != i)
-            missing ++;
+        val = cache_find(h, key, len);
+        if (is_integer(val)) {
+            if ( (j = value_to_integer(val)) != i)
+                missing ++;
+        } else missing ++;
     }
     stop = clock();
     printf("(-) Time elapsed = ");
@@ -518,7 +543,7 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        cache_push(h, key, len, (void *) (i + 1) );
+        cache_push(h, key, len, value_from_integer(i + 1));
     }
     stop = clock();
     printf("(-) Time elapsed = ");
@@ -533,7 +558,9 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if ((uintptr_t) cache_pop(h, key, len) != i + 1) missing ++;
+        val = cache_pop(h, key, len);
+        if (! is_integer(val) || value_to_integer(val) != (i + 1))
+            missing ++;
     }
     stop = clock();
     printf("(-) Time elapsed = ");
@@ -547,7 +574,9 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if ((uintptr_t) cache_find(h, key, len) != i + 1) missing ++;
+        val = cache_find(h, key, len);
+        if (! is_integer(val) || value_to_integer(val) != (i + 1))
+            missing ++;
         else printf("(!) found phantom key %" PRIuPTR " !\n", i);
     }
     stop = clock();
@@ -557,34 +586,51 @@ int test_hashtable(void)
     printf("(-) %i missing keys\n", missing);
 
     printf("(*) Overwriting a key.\n");
-    i = (uintptr_t) cache_push(h, key, len, (void *) 0xc0ffee);
-    if (i) printf("(!) Key insertion returned 0x%" PRIxPTR "\n", i);
-    i = (uintptr_t) cache_push(h, key, len, (void *) 0xcafe);
-    if (i != 0xc0ffee) printf("(!) Key overwrite returned 0x%" PRIxPTR "\n", i);
-    if ( (i = (uintptr_t) cache_pop(h, key, len)) != 0xcafe)
-        printf("(!) Retrieved key is 0x%" PRIxPTR ", expected 0xCAFE.\n", i);
-    else
-        printf("(*) Value was successfully overwritten.\n");
+    val = cache_push(h, key, len, value_from_integer(0xc0ffee));
+    if (is_integer(val)) {
+        printf(
+            "(!) Key insertion returned 0x%" PRIxPTR "\n",
+            (uintptr_t) value_to_integer(val)
+        );
+    }
+    val = cache_push(h, key, len, value_from_integer(0xcafe));
+    if (is_integer(val)) {
+        if (value_to_integer(val) != 0xc0ffee) {
+            printf(
+                "(!) Key overwrite returned 0x%" PRIxPTR "\n",
+                (uintptr_t) value_to_integer(val)
+            );
+        }
+    } else printf("(!) Key overwrite failure!\n");
+    val = cache_pop(h, key, len);
+    if (is_integer(val)) {
+        if (value_to_integer(val) != 0xcafe) {
+            printf(
+                "(!) Retrieved key is 0x%" PRIxPTR ", expected 0xCAFE.\n",
+                (uintptr_t) value_to_integer(val)
+            );
+        } else printf("(*) Value was successfully overwritten.\n");
+    } else printf("(!) Key was not overwritten!\n");
 
     /* sort test */
-    cache_push(h, "zzzzz", strlen("zzzzz"), (void *) 0x0);
-    cache_push(h, "tedst", strlen("tedst"), (void *) 0x1);
-    cache_push(h, "testa", strlen("testa"), (void *) 0x2);
-    cache_push(h, "btest", strlen("btest"), (void *) 0x4);
-    cache_push(h, "tcest", strlen("tcest"), (void *) 0x8);
+    cache_push(h, "zzzzz", strlen("zzzzz"), value_from_integer(0x0));
+    cache_push(h, "tedst", strlen("tedst"), value_from_integer(0x1));
+    cache_push(h, "testa", strlen("testa"), value_from_integer(0x2));
+    cache_push(h, "btest", strlen("btest"), value_from_integer(0x4));
+    cache_push(h, "tcest", strlen("tcest"), value_from_integer(0x8));
     cache_sort(h, CACHE_ASC, cache_sort_keys);
     cache_foreach(h, _print_and_delete_key);
 
-    cache_push(h, "zzzzz", strlen("zzzzz"), (void *) 0x0);
-    cache_push(h, "tedst", strlen("tedst"), (void *) 0x1);
-    cache_push(h, "testa", strlen("testa"), (void *) 0x2);
-    cache_push(h, "btest", strlen("btest"), (void *) 0x4);
-    cache_push(h, "tcest", strlen("tcest"), (void *) 0x8);
+    cache_push(h, "zzzzz", strlen("zzzzz"), value_from_integer(0x0));
+    cache_push(h, "tedst", strlen("tedst"), value_from_integer(0x1));
+    cache_push(h, "testa", strlen("testa"), value_from_integer(0x2));
+    cache_push(h, "btest", strlen("btest"), value_from_integer(0x4));
+    cache_push(h, "tcest", strlen("tcest"), value_from_integer(0x8));
     cache_sort(h, CACHE_DESC, cache_sort_keys);
     cache_foreach(h, _print_and_delete_key);
 
-    cache_push(h, "btest", strlen("btest"), (void *) 0x4);
-    cache_push(h, "tcest", strlen("tcest"), (void *) 0x8);
+    cache_push(h, "btest", strlen("btest"), value_from_integer(0x4));
+    cache_push(h, "tcest", strlen("tcest"), value_from_integer(0x8));
     cache_sort(h, CACHE_DESC, cache_sort_keys);
     cache_foreach(h, _print_and_delete_key);
 
@@ -598,9 +644,11 @@ int test_hashtable(void)
 
     /* spawn the worker threads */
     for (i = 0; i < _CACHE_CONCURRENCY; i ++) {
-        if (pthread_create(& _thread[i], NULL,
-                           _insert_loop,
-                           (void *) (uintptr_t) (i * _CACHE_THRNG)) == -1) {
+        if (pthread_create(
+                & _thread[i], NULL,
+                _insert_loop,
+                (void *) (uintptr_t) (i * _CACHE_THRNG)
+            ) == -1) {
             perror(ERR(test_hashtable, pthread_create));
             return -1;
         }
@@ -626,9 +674,10 @@ int test_hashtable(void)
 
     /* spawn the worker threads */
     for (i = 0; i < _CACHE_CONCURRENCY; i ++) {
-        if (pthread_create(& _thread[i], NULL,
-                           _read_loop,
-                           (void *) (uintptr_t) (i * _CACHE_THRNG)) == -1) {
+        if (pthread_create(
+                & _thread[i], NULL,
+                _read_loop,
+                (void *) (uintptr_t) (i * _CACHE_THRNG)) == -1) {
             perror(ERR(test_hashtable, pthread_create));
             return -1;
         }

@@ -45,19 +45,12 @@
 #endif
 
 #include "m_core_def.h"
+#include "m_variant.h"
 #include "m_random.h"
 
-#define FAST_TABLE
-
-#ifdef FAST_TABLE
-#define CACHE_HASHFNCOUNT         6    /* number of hash functions to use */
-#define CACHE_CUCKOORETRY        12    /* retries if the bucket is full */
-#define CACHE_GROWTHRATIO      1.66    /* threshold to grow the table */
-#else
 #define CACHE_HASHFNCOUNT         8    /* number of hash functions to use */
-#define CACHE_CUCKOORETRY         8    /* retries if the bucket is full */
-#define CACHE_GROWTHRATIO      1.25    /* threshold to grow the table (75%) */
-#endif
+#define CACHE_CUCKOORETRY         4    /* retries if the bucket is full */
+#define CACHE_GROWTHRATIO       1.2    /* threshold to grow the table (80%) */
 
 #define CACHE_ASC                 0
 #define CACHE_DESC                1
@@ -71,7 +64,7 @@ typedef struct m_cache {
     struct _m_bucket *_index;
     struct _m_item **_bucket;
     struct _m_item *_basket;
-    void *(*_freeval)(void *);
+    void (*_freeval)(variant);
     unsigned int _seed[CACHE_HASHFNCOUNT];
 } m_cache;
 
@@ -97,44 +90,44 @@ typedef struct m_hashtable {
 
 /* -------------------------------------------------------------------------- */
 
-public m_cache *cache_alloc(void *(*freeval)(void *));
+public m_cache *cache_alloc(void (*freeval)(variant));
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_push(m_cache *h, const char *k, size_t l, void *v);
+public variant cache_push(m_cache *h, const char *k, size_t l, variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_add(m_cache *h, const char *k, size_t l, void *v);
+public variant cache_add(m_cache *h, const char *k, size_t l, variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_findexec(m_cache *h, const char *key, size_t len,
-                            void *(*function)(void *));
+public variant cache_lookup(m_cache *h, const char *key, size_t len,
+                            variant (*function)(variant));
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_find(m_cache *h, const char *key, size_t len);
+public variant cache_find(m_cache *h, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
 public void cache_foreach(m_cache *h,
-                          int (*function)(const char *, size_t, void *));
+                          int (*function)(const char *, size_t, variant));
 
 /* -------------------------------------------------------------------------- */
 
 public int cache_sort(m_cache *h, unsigned int order,
                       int (*cmp)(const char *, const char *, size_t,
-                                 void *, void *));
+                                 variant, variant));
 
 /* -------------------------------------------------------------------------- */
 
 public int cache_sort_keys(const char *key0, const char *key1, size_t l,
-                           UNUSED void *val0, UNUSED void *val1);
+                           UNUSED variant val0, UNUSED variant val1);
 
 /* -------------------------------------------------------------------------- */
 
-public void *cache_pop(m_cache *h, const char *key, size_t len);
+public variant cache_pop(m_cache *h, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
@@ -148,7 +141,7 @@ public m_cache *cache_free(m_cache *h);
 /* Segmented hash table */
 /* -------------------------------------------------------------------------- */
 
-public m_hashtable *hashtable_alloc(void *(*freeval)(void *));
+public m_hashtable *hashtable_alloc(void (*freeval)(variant));
 
 /* -------------------------------------------------------------------------- */
 
@@ -156,29 +149,29 @@ public size_t hashtable_footprint(m_hashtable *h, size_t *overhead);
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_insert(m_hashtable *h, const char *k, size_t l, void *v);
+public variant hashtable_insert(m_hashtable *h, const char *k, size_t l, variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_update(m_hashtable *h, const char *k, size_t l, void *v);
+public variant hashtable_update(m_hashtable *h, const char *k, size_t l, variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_remove(m_hashtable *h, const char *key, size_t len);
+public variant hashtable_remove(m_hashtable *h, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_findexec(m_hashtable *h, const char *key,
-                                       size_t len, void *(*function)(void *));
+public variant hashtable_lookup(m_hashtable *h, const char *key,
+                                size_t len, variant (*function)(variant));
 
 /* -------------------------------------------------------------------------- */
 
 public void hashtable_foreach(m_hashtable *h,
-                              int (*function)(const char *, size_t, void *));
+                              int (*function)(const char *, size_t, variant));
 
 /* -------------------------------------------------------------------------- */
 
-public void *hashtable_find(m_hashtable *h, const char *key, size_t len);
+public variant hashtable_find(m_hashtable *h, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
