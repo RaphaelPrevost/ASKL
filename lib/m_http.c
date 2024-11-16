@@ -185,8 +185,8 @@ public m_http *http_set_var(m_http *h, const char *k, const char *v, size_t l)
         h = new_part;
     }
 
-    h->name = string_dups(k, strlen(k));
-    h->value = string_dups(v, l);
+    h->name = strndup(k, strlen(k));
+    h->value = strndup(v, l);
     h->len = l;
 
     return h;
@@ -252,9 +252,9 @@ public m_http *http_set_file(m_http *h, const char *k, const char *filename,
         h = new_part;
     }
 
-    h->name = string_dups(k, strlen(k));
+    h->name = strndup(k, strlen(k));
     h->len = strlen(filename);
-    h->value = string_dups(filename, h->len);
+    h->value = strndup(filename, h->len);
 
     return h;
 }

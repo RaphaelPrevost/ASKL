@@ -1057,29 +1057,6 @@ public m_string *string_dupextend(const m_string *s, size_t x)
 
 /* -------------------------------------------------------------------------- */
 
-public char *string_dups(const char *string, size_t len)
-{
-    /** @brief duplicate a C string */
-
-    char *ret = NULL;
-
-    if (! string || ! len) return NULL;
-
-    if ( (len + 1) * sizeof(*ret) < len ) {
-        debug("string_dups(): integer overflow.\n");
-        return NULL;
-    }
-
-    ret = malloc( (len + 1) * sizeof(*ret));
-    if (! ret) { perror(ERR(string_dups, malloc)); return NULL; }
-
-    memcpy(ret, string, len); ret[len] = '\0';
-
-    return ret;
-}
-
-/* -------------------------------------------------------------------------- */
-
 public m_string *string_free(m_string *string)
 {
     /** @brief clean up a m_string and its internal buffer */
@@ -3115,7 +3092,7 @@ public m_string *string_sha1s(const char *string, size_t len)
 
     if (! string || ! len) return NULL;
 
-    if (! (buf = malloc(41 * sizeof(*ret))) ) {
+    if (! (buf = malloc(41)) ) {
         perror(ERR(string_sha1s, malloc));
         return NULL;
     }

@@ -36,7 +36,7 @@
 #include "m_port_std.h"
 
 /* -------------------------------------------------------------------------- */
-#ifdef WIN32 /* strtoll()/strtoull() compatibility module */
+#ifdef WIN32 /* strtoll()/strtoull() compatibility */
 /* -------------------------------------------------------------------------- */
 
 #ifndef _strtoi64
@@ -157,6 +157,40 @@ int64_t strtoll(const char *nptr, char **endptr, int base)
     return value;
 }
 #endif
+
+/* -------------------------------------------------------------------------- */
+#endif
+/* -------------------------------------------------------------------------- */
+#if (defined(_MSC_VER) || \
+    (! defined(__GNUC__) && ! defined(__clang__)) || \
+    (defined(__GNUC__) && (__GNUC__ < 5)) || \
+    (defined(__clang__) && (__clang_major__ < 3)) || \
+    (! defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L))
+/* -------------------------------------------------------------------------- */
+
+char *strndup(const char *s, size_t len)
+{
+    char *ret;
+    size_t slen;
+
+    if (! s) goto _err_params;
+
+    for (slen = 0; slen < len; slen ++)
+        if (s[slen] == '\0') break;
+
+    if (slen >= SIZE_MAX - 1 || ! (ret = malloc(slen + 1))) {
+        errno = ENOMEM;
+        return NULL;
+    }
+
+    memcpy(ret, s, slen); ret[slen] = '\0';
+
+    return ret;
+
+_err_params:
+    errno = EINVAL;
+    return NULL;
+}
 
 /* -------------------------------------------------------------------------- */
 #endif

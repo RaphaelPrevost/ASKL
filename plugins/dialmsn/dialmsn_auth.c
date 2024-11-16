@@ -145,9 +145,9 @@ private void dialmsn_auth(uint16_t id, m_string *s)
     blacklist = db_free(blacklist);
 
     nick = db_field(r, "nickname", & size);
-    user->nick = string_dups(nick, size + 1);
+    user->nick = strndup(nick, size + 1);
     avatar = db_field(r, "avatar", & size);
-    user->avatar = string_dups(avatar, size + 1);
+    user->avatar = strndup(avatar, size + 1);
     user->lobby = db_integer(r, "lobby");
     user->status = DIALMSN_STATUS_NRML;
     user->subscriber = (db_integer(r, "expiration") > 0) ? 1 : 0;
@@ -155,7 +155,7 @@ private void dialmsn_auth(uint16_t id, m_string *s)
     user->dpt = db_integer(r, "zip") / 1000;
     user->age = db_integer(r, "age");
     city = db_field(r, "city", & size);
-    user->city = string_dups(city, size + 1);
+    user->city = strndup(city, size + 1);
 
     server_send_response(plugin_get_token(), id, 0x0,
                          "%bB4i%i%.*s%i%.*s%s%.*s%i%.*s%s%.*s%i%.*s%i%bB4i",

@@ -245,7 +245,7 @@ private int wamigo_monitor_directory(const char *dir)
         return -1;
     }
 
-    if (! (d = string_dups(dir, strlen(dir))) ) goto _err_strdup;
+    if (! (d = strndup(dir, strlen(dir))) ) goto _err_strdup;
 
     if (pthread_create(& monitor, NULL, _monitoring, (void *) d) == -1) {
         perror(ERR(wamigo_monitor_directory, pthread_create));

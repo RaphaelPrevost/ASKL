@@ -121,7 +121,7 @@ private int stream_config_init(int argc, char **argv)
 
             /* TODO check ingress_end is numeric */
 
-            ingress_end[i] = string_dups(opt_ingress_end, strlen(opt_ingress_end));
+            ingress_end[i] = strndup(opt_ingress_end, strlen(opt_ingress_end));
 
             /* the workers will connect through this port */
             opt_workers_end = plugin_getarrayopt("workers_end", i, argc, argv);
@@ -132,7 +132,7 @@ private int stream_config_init(int argc, char **argv)
 
             /* TODO check workers_end is numeric */
 
-            workers_end[i] = string_dups(opt_workers_end, strlen(opt_workers_end));
+            workers_end[i] = strndup(opt_workers_end, strlen(opt_workers_end));
         }
     }
 
@@ -168,7 +168,7 @@ private int stream_config_init(int argc, char **argv)
                 return -1;
             }
 
-            master_host[i] = string_dups(opt_master_host, strlen(opt_master_host));
+            master_host[i] = strndup(opt_master_host, strlen(opt_master_host));
 
             opt_master_port = plugin_getarrayopt("master_port", i, argc, argv);
             if (! opt_master_port) {
@@ -176,7 +176,7 @@ private int stream_config_init(int argc, char **argv)
                 return -1;
             }
 
-            master_port[i] = string_dups(opt_master_port, strlen(opt_master_port));
+            master_port[i] = strndup(opt_master_port, strlen(opt_master_port));
 
             /* traffic can be forwarded to another service or handled by a plugin */
             opt_destination = plugin_getarrayopt("destination", i, argc, argv);
@@ -195,7 +195,7 @@ private int stream_config_init(int argc, char **argv)
                     return -1;
                 }
 
-                server_host[i] = string_dups(
+                server_host[i] = strndup(
                     opt_server_host,
                     strlen(opt_server_host)
                 );
@@ -206,7 +206,7 @@ private int stream_config_init(int argc, char **argv)
                     return -1;
                 }
 
-                server_port[i] = string_dups(
+                server_port[i] = strndup(
                     opt_server_port,
                     strlen(opt_server_port)
                 );
@@ -220,7 +220,7 @@ private int stream_config_init(int argc, char **argv)
                     return -1;
                 }
 
-                plugin_name[i] = string_dups(
+                plugin_name[i] = strndup(
                     opt_plugin_name,
                     strlen(opt_plugin_name)
                 );

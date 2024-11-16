@@ -139,14 +139,14 @@ public int plugin_init(uint32_t id, int argc, char **argv)
 
     /* HTTP host, for integration with the PHP interface */
     if ( (host = plugin_getopt("dialmsn_http_host", argc, argv)) ) {
-        http_host = string_dups(host, strlen(host));
+        http_host = strndup(host, strlen(host));
         fprintf(stderr, "DialMessenger: HTTP Host: \"%s\".\n", http_host);
     }
 
     /* start eurolive hostesses service if enabled */
     if (plugin_getboolopt("eurolive_hostess_service", argc, argv)) {
         if ( (feed = plugin_getopt("eurolive_feed", argc, argv)) ) {
-            eurolive_feed = string_dups(feed, strlen(feed));
+            eurolive_feed = strndup(feed, strlen(feed));
             fprintf(stderr, "DialMessenger: Eurolive feed: %s.\n",
                     eurolive_feed);
             fprintf(stderr, "DialMessenger: starting the "

@@ -275,10 +275,10 @@ private int wamigo_scan_directory(const char *dir, const char *ext, int sync)
         goto _ealloc;
     }
 
-    if (! (s->dir = string_dups(dir, dirlen)) )
+    if (! (s->dir = strndup(dir, dirlen)) )
         goto _edups1;
 
-    if (! (s->ext = string_dups(ext, extlen)) )
+    if (! (s->ext = strndup(ext, extlen)) )
         goto _edups2;
 
     s->upd = sync;

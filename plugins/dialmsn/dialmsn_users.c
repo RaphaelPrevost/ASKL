@@ -253,9 +253,9 @@ private uint16_t dialmsn_user_simulate(uint32_t uid, unsigned int status)
     }
 
     nick = db_field(r, "nickname", & size);
-    user->nick = string_dups(nick, size + 1);
+    user->nick = strndup(nick, size + 1);
     avatar = db_field(r, "avatar", & size);
-    user->avatar = string_dups(avatar, size + 1);
+    user->avatar = strndup(avatar, size + 1);
     user->lobby = db_integer(r, "lobby");
     user->status = status;
     user->subscriber = 1;
@@ -264,7 +264,7 @@ private uint16_t dialmsn_user_simulate(uint32_t uid, unsigned int status)
     user->dpt = db_integer(r, "zip") / 1000;
     user->age = db_integer(r, "age");
     city = db_field(r, "city", & size);
-    user->city = string_dups(city, size + 1);
+    user->city = strndup(city, size + 1);
 
     user = dialmsn_user_add(simid, user, "SEXBOT");
 
@@ -463,9 +463,9 @@ private void dialmsn_user_refresh(uint32_t uid, uint32_t refresh_all)
 
     if (refresh_all) {
         field = db_field(r, "avatar", & size);
-        new_avatar = string_dups(field, size + 1);
+        new_avatar = strndup(field, size + 1);
         field = db_field(r, "nickname", & size);
-        new_nick = string_dups(field, size + 1);
+        new_nick = strndup(field, size + 1);
         sex = db_integer(r, "sex");
         dpt = db_integer(r, "zip") / 1000;
         age = db_integer(r, "age");

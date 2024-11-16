@@ -686,26 +686,6 @@ public m_string *string_dupextend(const m_string *string, size_t extra);
 
 /* -------------------------------------------------------------------------- */
 
-public char *string_dups(const char *string, size_t len);
-
-/**
- * @ingroup string
- * @fn char *string_dups(const char *string, size_t len)
- * @param string the C string to duplicate
- * @param len the length of the C string
- * @return a pointer to a new C string of the given length, or NULL
- *
- * This function copies the first @b len bytes of the given @b string to a
- * freshly allocated buffer.
- *
- * It automatically adds a terminating NUL char at the end of the buffer.
- *
- * The returned buffer should be destroyed with free() after use.
- *
- */
-
-/* -------------------------------------------------------------------------- */
-
 public m_string *string_free(m_string *string);
 
 /**

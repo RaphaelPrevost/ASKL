@@ -222,4 +222,12 @@
     #endif
 #endif
 
+#if (defined(_MSC_VER) || \
+    (! defined(__GNUC__) && ! defined(__clang__)) || \
+    (defined(__GNUC__) && (__GNUC__ < 5)) || \
+    (defined(__clang__) && (__clang_major__ < 3)) || \
+    (! defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L))
+public char *strndup(const char *s, size_t len);
+#endif
+
 #endif
