@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  Copyright (c) 2005-2025 Raphael Prevost <raph@el.bzh>                      *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -37,6 +37,9 @@
 #include <intrin.h>
 #endif
 
+#define max32(a, b) \
+((a) - (((a) - (b)) & -((int32_t)((uint32_t)((a) - (b)) >> 31))))
+
 /* fast macros to test if at least one byte in a word is < n, or > n, or = 0 */
 #define __zero(x)    (((x) - 0x01010101U) & ~(x) & 0x80808080U)
 #define __less(x, n) (((x) - ~0U / 255 * (n)) & ~(x) & ~0U / 255 * 128)
@@ -49,7 +52,7 @@
 /* Bitwise operations */
 /* -------------------------------------------------------------------------- */
 
-static inline uint32_t __ctz(uint32_t i)
+static inline unsigned int __ctz(uint32_t i)
 {
     unsigned long c;
 
@@ -87,7 +90,45 @@ static inline uint32_t __ctz(uint32_t i)
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint32_t __clz(uint32_t i)
+static inline unsigned int __ctzll(uint64_t i)
+{
+    if (likely(i)) {
+        /* hardware implementation */
+        #if (defined(__GNUC__) && \
+             ((__GNUC__ >= 4) || (__GNUC__ == 3 && __GNUC_MINOR__ >= 4))) && \
+            (defined(__i386__) || defined(__x86_64__)) || \
+            (defined(__arm__) || defined(__aarch64__))
+
+        return __builtin_ctzll(i);
+
+        #elif (defined(_MSC_VER) && (_MSC_VER >= 1400)) && \
+              (defined(_M_X64) || defined(_M_AMD64) || defined(_M_ARM))
+
+        #pragma intrinsic(_BitScanForward64)
+
+        unsigned long ret;
+        _BitScanForward64(& ret, (unsigned __int64) i);
+        return ret;
+
+        #else
+        /* portable software implementation (de Bruijn sequence) */
+        static const uint8_t seq[64] = {
+             0,  1,  2,  7,  3, 13,  8, 19,  4, 25, 14, 28,  9, 34, 20, 40,
+             5, 17, 26, 38, 15, 46, 29, 48, 10, 31, 35, 54, 21, 50, 41, 57,
+            63,  6, 12, 18, 24, 27, 33, 39, 16, 37, 45, 47, 30, 53, 49, 56,
+            62, 11, 23, 32, 36, 44, 52, 55, 61, 22, 43, 51, 60, 42, 59, 58
+        };
+
+
+        return seq[((i & -i) * 0x0218a392cd3d5dbfULL) >> 58];
+
+        #endif
+    } else return 64;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline unsigned int __clz(uint32_t i)
 {
     if (likely(i)) {
         /* hardware implementation */
@@ -131,7 +172,7 @@ static inline uint32_t __clz(uint32_t i)
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint32_t __clzll(uint64_t i)
+static inline unsigned int __clzll(uint64_t i)
 {
     if (likely(i)) {
         /* hardware implementation */
@@ -279,6 +320,16 @@ static inline unsigned int __zero_idx(uint32_t i)
 
 /* -------------------------------------------------------------------------- */
 
+static inline unsigned int __zero_idx64(uint64_t i)
+{
+    #if defined(BIG_ENDIAN_HOST)
+    i = _bswap64(i);
+    #endif
+    return __ctzll(i) >> 3;
+}
+
+/* -------------------------------------------------------------------------- */
+
 static inline unsigned int __msb_idx(uint32_t i)
 {
     return 31 - __clz(i);
@@ -374,13 +425,6 @@ static inline uint64_t mul_shift64(uint64_t n, const uint64_t *mul, int32_t i)
     const uint64_t sum = high0 + low1;
     if (sum < high0) high1 ++; /* carry over into high1 */
     return shr128(sum, high1, i - 64);
-}
-
-/* -------------------------------------------------------------------------- */
-
-static inline int32_t max32(int32_t a, int32_t b)
-{
-    return (a < b) ? b : a;
 }
 
 /* -------------------------------------------------------------------------- */

@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  Copyright (c) 2005-2025 Raphael Prevost <raph@el.bzh>                      *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -114,6 +114,20 @@
         #define UNUSED __attribute__ ((unused))
     #else
         #define UNUSED
+    #endif
+#endif
+
+#ifndef restrict
+    #ifdef _MSC_VER
+        #if (_MSC_VER >= 1400)
+            #if (_MSC_VER < 1900)
+                #define restrict __restrict
+            #endif
+        #else
+            #define restrict
+        #endif
+    #else
+        #define restrict
     #endif
 #endif
 

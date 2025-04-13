@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  Copyright (c) 2005-2025 Raphael Prevost <raph@el.bzh>                      *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -117,15 +117,14 @@ public int trie_insert_r(m_trie *t, const char *key, size_t ulen, variant val)
 
 public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
 {
-    const uint8_t *const ubytes = (void *) key;
+    const uint8_t * restrict const ubytes = (void *) key;
     uint8_t *p = NULL, c = 0;
     unsigned int direction = 0, newdirection = 0;
     _m_node *node = NULL, *n = NULL;
     _m_leaf *leaf = NULL;
-    size_t ulen32 = 0;
-    uint32_t newbyte = 0, newotherbits = 0;
+    unsigned int prefix_len = 0, newbyte = 0, newotherbits = 0;
     int32_t allocsize = 0;
-    void **wherep = NULL;
+    void **children = NULL, **wherep = NULL;
 
     if (! t || ! key || ! ulen) {
         debug("trie_insert(): bad parameters.\n");
@@ -140,8 +139,8 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
 
     if (! (p = t->_root) ) {
         /* the tree is empty, allocate a new leaf node */
-        if (posix_memalign((void **) & leaf, sizeof(void *), allocsize)) {
-            perror(ERR(trie_insert, posix_memalign));
+        if (! (leaf = malloc(allocsize)) ) {
+            perror(ERR(trie_insert, malloc));
             return -1;
         }
 
@@ -155,15 +154,16 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
     }
 
     /* traverse the tree to find where the new node should be inserted */
-    for (wherep = & t->_root; (intptr_t) p & 0x1; p = node->child[direction]) {
+    for (wherep = & t->_root; (intptr_t) p & 0x1; p = children[direction]) {
         node = (void *) (p - 1);
+        children = node->child;
 
         if (likely(node->byte < ulen)) {
             c = ubytes[node->byte];
             direction = (1 + (node->otherbits | c)) >> 8;
-            if ( (newotherbits = node->val ^ c) ) {
-                newotherbits = __msb(newotherbits) ^ 0xff;
-                if (node->otherbits > newotherbits) {
+            if (likely(node->val != c)) {
+                newotherbits = __msb(node->val ^ c) ^ 0xff;
+                if (likely(node->otherbits > newotherbits)) {
                     newbyte = node->byte;
                     c = node->val;
                     goto different_byte_found;
@@ -174,41 +174,39 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
 
     /* found a leaf, compute the divergence */
     leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
-    ulen32 = ((leaf->len < ulen) ? leaf->len : ulen) & ~0x3;
+    prefix_len = (leaf->len + ((ulen - leaf->len) & -(ulen < leaf->len)));
 
-    if (ulen32 > sizeof(uint32_t)) {
-        uint32_t bytes; unsigned int index;
-        for (newbyte = 0; newbyte < ulen32; newbyte += sizeof(uint32_t)) {
-            /* ubytes may not be aligned */
+    if (prefix_len >= 16) {
+        unsigned int index, len64 = prefix_len & ~7u;
+        uint64_t bytes;
+
+        for (newbyte = 0; newbyte < len64; newbyte += sizeof(bytes)) {
             memcpy(& bytes, ubytes + newbyte, sizeof(bytes));
-            index = __zero_idx(*(uint32_t *)(p + newbyte) ^ bytes);
-            if (index < sizeof(uint32_t)) {
+            index = __zero_idx64(*(uint64_t *)(p + newbyte) ^ bytes);
+            if (likely(index < sizeof(bytes))) {
                 newbyte += index;
-                c = p[newbyte];
-                newotherbits = p[newbyte] ^ ubytes[newbyte];
-                newotherbits = __msb(newotherbits) ^ 0xff;
-                goto different_byte_found;
+                goto _newotherbits;
             }
         }
     }
 
-    for ( ; newbyte < ulen; newbyte ++) {
-        if ( (newotherbits = p[newbyte] ^ ubytes[newbyte]) ) {
-            newotherbits = __msb(newotherbits) ^ 0xff;
-            c = p[newbyte];
-            break;
-        }
+    for ( ; newbyte < prefix_len; newbyte ++) {
+        if (likely(p[newbyte] != ubytes[newbyte]))
+            goto _newotherbits;
     }
 
-    /* key already exists */
-    if (unlikely(! newotherbits)) return -1;
+    if (unlikely(prefix_len == ulen)) return -1;
+
+_newotherbits:
+    c = p[newbyte];
+    newotherbits = __msb(p[newbyte] ^ ubytes[newbyte]) ^ 0xff;
 
 different_byte_found:
 
     newdirection = (1 + (newotherbits | c)) >> 8;
 
-    if (posix_memalign((void **) & node, sizeof(void *), sizeof(*node))) {
-        perror(ERR(trie_insert, posix_memalign));
+    if (! (node = malloc(sizeof(*node))) ) {
+        perror(ERR(trie_insert, malloc));
         return -1;
     }
 
@@ -216,9 +214,9 @@ different_byte_found:
     node->val = ubytes[newbyte];
     node->otherbits = newotherbits;
 
-    if (posix_memalign((void **) & leaf, sizeof(void *), allocsize)) {
-        perror(ERR(trie_insert, posix_memalign));
-        posix_memfree(node);
+    if (! (leaf = malloc(allocsize)) ) {
+        perror(ERR(trie_insert, malloc));
+        free(node);
         return -1;
     }
 
@@ -325,14 +323,14 @@ public variant trie_remove(m_trie *t, const char *key, size_t ulen)
     if (leaf->len != ulen || memcmp(leaf->key, key, ulen)) goto _err;
 
     /* get the associated value and free up the node */
-    ret = leaf->val; posix_memfree(leaf);
+    ret = leaf->val; free(leaf);
 
     if (unlikely(! whereq)) {
         /* the tree is empty */
         t->_root = NULL; goto _err;
     } else {
         /* simplify the tree */
-        *whereq = node->child[1 - direction]; posix_memfree(node);
+        *whereq = node->child[1 - direction]; free(node);
     }
 
 _err:
@@ -414,7 +412,7 @@ static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, variant))
 
         if ( (ret[0] = f(leaf->key, leaf->len, leaf->val)) == -1) {
             if (t->_freeval) t->_freeval(leaf->val);
-            posix_memfree(leaf);
+            free(leaf);
         }
 
         return ret[0];
@@ -423,7 +421,7 @@ static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, variant))
     return 0;
 
 _free_node:
-    posix_memfree(node);
+    free(node);
     return 0;
 }
 

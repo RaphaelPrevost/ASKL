@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  Copyright (c) 2005-2025 Raphael Prevost <raph@el.bzh>                      *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -3322,11 +3322,17 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx)
 
         class = _j[(uint8_t) json->_data[pos]];
 
-        if (likely(class >> 2) && unlikely(IS_STRING(json))) continue;
+        if (class > 3) {
+            if (unlikely(IS_STRING(json))) {
+                for (++ pos; pos < SIZE(json); pos ++) {
+                    class = _j[(uint8_t) json->_data[pos]];
+                    if (class < 4) goto _parse;
+                }
+                return 0; /* EOF */
+            } else p = (char *) DATA(json) + pos;
+        }
 
-        p = (char *) DATA(json) + pos;
-
-        switch (class) {
+_parse: switch (class) {
 
         /* ', " */
         case QUOTE: {
