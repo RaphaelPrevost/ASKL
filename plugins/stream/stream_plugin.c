@@ -95,8 +95,8 @@ _init_conf_failure:
 
 /* -------------------------------------------------------------------------- */
 
-public void plugin_data_handler(uint16_t socket_id, uint16_t ingress_id,
-                                m_string *data)
+public void plugin_input_handler(uint16_t socket_id, uint16_t ingress_id,
+                                 m_string *data)
 {
     uint16_t egress = 0;
     int stream_id = 0;
