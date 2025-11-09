@@ -125,7 +125,7 @@ int test_string(void)
            (int) SIZE(z), DATA(z), SIZE(z));
     z = string_free(z);
     z = string_deb58s("Vs5LyRhXt9nUp14", strlen("Vs5LyRhXt9nUp14"));
-    printf("(*) Base58 encoding: Vs5LyRhXt9nUp14 -> %.*s [%zu]\n",
+    printf("(*) Base58 decoding: Vs5LyRhXt9nUp14 -> %.*s [%zu]\n",
            (int) SIZE(z), DATA(z), SIZE(z));
     z = string_free(z);
 
@@ -140,6 +140,38 @@ int test_string(void)
     z = string_free(z);
     r = random_free(r);
     #endif
+
+    z = string_b64s("test string", strlen("test string"), 0);
+    printf("(*) Base64 encoding: test string -> %.*s [%zu]\n",
+           (int) SIZE(z), DATA(z), SIZE(z));
+    z = string_free(z);
+    z = string_deb64s("dGVzdCBzdHJpbmc=", strlen("dGVzdCBzdHJpbmc="));
+    printf("(*) Base64 decoding: dGVzdCBzdHJpbmc= -> %.*s [%zu]\n",
+           (int) SIZE(z), DATA(z), SIZE(z));
+    z = string_free(z);
+    z = string_deb64s(
+        "5Lul5ZGC5rOi6ICz5pys6YOo5q2iCuWNg-WIqeWltOa1geS5juWSjOWKoArppJjlpJrpgKPmm73m\r\n"
+        "tKXnpaLpgqMK6Imv54mf5pyJ54K66IO95pa85LmFCuiAtuS4h-ioiOS4jeW3seiho-WkqQrpmL_k\r\n"
+        "vZDkvI7llqnlpbPnvo7kuYsK5oG15q-U5q-b5Yui6aCI",
+        200
+    );
+    printf("(*) Base64URL + MIME decoding:\n%.*s [%zu]\n", (int) SIZE(z), DATA(z), SIZE(z));
+    z = string_free(z);
+    if ( (z = string_deb64s("A", 1)) ) {
+        printf("(!) Decoding an incomplete Base64 string must fail: FAILURE\n");
+        z = string_free(z);
+    } else
+        printf("(*) Decoding an incomplete Base64 string must fail: SUCCESS\n");
+    if ( (z = string_deb64s("dGVzd!ee", 8)) ) {
+        printf("(!) Decoding invalid Base64 must fail: FAILURE\n");
+        z = string_free(z);
+    } else
+        printf("(*) Decoding invalid Base64 must fail: SUCCESS\n");
+    if ( (z = string_deb64s("\r\n  \t", 5)) ) {
+        printf("(!) Decoding only whitespace must fail: FAILURE\n");
+        z = string_free(z);
+    } else
+        printf("(*) Decoding only whitespace must fail: SUCCESS\n");
 
     #ifdef HAS_ICONV
     z = string_alloc(gb18030, 20);

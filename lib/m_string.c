@@ -73,21 +73,28 @@ static const char _b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
 /* decoding lookup table */
 static const char _d64[] = {
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  12 */
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  24 */
-    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  36 */
-    -1, -1, -1, -1, -1, -1, -1, 62, -1, -1, -1, 63, /*  48 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -2, -2, -1, /*  12 */
+    -1, -2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  24 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -2, -1, -1, -1, /*  36 */
+    -1, -1, -1, -1, -1, -1, -1, 62, -1, 62, -1, 63, /*  48 */
     52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1, -1, /*  60 */
     -1, -1, -1, -1, -1,  0,  1,  2,  3,  4,  5,  6, /*  72 */
      7,  8, 9,  10, 11, 12, 13, 14, 15, 16, 17, 18, /*  84 */
-    19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, -1, /*  96 */
+    19, 20, 21, 22, 23, 24, 25, -1, -1, -1, -1, 63, /*  96 */
     -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, /* 108 */
     37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, /* 120 */
-    49, 50, 51, -1, -1, -1, -1, -1                  /* 128 */
+    49, 50, 51, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 140 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 152 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 164 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 176 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 188 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 200 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 212 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 224 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 236 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /* 248 */
+    -1, -1, -1, -1, -1, -1, -1, -1, -1              /* 256 */
 };
-
-/* macro to ease the use of the decode table and prevent out of bound access */
-#define _D64(c) (_d64[(c) & 0x7f])
 
 #ifdef _ENABLE_JSON
 static const unsigned char _j[] = {
@@ -2577,7 +2584,7 @@ public m_string *string_b64s(const char *s, size_t size, size_t linesize)
     }
 
     /* reject bogus linesize */
-    if ( (linesize) && ((linesize % 4) || (linesize > 72)) ) {
+    if ( (linesize) && ((linesize % 4) || (linesize > 76)) ) {
         debug("string_b64s(): bad line size.\n");
         return NULL;
     }
@@ -2674,6 +2681,7 @@ public m_string *string_deb64s(const char *s, size_t size)
     char *r = NULL;
     size_t i = 0, j = 0;
     m_string *ret = NULL;
+    int state = 4;
 
     if (! s || ! size) {
         debug("string_deb64s(): bad parameters.\n");
@@ -2694,30 +2702,21 @@ public m_string *string_deb64s(const char *s, size_t size)
     }
 
     /* discard trailing characters */
-    while (-- size && _D64(s[size]) == -1);
+    while (_d64[(unsigned char) s[size - 1]] == -1 && -- size);
 
-    while (i + 4 < size) {
-        if (_D64(s[i]) != -1) {
-            /* take four ASCII chars and convert them in three bytes */
-            r[j ++] = _D64(s[i]) << 2 | _D64(s[i + 1]) >> 4;
-            r[j ++] = _D64(s[i + 1]) << 4 | _D64(s[i + 2]) >> 2;
-            r[j ++] = ((_D64(s[i + 2]) << 6) & 0xc0) | _D64(s[i + 3]);
-            i += 4;
-        } else i ++; /* drop CRLF and other noise */
+    for (i = 0; i < size; i ++) {
+        int d = _d64[(unsigned char) s[i]];
+        if (likely(d >= 0)) {
+            switch (state) {
+            case 4: r[j] = d << 2; state --; break;
+            case 3: r[j ++] |= d >> 4; r[j] = d << 4; state --; break;
+            case 2: r[j ++] |= d >> 2; r[j] = (d << 6) & 0xc0; state --; break;
+            case 1: r[j++] |= d; state = 4;
+            }
+        } else if (d == -1) goto _panic;
     }
 
-    /* skip garbage between the last processed piece and the remaining */
-    while (_D64(s[i]) == -1 && i ++ < size);
-
-    /* process the remaining */
-    switch (size - i) {
-    case 3:
-    r[j + 2] = ((_D64(s[i + 2]) << 6) & 0xc0) | _D64(s[i + 3]);
-    case 2:
-    r[j + 1] = _D64(s[i + 1]) << 4 | _D64(s[i + 2]) >> 2;
-    case 1:
-    r[j] = _D64(s[i]) << 2 | _D64(s[i + 1]) >> 4; j += 3;
-    }
+    if (state == 3 || ! j) goto _panic;
 
     /* package the buffer */
     ret->_flags = 0; ret->_data = r;
@@ -2726,6 +2725,11 @@ public m_string *string_deb64s(const char *s, size_t size)
     ret->token = NULL;
 
     return ret;
+
+_panic:
+    ret = string_free(ret);
+    free(r);
+    return NULL;
 }
 
 /* -------------------------------------------------------------------------- */
