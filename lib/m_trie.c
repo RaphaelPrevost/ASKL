@@ -48,6 +48,7 @@ typedef struct _m_node {
 
 typedef struct _m_leaf {
     variant val;
+    uint16_t pad;
     uint16_t len;
     char key[];
 } _m_leaf;
@@ -122,7 +123,7 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
     unsigned int direction = 0, newdirection = 0;
     _m_node *node = NULL, *n = NULL;
     _m_leaf *leaf = NULL;
-    unsigned int prefix_len = 0, newbyte = 0, newotherbits = 0;
+    unsigned int prefix_len = 0, index = 0, newbyte = 0, newotherbits = 0;
     int32_t allocsize = 0;
     void **children = NULL, **wherep = NULL;
 
@@ -168,7 +169,12 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
                     c = node->val;
                     goto different_byte_found;
                 }
-            } else wherep = node->child + direction;
+            } else {
+                newbyte = index + 1;
+                index = node->byte;
+                newbyte += (newbyte == index);
+                wherep = node->child + direction;
+            }
         } else direction = (1 + node->otherbits) >> 8;
     }
 
@@ -176,53 +182,44 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
     leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
     prefix_len = (leaf->len + ((ulen - leaf->len) & -(ulen < leaf->len)));
 
-    if (prefix_len >= 16) {
-        unsigned int index, len64 = prefix_len & ~7u;
-        uint64_t bytes;
-
-        for (newbyte = 0; newbyte < len64; newbyte += sizeof(bytes)) {
-            memcpy(& bytes, ubytes + newbyte, sizeof(bytes));
-            index = __zero_idx64(*(uint64_t *)(p + newbyte) ^ bytes);
-            if (likely(index < sizeof(bytes))) {
-                newbyte += index;
-                goto _newotherbits;
-            }
+    for ( ; newbyte < (prefix_len & ~7u); newbyte += sizeof(uint64_t)) {
+        uint64_t bytes, leaf64;
+        memcpy(& bytes, ubytes + newbyte, sizeof(bytes));
+        memcpy(& leaf64, p + newbyte, sizeof(leaf64));
+        if (likely(bytes ^= leaf64)) {
+            newbyte += __zero_idx64(bytes);
+            goto _newotherbits;
         }
     }
 
-    for ( ; newbyte < prefix_len; newbyte ++) {
-        if (likely(p[newbyte] != ubytes[newbyte]))
+    switch (prefix_len - newbyte) {
+    case 7: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
+    case 6: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
+    case 5: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
+    case 4: {
+        uint32_t bytes, leaf32;
+        memcpy(& bytes, ubytes + newbyte, sizeof(bytes));
+        memcpy(& leaf32, p + newbyte, sizeof(leaf32));
+        if (likely(bytes ^= leaf32)) {
+            newbyte += __zero_idx(bytes);
             goto _newotherbits;
+        }
+        newbyte += sizeof(bytes);
+    } break;
+    case 3: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
+    case 2: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
+    case 1: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
     }
 
     if (unlikely(prefix_len == ulen)) return -1;
 
 _newotherbits:
-    c = p[newbyte];
     newotherbits = __msb(p[newbyte] ^ ubytes[newbyte]) ^ 0xff;
+    c = p[newbyte];
 
 different_byte_found:
 
     newdirection = (1 + (newotherbits | c)) >> 8;
-
-    if (! (node = malloc(sizeof(*node))) ) {
-        perror(ERR(trie_insert, malloc));
-        return -1;
-    }
-
-    node->byte = newbyte;
-    node->val = ubytes[newbyte];
-    node->otherbits = newotherbits;
-
-    if (! (leaf = malloc(allocsize)) ) {
-        perror(ERR(trie_insert, malloc));
-        free(node);
-        return -1;
-    }
-
-    leaf->val = value; leaf->len = ulen;
-    memcpy(leaf->key, key, ulen);
-    leaf->key[ulen] = '\0';
 
     while ( (p = *wherep) ) {
         if (! ((intptr_t) p & 0x1)) break;
@@ -234,9 +231,29 @@ different_byte_found:
         wherep = n->child + direction;
     }
 
+    if (! (leaf = malloc(allocsize)) ) {
+        perror(ERR(trie_insert, malloc));
+        return -1;
+    }
+
+    if (! (node = malloc(sizeof(*node))) ) {
+        perror(ERR(trie_insert, malloc));
+        free(leaf);
+        return -1;
+    }
+
+    node->byte = newbyte;
+    node->val = ubytes[newbyte];
+    node->otherbits = newotherbits;
     node->child[1 - newdirection] = leaf->key;
     node->child[newdirection] = *wherep;
+
+    leaf->val = value; leaf->len = ulen;
+
     *wherep = (void *) (1 + (char *) node);
+
+    memcpy(leaf->key, key, ulen);
+    leaf->key[ulen] = '\0';
 
     return 0;
 }
