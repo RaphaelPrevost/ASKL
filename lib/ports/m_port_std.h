@@ -153,17 +153,39 @@
     #define uint32_t unsigned int
     #define int64_t  __int64
     #define uint64_t unsigned __int64
+    /* C99 limits */
+    #define INT8_MIN     SCHAR_MIN
+    #define INT8_MAX     SCHAR_MAX
+    #define UINT8_MAX    UCHAR_MAX
+    #define INT16_MIN    SHRT_MIN
+    #define INT16_MAX    SHRT_MAX
+    #define UINT16_MAX   USHRT_MAX
+    #define INT32_MIN    INT_MIN
+    #define INT32_MAX    INT_MAX
+    #define UINT32_MAX   UINT_MAX
+    #define INT64_MIN    (-9223372036854775807i64 - 1)
+    #define INT64_MAX    9223372036854775807i64
+    #define UINT64_MAX   18446744073709551615ui64
 
     #ifdef _WIN64
         #define intptr_t  __int64
         #define uintptr_t unsigned __int64
+        #define INTPTR_MIN   INT64_MIN
+        #define INTPTR_MAX   INT64_MAX
+        #define UINTPTR_MAX  UINT64_MAX
     #else
         #define intptr_t  int
         #define uintptr_t unsigned int
+        #define INTPTR_MIN   INT_MIN
+        #define INTPTR_MAX   INT_MAX
+        #define UINTPTR_MAX  UINT_MAX
     #endif
 
     #define intmax_t  __int64
     #define uintmax_t unsigned __int64
+    #define INTMAX_MIN   INT64_MIN
+    #define INTMAX_MAX   INT64_MAX
+    #define UINTMAX_MAX  UINT64_MAX
 #endif
 
 #ifndef _strtoi64

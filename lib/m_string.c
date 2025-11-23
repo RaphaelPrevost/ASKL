@@ -3981,6 +3981,11 @@ _parse: switch (class) {
             /* '0x' without digits is not allowed */
             if (-- pos == 1) goto _error;
 
+            if (ctx) {
+                ctx->primitive.data = 0;
+                ctx->primitive.current.type = _JSON_PRIMITIVE_HEX;
+            }
+
             break;
         }
 

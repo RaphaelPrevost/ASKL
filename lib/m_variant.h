@@ -40,33 +40,42 @@
 #include "m_core_def.h"
 #include "m_string.h"
 
-/** @defgroup value core::variant */
+/** @defgroup variant core::variant */
 
-#pragma pack(push, 1)
 typedef struct variant {
     union {
         void *pointer;
         uint64_t integer;
-        double decimal; /* assume IEEE754 64-bits double precision format */
+        double decimal;     /* assume IEEE754 64-bits double precision format */
     } value;
-    uint16_t type;
+    union {
+        struct {
+            uint32_t dword;
+            uint16_t word;
+            uint8_t  byte;
+            uint8_t  type;  /* reserved unless type & _VALUE_OBJECT */
+        } fields;
+        struct {
+            uint8_t bytes[7];
+            uint8_t type;
+        } raw;
+    } metadata;             /* 56 bits of reclaimed padding to store metadata */
 } variant;
-#pragma pack(pop)
 
-#define VALUE_POINTER 0x0
-#define VALUE_INTEGER 0x1
-#define VALUE_DECIMAL 0x2
-#define _VALUE_STRING 0x4
+#define VALUE_NULL        0
+#define VALUE_STRING      1
+#define VALUE_INTEGER     2
+#define VALUE_BOOLEAN     3
+#define VALUE_DECIMAL     4
+#define VALUE_POINTER     5
+#define _VALUE_OBJECT  0x80
 
-#define VALUE_BOOL   0x10
-#define VALUE_TRUE   0x20
-#define VALUE_NULL   0x40
-
-#define is_pointer(v) (v.type & VALUE_POINTER)
-#define is_integer(v) (v.type == VALUE_INTEGER)
-#define is_decimal(v) (v.type == VALUE_DECIMAL)
-#define is_boolean(v) (v.type & VALUE_BOOLEAN)
-#define _is_string(v) (v.type == (VALUE_POINTER | _VALUE_STRING))
+#define is_string(v) ((v).metadata.fields.type == VALUE_STRING)
+#define is_integer(v) ((v).metadata.fields.type == VALUE_INTEGER)
+#define is_boolean(v) ((v).metadata.fields.type == VALUE_BOOLEAN)
+#define is_decimal(v) ((v).metadata.fields.type == VALUE_DECIMAL)
+#define is_pointer(v) ((v).metadata.fields.type == VALUE_POINTER)
+#define _is_object(v) ((v).metadata.fields.type & _VALUE_OBJECT)
 
 /**
  * @ingroup variant
@@ -79,47 +88,47 @@ typedef struct variant {
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK value_from_pointer(void *ptr);
+public variant CALLBACK variant_from_pointer(void *ptr);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK value_from_integer(uint64_t i);
+public variant CALLBACK variant_from_integer(uint64_t i);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK value_from_decimal(double d);
+public variant CALLBACK variant_from_decimal(double d);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK value_from_boolean(int b);
+public variant CALLBACK variant_from_boolean(int b);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK value_from_string(m_string *s);
+public variant CALLBACK variant_from_string(m_string *s);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK value_null(void);
+public variant CALLBACK variant_null(void);
 
 /* -------------------------------------------------------------------------- */
 
-public void * CALLBACK value_to_pointer(variant v);
+public void * CALLBACK variant_to_pointer(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public uint64_t CALLBACK value_to_integer(variant v);
+public uint64_t CALLBACK variant_to_integer(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public double CALLBACK value_to_decimal(variant v);
+public double CALLBACK variant_to_decimal(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public int CALLBACK value_to_boolean(variant v);
+public int CALLBACK variant_to_boolean(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public m_string * CALLBACK value_to_string(variant v);
+public m_string * CALLBACK variant_to_string(variant v);
 
 /* -------------------------------------------------------------------------- */
 

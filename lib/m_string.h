@@ -134,6 +134,7 @@ typedef struct m_json_parser {
 #define JSON_PRIMITIVE_NULL    0x2
 #define JSON_PRIMITIVE_BOOL    0x4
 #define JSON_PRIMITIVE_TRUE   0x10
+#define _JSON_PRIMITIVE_HEX   0x20
 
 #define IS_OBJECT(x) ((x)->_flags & JSON_OBJECT)
 #define IS_ARRAY(x) ((x)->_flags & JSON_ARRAY)
@@ -307,7 +308,7 @@ public m_string *string_encaps(const char *string, size_t len);
  * @fn m_string *string_encaps(const char *string, size_t len)
  * @param string the buffer to encapsulate in a m_string structure
  * @param len the length of the buffer
- * @return NULL if an error occured, a pointer to a new m_string otherwise
+ * @return NULL if an error occurred, a pointer to a new m_string otherwise
  *
  * This functions wraps an existing static or dynamically allocated buffer
  * in a new read-only, fixed length m_string structure.
@@ -329,7 +330,7 @@ public m_string *string_vfmt(m_string *str, const char *fmt, va_list args);
  * @param str the string to be overwritten, may be NULL.
  * @param fmt printf(3) compatible format.
  * @param args arguments matching the format.
- * @return NULL if an error occured, a pointer to the @b str string otherwise.
+ * @return NULL if an error occurred, a pointer to the @b str string otherwise.
  *
  * This function overwrites the given string (or a newly allocated one if the
  * @b str parameter was NULL) with a formatted output.
@@ -357,7 +358,7 @@ public m_string *string_fmt(m_string *str, const char *fmt, ...);
  * @param str the string to be overwritten, may be NULL.
  * @param fmt the printf(3) compatible format.
  * @param ... the arguments matching the format.
- * @return NULL if an error occured, a pointer to the @b str string otherwise.
+ * @return NULL if an error occurred, a pointer to the @b str string otherwise.
  *
  * This function is a wrapper around @ref string_vfmt().
  *
@@ -398,7 +399,7 @@ public int string_to_uint32s(const char *string, uint32_t *out);
  * @fn int string_to_uint32s(const char *string, uint32_t *out)
  * @param string the binary string to convert to a 32 bits integer
  * @param out a pointer to a 32 bits integer for storage
- * @return -1 if an error occured, 0 otherwise
+ * @return -1 if an error occurred, 0 otherwise
  *
  * This function simply converts a binary string into a 32 bits integer,
  * without swapping.
@@ -416,7 +417,7 @@ public int string_to_uint32(const m_string *string, uint32_t *out);
  * @fn int string_to_uint32(const m_string *string, uint32_t *out)
  * @param string the binary string to convert to a 32 bits integer
  * @param out a pointer to a 32 bits integer for storage
- * @return -1 if an error occured, 0 otherwise
+ * @return -1 if an error occurred, 0 otherwise
  *
  * This function simply converts a binary string into a 32 bits integer,
  * without swapping.
@@ -454,7 +455,7 @@ public int string_to_uint64s(const char *string, uint64_t *out);
  * @fn int string_to_uint64s(const char *string, uint64_t *out)
  * @param string the binary string to convert to a 64 bits integer
  * @param out a pointer to a 64 bits integer for storage
- * @return -1 if an error occured, 0 otherwise
+ * @return -1 if an error occurred, 0 otherwise
  *
  * This function simply converts a binary string into a 64 bits integer,
  * without swapping.
@@ -472,7 +473,7 @@ public int string_to_uint64(const m_string *string, uint64_t *out);
  * @fn int string_to_uint64(const m_string *string, uint64_t *out)
  * @param string the binary string to convert to a 64 bits integer
  * @param out a pointer to a 64 bits integer for storage
- * @return -1 if an error occured, 0 otherwise
+ * @return -1 if an error occurred, 0 otherwise
  *
  * This function simply converts a binary string into a 64 bits integer,
  * without swapping.
@@ -549,15 +550,15 @@ public int string_wchar(m_string *string);
  * @ingroup string
  * @fn int string_wchar(m_string *string)
  * @param string the string to be converted.
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function converts the data stored in the internal buffer of the given
  * @b string to wide characters from multibyte characters.
  *
- * If the conversion is successfull, the inner buffer is replaced by its
+ * If the conversion is successful, the inner buffer is replaced by its
  * multibyte equivalent.
  *
- * If the fonction fails to convert the data, it will returns -1 and leave the
+ * If the function fails to convert the data, it will returns -1 and leave the
  * buffer unchanged.
  *
  */
@@ -570,15 +571,15 @@ public int string_mbyte(m_string *string);
  * @ingroup string
  * @fn int string_mbyte(m_string *string)
  * @param string the string to be converted.
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function converts the data stored in the internal buffer of the given
  * @b string to multibyte characters from wide characters.
  *
- * If the conversion is successfull, the inner buffer is replaced by its
+ * If the conversion is successful, the inner buffer is replaced by its
  * wide character equivalent.
  *
- * If the fonction fails to convert the data, it will returns -1 and leave the
+ * If the function fails to convert the data, it will returns -1 and leave the
  * buffer unchanged.
  *
  */
@@ -600,7 +601,7 @@ public size_t string_convs(const char *src, size_t srclen, const char *src_enc,
  * @param dst the output buffer.
  * @param dstlen length of the output buffer.
  * @param dst_enc encoding to use for the conversion.
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function uses the Iconv library to convert the encoding of the given
  * string. If the output is NULL, the function will return the length the
@@ -618,7 +619,7 @@ public int string_conv(m_string *s, const char *src_enc, const char *dst_enc);
  * @param s the string to be converted.
  * @param src_enc the encoding of the original string
  * @param dst_enc the encoding to use for the conversion
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function uses the Iconv library to convert the encoding of the given
  * string.
@@ -635,7 +636,7 @@ public int string_swap(m_string *string);
  * @ingroup string
  * @fn int string_swap(m_string *string)
  * @param string the string to be swapped
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function reverses the endianness of a binary string, without
  * consideration for the current system endianness.
@@ -835,7 +836,7 @@ public m_string *string_movs(m_string *to, off_t o, const char *from, size_t l);
  * However, in all these case, the strings will be left unchanged and the
  * function will returns NULL.
  *
- * If the manipulation is successfull, the function will discard the destination
+ * If the manipulation is successful, the function will discard the destination
  * string's tokens and return a pointer to the updated destination string.
  *
  * Most of the classic string manipulation functions below use
@@ -854,7 +855,7 @@ public int string_suppr(m_string *string, off_t o, size_t l);
  * @param string the target string.
  * @param o beginning of the substring to suppress.
  * @param l length of the substring to suppress.
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function suppress a substring delimited by its offset in the target
  * string and its length from the target string, using @ref string_movs() as
@@ -944,7 +945,7 @@ public m_string *string_mov(m_string *to, off_t off,
  * @param off an offset within the destination string bounds.
  * @param from the source string.
  * @param len the length of the data from the source string to use.
- * @return NULL if an error occured, 0 otherwise.
+ * @return NULL if an error occurred, 0 otherwise.
  *
  * This function is simply a wrapper around @ref string_movs(), please see
  * the documentation of @ref string_movs().
@@ -960,7 +961,7 @@ public m_string *string_cat(m_string *to, const m_string *from);
  * @fn m_string *string_cat(m_string *to, const m_string *from)
  * @param to the destination string.
  * @param from the source string.
- * @return NULL if an error occured, 0 otherwise.
+ * @return NULL if an error occurred, 0 otherwise.
  *
  * This function is simply a wrapper around @ref string_cats(), please see
  * the documentation of @ref string_cats().
@@ -976,7 +977,7 @@ public m_string *string_pre(m_string *to, const m_string *from);
  * @fn m_string *string_pre(m_string *to, const m_string *from)
  * @param to the destination string.
  * @param from the source string.
- * @return NULL if an error occured, 0 otherwise.
+ * @return NULL if an error occurred, 0 otherwise.
  *
  * This function is simply a wrapper around @ref string_pres(), please see
  * the documentation of @ref string_pres().
@@ -992,7 +993,7 @@ public m_string *string_cpy(m_string *to, const m_string *from);
  * @fn m_string *string_cpy(m_string *to, const m_string *from)
  * @param to the destination string.
  * @param from the source string.
- * @return NULL if an error occured, 0 otherwise.
+ * @return NULL if an error occurred, 0 otherwise.
  *
  * This function is simply a wrapper around @ref string_cpys(), please see
  * the documentation of @ref string_cpys().
@@ -1008,7 +1009,7 @@ public int string_cmp(const m_string *a, const m_string *b);
  * @fn string_cmp(const m_string *a, const m_string *b)
  * @param a the destination string.
  * @param b the source string.
- * @return NULL if an error occured, 0 otherwise.
+ * @return NULL if an error occurred, 0 otherwise.
  *
  * This function is simply a wrapper around @ref string_cmps(), please see
  * the documentation of @ref string_cmps().
@@ -1023,7 +1024,7 @@ public int string_upper(m_string *string);
  * @ingroup string
  * @fn int string_upper(m_string *string)
  * @param string
- * @return -1 if an error occured, 0 otherwise
+ * @return -1 if an error occurred, 0 otherwise
  *
  * This function simply converts the internal buffer of the given string to
  * upper case.
@@ -1043,7 +1044,7 @@ public int string_lower(m_string *string);
  * @ingroup string
  * @fn int string_upper(m_string *string)
  * @param string
- * @return -1 if an error occured, 0 otherwise
+ * @return -1 if an error occurred, 0 otherwise
  *
  * This function simply converts the internal buffer of the given string to
  * lower case.
@@ -1139,7 +1140,7 @@ public int string_splits(m_string *string, const char *pattern, size_t len);
  * @param string the string to be split.
  * @param pattern the token delimiter.
  * @param len the size of the delimiter.
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function use @ref string_finds() to split the given @b string, using
  * a delimiter passed in parameter.
@@ -1172,7 +1173,7 @@ public int string_split(m_string *string, const m_string *pattern);
  * @fn int string_split(m_string *string, const m_string *pattern)
  * @param string the string to be split.
  * @param pattern the token delimiter.
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function is simply a wrapper around @ref string_splits(), please see
  * the documentation of @ref string_splits().
@@ -1189,7 +1190,7 @@ public int string_merges(m_string *string, const char *pattern, size_t len);
  * @param string the string to be merged
  * @param pattern the new token delimiter
  * @param len the size of the delimiter
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function replaces all the delimiters between tokens of the
  * target string with the new delimiter given in parameter.
@@ -1205,7 +1206,7 @@ public int string_merge(m_string *string, const m_string *pattern);
  * @fn int string_merge(m_string *string, const m_string *pattern)
  * @param string the string to be merged
  * @param pattern the new token delimiter
- * @return -1 if an error occured, 0 otherwise.
+ * @return -1 if an error occurred, 0 otherwise.
  *
  * This function is simply a wrapper around @ref string_merges(), please see
  * the documentation of @ref string_merges().
@@ -1226,10 +1227,10 @@ public m_string *string_reps(m_string *string, const char *search, size_t slen,
  * @param slen the length of this expression.
  * @param rep the replacement string.
  * @param rlen the length of the replacement string.
- * @return NULL if an error occured, a pointer to the main string otherwise.
+ * @return NULL if an error occurred, a pointer to the main string otherwise.
  *
  * This function searches for the given @b search string inside the main
- * @b string, and replaces each occurence by the provided @b rep string.
+ * @b string, and replaces each occurrence by the provided @b rep string.
  *
  * If a NULL @b rep arguement is given, the target substring is deleted
  * instead and the string resized accordingly.
@@ -1253,7 +1254,7 @@ public m_string *string_rep(m_string *string, const m_string *search,
  * @param search the expression to be replaced.
  * @param rep the replacement string.
  * @param rlen the length of the replacement string.
- * @return NULL if an error occured, a pointer to the main string otherwise.
+ * @return NULL if an error occurred, a pointer to the main string otherwise.
  *
  * This function is simply a wrapper around @ref string_reps(), please see
  * the documentation of @ref string_reps().
@@ -1270,10 +1271,10 @@ public m_string *string_rems(m_string *str, const char *rem, size_t len);
  * @param str the string to be processed
  * @param rem the substring which must be removed
  * @param len the length of the substring
- * @return NULL if an error occured, a pointer to the main string otherwise.
+ * @return NULL if an error occurred, a pointer to the main string otherwise.
  *
  * This function is simply a wrapper around @ref string_reps() with a NULL
- * replacement string. This way, all occurences of the target substring
+ * replacement string. This way, all occurrences of the target substring
  * are dropped.
  *
  * Please see the documentation of @ref string_reps() for further details.
@@ -1292,10 +1293,10 @@ public m_string *string_rem(m_string *string, const m_string *rem);
  * @fn m_string *string_rem(m_string *string, const m_string *rem)
  * @param string the string to be processed
  * @param rem the substring which must be removed
- * @return NULL if an error occured, a pointer to the main string otherwise.
+ * @return NULL if an error occurred, a pointer to the main string otherwise.
  *
  * This function is simply a wrapper around @ref string_reps() with a NULL
- * replacement string. This way, all occurences of the target substring
+ * replacement string. This way, all occurrences of the target substring
  * are dropped.
  *
  * Please see the documentation of @ref string_reps() for further details.
@@ -1387,7 +1388,7 @@ public m_string *string_b58s(const char *s, size_t size);
  * @fn m_string *string_b58s(const char *s, size_t size)
  * @param s the string to be processed
  * @param size the length of the string
- * @return NULL if an error occured, a pointer to the base58 string otherwise.
+ * @return NULL if an error occurred, a pointer to the base58 string otherwise.
  *
  * This function returns a base58 encoded copy of the given string, using
  * Satoshi Nakamoto's alphabet.
@@ -1402,7 +1403,7 @@ public m_string *string_b58(const m_string *s);
  * @ingroup string
  * @fn m_string *string_b58(const m_string *s)
  * @param s the string to be processed
- * @return NULL if an error occured, a pointer to the base58 string otherwise.
+ * @return NULL if an error occurred, a pointer to the base58 string otherwise.
  *
  * This function is simply a wrapper around @ref string_b58s(), please see
  * the documentation of @ref string_b58s().
@@ -1418,7 +1419,7 @@ public m_string *string_deb58s(const char *s, size_t size);
  * @fn m_string *string_deb58s(const char *s, size_t size)
  * @param s the string to be processed
  * @param size the length of the string
- * @return NULL if an error occured, a pointer to the decoded string otherwise.
+ * @return NULL if an error occurred, a pointer to the decoded string otherwise.
  *
  * This function decodes a base58 encoded string to plain text.
  *
@@ -1432,7 +1433,7 @@ public m_string *string_deb58(const m_string *s);
  * @ingroup string
  * @fn m_string *string_deb58(const m_string *s)
  * @param s the string to be processed
- * @return NULL if an error occured, a pointer to the decoded string otherwise.
+ * @return NULL if an error occurred, a pointer to the decoded string otherwise.
  *
  * This function is simply a wrapper around @ref string_deb58s(), please see
  * the documentation of @ref string_deb58s().
@@ -1448,13 +1449,13 @@ public m_string *string_b64s(const char *s, size_t size, size_t linesize);
  * @param s the string to be processed
  * @param size the length of the string
  * @param linesize the maximal length of a base64 line
- * @return NULL if an error occured, a pointer to the base64 string otherwise.
+ * @return NULL if an error occurred, a pointer to the base64 string otherwise.
  *
  * This function returns a base64 encoded copy of the given string, with
  * @b linesize characters per line.
  *
- * If @b linesize is set to 0, the base64 string will be written "as this",
- * without additionnel CRLF.
+ * If @b linesize is set to 0, the base64 string will be written "as-is",
+ * without additional CRLF.
  *
  * If a @b linesize is provided, it should be a multiple of 4 and not greater
  * than 72, or the function will return NULL.
@@ -1470,7 +1471,7 @@ public m_string *string_b64(const m_string *s, size_t linesize);
  * @fn m_string *string_b64(const m_string *s, size_t linesize)
  * @param s the string to be processed
  * @param linesize the maximal length of a base64 line
- * @return NULL if an error occured, a pointer to the base64 string otherwise.
+ * @return NULL if an error occurred, a pointer to the base64 string otherwise.
  *
  * This function is simply a wrapper around @ref string_b64s(), please see
  * the documentation of @ref string_b64s().
@@ -1486,7 +1487,7 @@ public m_string *string_deb64s(const char *s, size_t size);
  * @fn m_string *string_deb64s(const char *s, size_t size)
  * @param s the string to be processed
  * @param size the length of the string
- * @return NULL if an error occured, a pointer to the decoded string otherwise.
+ * @return NULL if an error occurred, a pointer to the decoded string otherwise.
  *
  * This function decodes a base64 encoded string to plain text, handling
  * eventual embedded CRLFs.
@@ -1501,7 +1502,7 @@ public m_string *string_deb64(const m_string *s);
  * @ingroup string
  * @fn m_string *string_deb64(const m_string *s)
  * @param s the string to be processed
- * @return NULL if an error occured, a pointer to the decoded string otherwise.
+ * @return NULL if an error occurred, a pointer to the decoded string otherwise.
  *
  * This function is simply a wrapper around @ref string_deb64s(), please see
  * the documentation of @ref string_deb64s().
@@ -1518,7 +1519,7 @@ public m_string *string_compress(m_string *s);
  * @ingroup string
  * @fn m_string *string_compress(m_string *s)
  * @param s the string to be compressed
- * @return NULL if an error occured, a pointer to compressed string otherwise.
+ * @return NULL if an error occurred, a pointer to compressed string otherwise.
  *
  * This function returns a compressed copy of a given string.
  *
@@ -1533,7 +1534,7 @@ public m_string *string_uncompress(m_string *s, size_t original_size);
  * @fn m_string *string_uncompress(m_string *s, size_t original_size)
  * @param s the string to be uncompressed
  * @param original_size the size of the original uncompressed data
- * @return NULL if an error occured, a pointer to uncompressed string otherwise.
+ * @return NULL if an error occurred, pointer to uncompressed string otherwise.
  *
  * This function returns an uncompressed copy of a given compressed string.
  *
@@ -1575,7 +1576,7 @@ public int string_parse_json(m_string *s, char strict, m_json_parser *ctx);
  * @param s the string to be parsed
  * @param strict boolean - enable or disable strict parsing
  * @param ctx optional parser context
- * @return -1 if an error occured, 0 otherwise
+ * @return -1 if an error occurred, 0 otherwise
  *
  * This function creates tokens for each JSON element in the provided string.
  *

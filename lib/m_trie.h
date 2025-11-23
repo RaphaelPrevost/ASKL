@@ -82,41 +82,23 @@ public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value);
 
 /**
  * @ingroup trie
- * @fn trie_insert(m_trie *t, const char *key, size_t ulen, variant *value)
- * @param t a pointer to a trie
- * @param key the name which will be used to retrieve the stored data
- * @param ulen the length of the key
- * @param value the data that will be stored in the trie
+ * @fn trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
+ * @param t      a pointer to the trie
+ * @param key    the key to associate with the stored value
+ * @param ulen   the length of the key
+ * @param value  the value to store in the trie
+ *
  * @return -1 if an error occurs, 0 otherwise
  *
- * This function stores in a given trie the data provided, associated to the
- * key passed in parameters. If that key already exists in the trie, the
- * function will fail and return -1. Otherwise, the pointer will be stored in
- * the trie and will be retrievable by using the key.
- * 
- * If a @b freeval callback was provided when allocating the trie, the data
- * associated with the key will be automatically freed when the trie is
+ * This function inserts a given variant into the trie under the specified key.
+ * If the key already exists, the function fails and returns -1. Otherwise, the
+ * value is stored and can later be retrieved using the same key.
+ *
+ * If a @b freeval callback was specified when the trie was created, it will be
+ * invoked to free the value when the entry is removed or when the trie is
  * destroyed.
  * 
  * @see trie_remove
- *
- */
-
-/* -------------------------------------------------------------------------- */
-
-public int trie_insert_r(m_trie *t, const char *key, size_t ulen, variant val);
-
-/**
- * @ingroup trie
- * @fn trie_insert_r(m_trie *t, const char *key, size_t ulen, variant *val)
- * @param t a pointer to a trie
- * @param key the name which will be used to retrieve the stored data
- * @param ulen the length of the key
- * @param val the data that will be stored in the trie
- * @return -1 if an error occurs, 0 otherwise
- *
- * This function is simply a thread-safe wrapper around @ref trie_insert(),
- * please see the documentation of @ref trie_insert().
  *
  */
 
@@ -128,22 +110,25 @@ public variant trie_lookup(m_trie *t, const char *key, size_t ulen,
 /**
  * @ingroup trie
  * @fn trie_lookup(m_trie *t, const char *key, size_t ulen,
- *                 void *(CALLBACK *f)(variant *))
- * @param t a pointer to a trie
- * @param key the name which will be used to retrieve the stored data
- * @param ulen the length of the key
- * @param f a function which will process the data associated with the key
- * @return the data associated with the key, NULL, or the return value of @b f
+ *                 void *(CALLBACK *f)(variant))
+ * @param t     a pointer to the trie
+ * @param key   the key used to retrieve the stored value
+ * @param ulen  the length of the key
+ * @param f     an optional callback that processes the retrieved value
  *
- * This function will retrieve the data associated with the provided key if
- * it exists in the trie. If the key is not found, the function will return
- * NULL instead.
- * If a callback function @b f was provided to process the data, it will be
- * called with the retrieved data in parameter and its return value will be
- * returned by @b trie_lookup
- * 
- * @note The callback function @b f should avoid altering the data passed in
- * parameter unless it can do so in a thread-safe way.
+ * @return a variant containing the stored value, the return value of @b f,
+ *         or a variant of type VARIANT_NULL if the key is not found
+ *
+ * This function searches the trie for the specified key and returns its
+ * associated value. If the key does not exist, a VARIANT_NULL value is
+ * returned.
+ *
+ * If a callback function @b f is provided, it is invoked with the retrieved
+ * value as its argument, and the return value of @b f is returned instead of
+ * the raw stored value.
+ *
+ * @note The callback @b f must not modify the stored value unless such
+ * modifications are safe in the presence of concurrent access.
  *
  */
 
@@ -154,21 +139,47 @@ public variant trie_remove(m_trie *t, const char *key, size_t ulen);
 /**
  * @ingroup trie
  * @fn trie_remove(m_trie *t, const char *key, size_t ulen)
- * @param t a pointer to a trie
- * @param key the name which will be used to retrieve the stored data
- * @param ulen the length of the key
- * @return the data associated with the key or NULL
+ * @param t     a pointer to the trie
+ * @param key   the key used to retrieve the stored value
+ * @param ulen  the length of the key
  *
- * This function will retrieve the data associated with the provided key if
- * it exists, remove the key from the trie, and return the data.
- * 
- * If the key is not found, this function returns NULL.
+ * @return the value previously associated with the key, or a VARIANT_NULL
+ *         value if the key does not exist
  *
+ * This function looks up the specified key in the trie, removes it if present,
+ * and returns the value that was associated with it. If the key is not found,
+ * a VARIANT_NULL value is returned.
+ *
+ * @note If the trie was created with a @b freeval callback, that callback is
+ *       not invoked by this function. The caller becomes responsible for
+ *       managing the returned value.
  */
 
 /* -------------------------------------------------------------------------- */
 
 public variant trie_update(m_trie *t, const char *key, size_t ulen, variant v);
+
+/**
+ * @ingroup trie
+ * @fn trie_update(m_trie *t, const char *key, size_t ulen, variant v)
+ *
+ * @param t     a pointer to the trie
+ * @param key   the key whose associated value should be updated
+ * @param ulen  the length of the key
+ * @param v     the new value to associate with the key
+ *
+ * @return the previous value associated with the key, or a VARIANT_NULL
+ *         value if the key did not previously exist
+ *
+ * This function stores the value @p v under the specified @p key. If the key
+ * already exists, its associated value is replaced and the previous value is
+ * returned. If the key does not exist, it is inserted into the trie and
+ * VARIANT_NULL is returned.
+ *
+ * @note If the trie was created with a @b freeval callback, that callback is
+ *       not invoked for the value being replaced. The caller becomes responsible
+ *       for performing any necessary cleanup on the returned value.
+ */
 
 /* -------------------------------------------------------------------------- */
 

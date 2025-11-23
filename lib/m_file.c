@@ -92,21 +92,20 @@ static void _fs_refcount_breaklock(m_file *ref)
 
 /* -------------------------------------------------------------------------- */
 
-static variant CALLBACK _fs_refcount_acquire(variant val)
+static variant CALLBACK _fs_refcount_acquire(variant v)
 {
-    variant ret = { 0 };
-    m_file *ref = value_to_pointer(val);
+    m_file *ref = variant_to_pointer(v);
 
-    if (! ref || _fs_refcount_lock(ref) == -1) return ret;
+    if (! ref || _fs_refcount_lock(ref) == -1) return variant_null();
 
-    return val;
+    return v;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static void _fs_orphan(variant val)
+static void _fs_orphan(variant v)
 {
-    m_file *file = value_to_pointer(val);
+    m_file *file = variant_to_pointer(v);
 
     if ((int) file->_refcount >= 0) {
         file->_view = NULL;
@@ -294,7 +293,7 @@ _try_again:
     retry = 0;
 
     /* check if the file exists in the cache */
-    new = value_to_pointer(
+    new = variant_to_pointer(
         trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
     );
 
@@ -419,7 +418,7 @@ _try_again:
     /* XXX should use different records depending on access rights */
 
     /* try to insert the new record in the cache */
-    if (trie_insert(v->_cache, new->path, len, value_from_pointer(new))) {
+    if (trie_insert(v->_cache, new->path, len, variant_from_pointer(new))) {
         debug("_fs_openfile(): cannot insert the new cache record.\n");
         goto _err_hash;
     }
@@ -470,16 +469,16 @@ public m_file *fs_openfile(m_view *v, const char *p, size_t l, m_auth *a)
 
 public m_file *fs_reopenfile(m_file *f)
 {
-    variant val = { 0 };
+    variant var = { 0 };
 
     if (! f) {
         debug("fs_reopenfile(): bad parameters.\n");
         return NULL;
     }
 
-    val = _fs_refcount_acquire(value_from_pointer(f));
+    var = _fs_refcount_acquire(variant_from_pointer(f));
 
-    if ( (f = value_to_pointer(val)) ) {
+    if ( (f = variant_to_pointer(var)) ) {
         if (f->flags & FILE_PRIVATE || f->flags & FILE_DELETED) {
             /* if the initial opener didn't allow the use of a shared copy,
                or a private copy is already in use, or the mapping is
@@ -576,7 +575,7 @@ public int fs_isopened(m_view *v, const char *p, size_t l)
 
     /* check if the file exists in the cache */
     return (
-        value_to_pointer(trie_lookup(v->_cache, fullpath, len, NULL)) != NULL
+        variant_to_pointer(trie_lookup(v->_cache, fullpath, len, NULL)) != NULL
     );
 }
 
@@ -690,7 +689,7 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
     }
 
     /* check if there is a previous mapping */
-    prev = value_to_pointer(
+    prev = variant_to_pointer(
         trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
     );
 
@@ -769,11 +768,11 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
     new->_lockstate = 1;
     new->_refcount = 0;
 
-    val = value_from_pointer(new);
+    val = variant_from_pointer(new);
 
     if (prev) {
         /* replace the old virtual mapping by the new one */
-        prev = value_to_pointer(
+        prev = variant_to_pointer(
             trie_update(v->_cache, new->path, new->pathlen, val)
         );
 
@@ -889,7 +888,7 @@ public int fs_rename(m_view *v, const char *old, size_t oldlen,
 
     if (! physical) {
         /* get the old mapping data */
-        f = value_to_pointer(
+        f = variant_to_pointer(
             trie_lookup(v->_cache, oldpath, oldlen, _fs_refcount_acquire)
         );
 
@@ -955,7 +954,7 @@ public int fs_delete(m_view *v, const char *p, size_t l)
             return -1;
         }
     } else {
-        f = value_to_pointer(
+        f = variant_to_pointer(
             trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
         );
 
@@ -998,7 +997,7 @@ public m_file *fs_closefile(m_file *file)
 
         if (file->_view) {
             /* the file is not orphaned */
-            ret = value_to_pointer(
+            ret = variant_to_pointer(
                 trie_remove(file->_view->_cache, file->path, file->pathlen)
             );
         } else ret = file;

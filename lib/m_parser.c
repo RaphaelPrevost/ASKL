@@ -898,9 +898,9 @@ static int path_append(m_string *path, const char *key, size_t len, int strict)
 
 /* -------------------------------------------------------------------------- */
 
-static void trie_destructor(variant val)
+static void trie_destructor(variant v)
 {
-    if (is_pointer(val)) free(value_to_pointer(val));
+    if (is_pointer(v) || _is_object(v)) free(v.value.pointer);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -933,7 +933,7 @@ private int CALLBACK json_init(int type, m_json_parser *ctx)
 private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
 {
     struct jsonpath_context *context = ctx->context;
-    variant val = { 0 };
+    variant var = { 0 };
     double number = 0.0;
     char *string = NULL;
 
@@ -950,30 +950,45 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
 
             if (! isfinite(number)) return -1;
 
-            val = value_from_decimal(number);
+            var = variant_from_decimal(number);
         } break;
 
-        case JSON_PRIMITIVE_NULL: val = value_null(); break;
+        case JSON_PRIMITIVE_NULL: var = variant_null(); break;
 
         default:
-            if (ctx->primitive.current.type & JSON_PRIMITIVE_BOOL) {
-                val = value_from_boolean(
+            if (likely(ctx->primitive.current.type & JSON_PRIMITIVE_BOOL)) {
+                var = variant_from_boolean(
                     (ctx->primitive.current.type & JSON_PRIMITIVE_TRUE)
                 );
+            } else if (ctx->primitive.current.type == _JSON_PRIMITIVE_HEX) {
+                const uint8_t *hex = (const uint8_t *) DATA(data);
+                uint64_t q = 0;
+                unsigned int i = 0;
+                for (i = 2; i < SIZE(data); i ++)
+                    q = (q << 4) | (9 * (hex[i] >> 6) + (hex[i] & 0xf));
+                var = variant_from_integer(q);
             }
         }
     } else if (IS_STRING(data)) {
+        ssize_t len = 0;
+
         if (! (string = malloc((SIZE(data) + 1) * sizeof(*string))) ) {
             perror(ERR(json_data, malloc));
             return -1;
         }
 
-        if (json_string(string, DATA(data), SIZE(data), ctx->strict) == -1) {
+        len = json_string(string, DATA(data), SIZE(data), ctx->strict);
+        if (unlikely(len == -1)) {
             free(string);
             return -1;
         }
 
-        val = value_from_pointer(string);
+        /* store the string CRC7 and first byte for faster retrieval/sorting */
+        if (likely(var.metadata.fields.dword = len))
+            var.metadata.fields.type = _crc7(string, len);
+        var.metadata.fields.type |= _VALUE_OBJECT;
+        var.metadata.fields.byte = *string;
+        var.value.pointer = string;
     }
 
     if (ctx->parent == JSON_ARRAY) {
@@ -981,7 +996,7 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
         trie_insert(
             context->tree,
             DATA(context->path), SIZE(context->path),
-            val
+            var
         );
         context->count = increment_index(context->path);
     } else if (ctx->key.current) {
@@ -993,10 +1008,12 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
         );
         if (ret == -1) return -1;
         string_merges(context->path, "/", 1);
+        /* fast suffix access */
+        var.metadata.fields.word = SIZE(context->path) - ctx->key.len;
         trie_insert(
             context->tree,
             DATA(context->path), SIZE(context->path),
-            val
+            var
         );
         if (likely(PARTS(context->path)))
             string_suppr_token(context->path, PARTS(context->path) - 1);
@@ -1015,7 +1032,7 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
 
 private int CALLBACK json_exit(int type, struct m_json_parser *ctx)
 {
-    variant val = { 0 };
+    variant var = { 0 };
     struct jsonpath_context *context = ctx->context;
 
     if (type == JSON_ARRAY) {
@@ -1028,7 +1045,7 @@ private int CALLBACK json_exit(int type, struct m_json_parser *ctx)
             trie_insert(
                 context->tree,
                 DATA(context->path), SIZE(context->path),
-                val
+                var
             );
         }
     }
@@ -1091,16 +1108,18 @@ _err_alloc:
 
 /* -------------------------------------------------------------------------- */
 
-int trie_print(const char *k, size_t len, variant val)
+int trie_print(const char *k, size_t len, variant v)
 {
     printf("%.*s = ", (int) len, k);
-    switch (val.type) {
-    case VALUE_POINTER: printf("%s\n", (char *) value_to_pointer(val)); break;
-    case VALUE_DECIMAL: printf("%02f\n", value_to_decimal(val)); break;
+    switch (v.metadata.fields.type) {
     case VALUE_NULL: printf("<NULL>\n"); break;
-    default:
-    if (val.type & VALUE_BOOL)
-        printf("%s\n", (val.type & VALUE_TRUE) ? "TRUE" : "FALSE");
+    case VALUE_STRING: break;
+    case VALUE_INTEGER: printf("0x%llx\n", variant_to_integer(v)); break;
+    case VALUE_BOOLEAN: printf("%s\n", (variant_to_boolean(v)) ? "TRUE" : "FALSE"); break;
+    case VALUE_DECIMAL: printf("%02f\n", variant_to_decimal(v)); break;
+    case VALUE_POINTER: printf("0x%p\n", variant_to_pointer(v)); break;
+    default: /* _VALUE_OBJECT */
+    printf("%.*s\n", v.metadata.fields.dword, (char *) v.value.pointer);
     }
     return 0;
 }

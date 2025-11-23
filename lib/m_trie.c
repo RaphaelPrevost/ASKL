@@ -41,15 +41,15 @@
 
 typedef struct _m_node {
     void *child[2];
-    uint16_t byte;
+    uint16_t pos;
     uint8_t val;
-    uint8_t otherbits;
+    uint8_t bit;
 } _m_node;
 
 typedef struct _m_leaf {
-    variant val;
-    uint16_t pad;
     uint16_t len;
+    uint16_t pad;
+    variant val;
     char key[];
 } _m_leaf;
 
@@ -96,166 +96,138 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert_r(m_trie *t, const char *key, size_t ulen, variant val)
-{
-    int ret = 0;
-
-    if (! t) {
-        debug("trie_insert(): bad parameters.\n");
-        return -1;
-    }
-
-    pthread_rwlock_wrlock(t->_lock);
-
-    ret = trie_insert(t, key, ulen, val);
-
-    pthread_rwlock_unlock(t->_lock);
-
-    return ret;
-}
-
-/* -------------------------------------------------------------------------- */
-
 public int trie_insert(m_trie *t, const char *key, size_t ulen, variant value)
 {
     const uint8_t * restrict const ubytes = (void *) key;
-    uint8_t *p = NULL, c = 0;
-    unsigned int direction = 0, newdirection = 0;
-    _m_node *node = NULL, *n = NULL;
-    _m_leaf *leaf = NULL;
-    unsigned int prefix_len = 0, index = 0, newbyte = 0, newotherbits = 0;
-    int32_t allocsize = 0;
-    void **children = NULL, **wherep = NULL;
+    uint8_t *p = NULL, byte = 0;
+    int branch = 0, newbranch = 0;
+    _m_node *node = NULL;
+    _m_leaf *leaf = NULL, *newleaf = NULL;
+    unsigned prefix_len = 0, n = 0, pos = 0, critbit = 0;
+    void **parent = NULL, **last_diff = NULL, **prev_node = NULL;
 
-    if (! t || ! key || ! ulen) {
+    if (! t || ! ubytes || ! ulen) {
         debug("trie_insert(): bad parameters.\n");
         return -1;
     }
 
-    allocsize = sizeof(*leaf) + ulen + 1;
-    if ((size_t) allocsize < ulen) {
-        debug("trie_insert(): integer overflow.\n");
+    if (ulen >= UINT16_MAX) {
+        debug("trie_insert(): overly long key.\n");
         return -1;
     }
 
-    if (! (p = t->_root) ) {
-        /* the tree is empty, allocate a new leaf node */
-        if (! (leaf = malloc(allocsize)) ) {
-            perror(ERR(trie_insert, malloc));
-            return -1;
-        }
-
-        leaf->val = value; leaf->len = ulen;
-        memcpy(leaf->key, key, ulen);
-        leaf->key[ulen] = '\0';
-
-        t->_root = leaf->key;
-
-        return 0;
+    if (! (newleaf = malloc(sizeof(*newleaf) + ulen + 1)) ) {
+        perror(ERR(trie_insert, malloc));
+        goto _err_leaf;
     }
 
-    /* traverse the tree to find where the new node should be inserted */
-    for (wherep = & t->_root; (intptr_t) p & 0x1; p = children[direction]) {
-        node = (void *) (p - 1);
-        children = node->child;
+    newleaf->val = value; newleaf->len = ulen;
 
-        if (likely(node->byte < ulen)) {
-            c = ubytes[node->byte];
-            direction = (1 + (node->otherbits | c)) >> 8;
-            if (likely(node->val != c)) {
-                newotherbits = __msb(node->val ^ c) ^ 0xff;
-                if (likely(node->otherbits > newotherbits)) {
-                    newbyte = node->byte;
-                    c = node->val;
-                    goto different_byte_found;
+    pthread_rwlock_wrlock(t->_lock);
+
+    if (unlikely(! t->_root)) {
+        /* the tree is empty, add a new leaf */
+        t->_root = newleaf->key;
+        goto _success;
+    } else parent = prev_node = & t->_root;
+
+    /* traverse the tree to find where the new node should be inserted */
+    for (p = t->_root; (uintptr_t) p & 0x1; p = node->child[branch]) {
+        node = (void *) (p - 1);
+        if (likely(node->pos < ulen)) {
+            byte = ubytes[node->pos];
+            branch = (1 + (node->bit | byte)) >> 8;
+            if (likely(node->val != byte)) {
+                critbit = __msb(node->val ^ byte) ^ 0xff;
+                if (node->bit > critbit) {
+                    pos = node->pos;
+                    byte = node->val;
+                    if (last_diff) parent = last_diff;
+                    goto _newbyte;
                 }
-            } else {
-                newbyte = index + 1;
-                index = node->byte;
-                newbyte += (newbyte == index);
-                wherep = node->child + direction;
-            }
-        } else direction = (1 + node->otherbits) >> 8;
+                last_diff = node->child + branch;
+            } else parent = prev_node;
+            prev_node = node->child + branch;
+            PREFETCH((char *) node->child[branch] - 1, 0, NTACCESS);
+        } else branch = 0;
     }
 
     /* found a leaf, compute the divergence */
     leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
     prefix_len = (leaf->len + ((ulen - leaf->len) & -(ulen < leaf->len)));
 
-    for ( ; newbyte < (prefix_len & ~7u); newbyte += sizeof(uint64_t)) {
+    for (n = prefix_len & ~7u; pos < n; pos += sizeof(uint64_t)) {
         uint64_t bytes, leaf64;
-        memcpy(& bytes, ubytes + newbyte, sizeof(bytes));
-        memcpy(& leaf64, p + newbyte, sizeof(leaf64));
+        memcpy(& bytes, ubytes + pos, sizeof(bytes));
+        memcpy(& leaf64, p + pos, sizeof(leaf64));
         if (likely(bytes ^= leaf64)) {
-            newbyte += __zero_idx64(bytes);
-            goto _newotherbits;
+            pos += __zero_idx64(bytes);
+            goto _critbit;
         }
     }
 
-    switch (prefix_len - newbyte) {
-    case 7: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
-    case 6: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
-    case 5: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
+    switch (prefix_len - pos) {
+    case 7: if (p[pos] ^ ubytes[pos]) goto _critbit; pos ++;
+    case 6: if (p[pos] ^ ubytes[pos]) goto _critbit; pos ++;
+    case 5: if (p[pos] ^ ubytes[pos]) goto _critbit; pos ++;
     case 4: {
         uint32_t bytes, leaf32;
-        memcpy(& bytes, ubytes + newbyte, sizeof(bytes));
-        memcpy(& leaf32, p + newbyte, sizeof(leaf32));
+        memcpy(& bytes, ubytes + pos, sizeof(bytes));
+        memcpy(& leaf32, p + pos, sizeof(leaf32));
         if (likely(bytes ^= leaf32)) {
-            newbyte += __zero_idx(bytes);
-            goto _newotherbits;
+            pos += __zero_idx(bytes);
+            goto _critbit;
         }
-        newbyte += sizeof(bytes);
+        pos += sizeof(bytes);
     } break;
-    case 3: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
-    case 2: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
-    case 1: if (p[newbyte] ^ ubytes[newbyte]) goto _newotherbits; newbyte ++;
+    case 3: if (p[pos] ^ ubytes[pos]) goto _critbit; pos ++;
+    case 2: if (p[pos] ^ ubytes[pos]) goto _critbit; pos ++;
+    case 1: if (p[pos] ^ ubytes[pos]) goto _critbit; pos ++;
     }
 
-    if (unlikely(prefix_len == ulen)) return -1;
+    /* duplicate key */
+    if (unlikely(prefix_len == ulen)) goto _failure;
 
-_newotherbits:
-    newotherbits = __msb(p[newbyte] ^ ubytes[newbyte]) ^ 0xff;
-    c = p[newbyte];
+_critbit:
+    critbit = __msb(p[pos] ^ ubytes[pos]) ^ 0xff;
+    byte = p[pos];
 
-different_byte_found:
+_newbyte:
+    newbranch = (1 + (critbit | byte)) >> 8;
+    n = (pos << 8) | critbit;
 
-    newdirection = (1 + (newotherbits | c)) >> 8;
-
-    while ( (p = *wherep) ) {
-        if (! ((intptr_t) p & 0x1)) break;
-        n = (void *) (p - 1);
-        if (n->byte > newbyte) break;
-        if (n->byte == newbyte && n->otherbits > newotherbits) break;
-        c = (likely(n->byte < ulen)) ? ubytes[n->byte] : 0;
-        direction = (1 + (n->otherbits | c)) >> 8;
-        wherep = n->child + direction;
-    }
-
-    if (! (leaf = malloc(allocsize)) ) {
-        perror(ERR(trie_insert, malloc));
-        return -1;
+    for (p = *parent; (uintptr_t) p & 0x1; p = *parent) {
+        node = (void *) (p - 1);
+        /* enforce lexicographic order */
+        if ((((uint32_t) node->pos << 8) | node->bit) > n) break;
+        branch = (1 + (node->bit | ubytes[node->pos])) >> 8;
+        parent = node->child + branch;
     }
 
     if (! (node = malloc(sizeof(*node))) ) {
         perror(ERR(trie_insert, malloc));
-        free(leaf);
-        return -1;
+        goto _failure;
     }
 
-    node->byte = newbyte;
-    node->val = ubytes[newbyte];
-    node->otherbits = newotherbits;
-    node->child[1 - newdirection] = leaf->key;
-    node->child[newdirection] = *wherep;
+    node->pos = pos;
+    node->val = ubytes[pos];
+    node->bit = critbit;
+    node->child[1 - newbranch] = newleaf->key;
+    node->child[newbranch] = *parent;
 
-    leaf->val = value; leaf->len = ulen;
+    *parent = (void *) (1 + (char *) node);
 
-    *wherep = (void *) (1 + (char *) node);
-
-    memcpy(leaf->key, key, ulen);
-    leaf->key[ulen] = '\0';
-
+_success:
+    memcpy(newleaf->key, ubytes, ulen);
+    newleaf->key[ulen] = '\0';
+    pthread_rwlock_unlock(t->_lock);
     return 0;
+
+_failure:
+    pthread_rwlock_unlock(t->_lock);
+    free(newleaf);
+_err_leaf:
+    return -1;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -263,37 +235,37 @@ different_byte_found:
 public variant trie_lookup(m_trie *t, const char *key, size_t ulen,
                            variant (CALLBACK *function)(variant))
 {
-    uint8_t *p = NULL, c = 0;
+    const uint8_t * restrict const ubytes = (void *) key;
+    uint8_t *p = NULL;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
-    unsigned int direction = 0;
+    unsigned int branch = 0;
     variant ret = { 0 };
-    const uint8_t *ubytes = (void *) key;
 
-    if (! t || ! key || ! ulen) {
+    if (! t || ! ubytes || ! ulen) {
         debug("trie_lookup(): bad parameters.\n");
         return ret;
     }
 
     pthread_rwlock_rdlock(t->_lock);
 
-    if (! (p = t->_root) ) {
+    if (unlikely(! t->_root)) {
         pthread_rwlock_unlock(t->_lock);
         return ret;
     }
 
     /* traverse the tree to find the node */
-    while ((intptr_t) p & 0x1) {
+    for (p = t->_root; (uintptr_t) p & 0x1; p = node->child[branch]) {
         node = (void *) (p - 1);
-        c = (node->byte < ulen) ? ubytes[node->byte] : 0;
-        direction = (1 + (node->otherbits | c)) >> 8;
-        p = node->child[direction];
+        if (likely(node->pos < ulen))
+            branch = (1 + (node->bit | ubytes[node->pos])) >> 8;
+        else branch = 0;
     }
 
     leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
 
     /* check for exact match */
-    if (leaf->len == ulen && memcmp(leaf->key, key, ulen) == 0)
+    if (leaf->len == ulen && memcmp(leaf->key, ubytes, ulen) == 0)
         ret = (function) ? function(leaf->val) : leaf->val;
 
     pthread_rwlock_unlock(t->_lock);
@@ -305,49 +277,49 @@ public variant trie_lookup(m_trie *t, const char *key, size_t ulen,
 
 public variant trie_remove(m_trie *t, const char *key, size_t ulen)
 {
-    uint8_t *p = NULL, c = 0;
-    void **wherep = NULL, **whereq = NULL;
+    const uint8_t * restrict const ubytes = (void *) key;
+    uint8_t *p = NULL;
+    void **ancestor = NULL, **parent = NULL;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
-    int direction = 0;
+    int branch = 0;
     variant ret = { 0 };
-    const uint8_t *ubytes = (void *) key;
 
-    if (! t || ! key || ! ulen) {
+    if (! t || ! ubytes || ! ulen) {
         debug("trie_remove(): bad parameters.\n");
         return ret;
     }
 
     pthread_rwlock_wrlock(t->_lock);
 
-    if (unlikely(! (p = t->_root)))
+    if (unlikely(! t->_root))
         goto _err;
-    else wherep = & t->_root;
+    else parent = & t->_root;
 
     /* traverse the tree to find the node */
-    while ((intptr_t) p & 0x1) {
-        whereq = wherep;
+    for (p = *parent; (uintptr_t) p & 0x1; p = *parent) {
+        ancestor = parent;
         node = (void *) (p - 1);
-        c = (node->byte < ulen) ? ubytes[node->byte] : 0;
-        direction = (1 + (node->otherbits | c)) >> 8;
-        wherep = node->child + direction;
-        p = *wherep;
+        if (node->pos < ulen)
+            branch = (1 + (node->bit | ubytes[node->pos])) >> 8;
+        else branch = 0;
+        parent = node->child + branch;
     }
 
     leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
 
     /* check for exact match */
-    if (leaf->len != ulen || memcmp(leaf->key, key, ulen)) goto _err;
+    if (leaf->len != ulen || memcmp(leaf->key, ubytes, ulen)) goto _err;
 
     /* get the associated value and free up the node */
     ret = leaf->val; free(leaf);
 
-    if (unlikely(! whereq)) {
+    if (unlikely(! ancestor)) {
         /* the tree is empty */
         t->_root = NULL; goto _err;
     } else {
         /* simplify the tree */
-        *whereq = node->child[1 - direction]; free(node);
+        *ancestor = node->child[1 - branch]; free(node);
     }
 
 _err:
@@ -360,37 +332,37 @@ _err:
 
 public variant trie_update(m_trie *t, const char *key, size_t ulen, variant v)
 {
-    uint8_t *p = NULL, c = 0;
+    const uint8_t * restrict const ubytes = (void *) key;
+    uint8_t *p = NULL;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
     variant ret = { 0 };
-    int direction = 0;
-    const uint8_t *ubytes = (void *) key;
+    int branch = 0;
 
-    if (! t || ! key || ! ulen) {
+    if (! t || ! ubytes || ! ulen) {
         debug("trie_update(): bad parameters.\n");
         return ret;
     }
 
     pthread_rwlock_wrlock(t->_lock);
 
-    if (! (p = t->_root) ) {
+    if (! t->_root) {
         pthread_rwlock_unlock(t->_lock);
         return ret;
     }
 
     /* traverse the tree to find the node */
-    while ((intptr_t) p & 0x1) {
+    for (p = t->_root; (uintptr_t) p & 0x1; p = node->child[branch]) {
         node = (void *) (p - 1);
-        c = (node->byte < ulen) ? ubytes[node->byte] : 0;
-        direction = (1 + (node->otherbits | c)) >> 8;
-        p = node->child[direction];
+        if (node->pos < ulen)
+            branch = (1 + (node->bit | ubytes[node->pos])) >> 8;
+        else branch = 0;
     }
 
     leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
 
     /* check for exact match and update the value */
-    if (leaf->len == ulen && ! memcmp(leaf->key, key, ulen)) {
+    if (leaf->len == ulen && ! memcmp(leaf->key, ubytes, ulen)) {
         ret = leaf->val;
         leaf->val = v;
     }
@@ -411,7 +383,7 @@ static int _each(m_trie *t, void **top, int (*f)(const char *, size_t, variant))
 
     if (! (p = *top) ) return -1;
 
-    if ((intptr_t) p & 0x1) {
+    if ((uintptr_t) p & 0x1) {
         node = (void *) (p - 1);
 
         ret[0] = _each(t, & node->child[0], f);
@@ -487,16 +459,16 @@ static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, variant))
 {
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
-    int direction = 0, ret = 1;
+    int branch = 0, ret = 1;
 
-    if ((intptr_t) top & 0x1) {
+    if ((uintptr_t) top & 0x1) {
         node = (void *) (top - 1);
 
-        for (direction = 0; direction < 2; ++ direction) {
-            switch (_each_prefix(node->child[direction], f)) {
-                case 1: break;
-                case 0: return 0;
-                default: return -1;
+        for (branch = 0; branch < 2; ++ branch) {
+            switch (_each_prefix(node->child[branch], f)) {
+            case 1: break;
+            case 0: return 0;
+            default: return -1;
             }
         }
 
@@ -514,13 +486,13 @@ static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, variant))
 public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
                                 int (*f)(const char *, size_t, variant))
 {
-    const uint8_t *ubytes = (void *) prefix;
-    uint8_t *p = NULL, *top = NULL, c = 0;
-    int direction = 0;
+    const uint8_t * restrict const ubytes = (void *) prefix;
+    uint8_t *p = NULL, *top = NULL;
+    int branch = 0;
     _m_node *node = NULL;
     _m_leaf *leaf = NULL;
 
-    if (! t || ! prefix || ! ulen) {
+    if (! t || ! ubytes || ! ulen) {
         debug("trie_foreach_prefix(): bad parameters.\n");
         return;
     }
@@ -533,12 +505,13 @@ public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
     }
 
     /* find the best match for the given prefix */
-    while ((intptr_t) p & 0x1) {
+    while ((uintptr_t) p & 0x1) {
         node = (void *)(p - 1);
-        c = (node->byte < ulen) ? ubytes[node->byte] : 0;
-        direction = (1 + (node->otherbits | c)) >> 8;
-        p = node->child[direction];
-        if (node->byte < ulen) top = p;
+        if (node->pos < ulen)
+            branch = (1 + (node->bit | ubytes[node->pos])) >> 8;
+        else branch = 0;
+        p = node->child[branch];
+        if (node->pos < ulen) top = p;
     }
 
     leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
