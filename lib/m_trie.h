@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  Copyright (c) 2005-2025 Raphael Prevost <raph@el.bzh>                      *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -58,6 +58,16 @@ typedef struct m_trie {
  * @b private @ref _root a pointer to the root node of the trie
  *
  */
+
+typedef struct m_trie_iterator {
+    struct m_trie *trie;
+    uint8_t **_node;
+    size_t _node_alloc;
+    size_t _node_count;
+    const char *key;
+    size_t len;
+    variant val;
+} m_trie_iterator;
 
 /* -------------------------------------------------------------------------- */
 
@@ -185,10 +195,123 @@ public variant trie_update(m_trie *t, const char *key, size_t ulen, variant v);
 
 public void trie_foreach(m_trie *t, int (*f)(const char *, size_t, variant));
 
+/**
+ * @ingroup trie
+ * @fn trie_foreach(m_trie *t, int (*f)(const char *, size_t, variant))
+ *
+ * @param t   a pointer to the trie
+ * @param f   a callback invoked once per leaf, receiving the key, its length,
+ *            and the associated value
+ *
+ * This function performs a full traversal of the trie and invokes the callback
+ * @p f for every key/value pair stored in it. The walk is performed in
+ * depth-first order and visits every leaf in the structure.
+ *
+ * If @p f returns @c -1, the corresponding key/value pair is removed from the
+ * trie. If the trie was created with a @b freeval callback, that callback is
+ * invoked on the value.
+ *
+ * Any other non-negative return value from @p f is ignored and the traversal
+ * continues normally.
+ *
+ * @note This function acquires a @b write lock on the trie for the entire
+ *       duration of the traversal and potential deletions.
+ */
+
 /* -------------------------------------------------------------------------- */
 
-public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
-                                int (*function)(const char *, size_t, variant));
+public m_trie_iterator *trie_each(m_trie *t);
+
+/**
+ * @ingroup trie
+ * @fn trie_each(m_trie *t)
+ *
+ * @param t   a pointer to the trie
+ *
+ * @return a newly allocated iterator positioned on the first leaf, or @c NULL
+ *         if the trie is empty or an error occurred
+ *
+ * This function creates an iterator that allows the caller to traverse all
+ * leaves of the trie. The returned iterator holds a read lock on the trie.
+ *
+ * The iterator must be advanced using @ref trie_next and eventually destroyed
+ * using @ref trie_break (or implicitly when @ref trie_next reaches the end).
+ *
+ * @note The iterator acquires a read lock on the trie when created. This lock
+ *       is automatically released when the iterator is exhausted or explicitly
+ *       destroyed with @ref trie_break.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public m_trie_iterator *trie_each_prefix(m_trie *t, const char *pf, size_t len);
+
+/**
+ * @ingroup trie
+ * @fn trie_each_prefix(m_trie *t, const char *pf, size_t len)
+ *
+ * @param t    a pointer to the trie
+ * @param pf   a key prefix to restrict the traversal
+ * @param len  the length of the prefix
+ *
+ * @return an iterator positioned at the first leaf whose key begins with the
+ *         given prefix, or @c NULL if no such prefix exists or an error
+ *         occurred
+ *
+ * This function behaves like @ref trie_each, but the traversal is limited to
+ * keys that share the specified prefix @p pf.
+ *
+ * If the prefix does not correspond to any key, the function returns @c NULL
+ * and no iterator is created.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public m_trie_iterator * CALLBACK trie_next(m_trie_iterator *iterator);
+
+/**
+ * @ingroup trie
+ * @fn trie_next(m_trie_iterator *iterator)
+ *
+ * @param iterator  an iterator previously created with @ref trie_each or
+ *                  @ref trie_each_prefix
+ *
+ * @return the same iterator positioned on the next leaf, or @c NULL if the end
+ *         of the traversal is reached or an error occurred
+ *
+ * This function advances the iterator to the next leaf in depth-first order.
+ * If another leaf is found, the iterator's @c key, @c len, and @c val fields
+ * are updated accordingly. If there are no more leaves, the iterator is
+ * automatically destroyed, its read lock is released, and @c NULL is returned.
+ *
+ * @note The caller must not free the iterator returned by @ref trie_next; it is
+ *       freed automatically when the iteration ends. To stop early, call
+ *       @ref trie_break instead.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public m_trie_iterator *trie_break(m_trie_iterator *iterator);
+
+/**
+ * @ingroup trie
+ * @fn trie_break(m_trie_iterator *iterator)
+ *
+ * @param iterator  an iterator previously created with @ref trie_each or
+ *                  @ref trie_each_prefix
+ *
+ * @return always @c NULL
+ *
+ * This function immediately terminates an iterator-based traversal. It releases
+ * the read lock held by the iterator, frees its internal traversal stack, and
+ * deallocates the iterator itself.
+ *
+ * The usual way to end a traversal is simply to let @ref trie_next reach the
+ * end of the trie. @ref trie_break is used when the caller wants to stop early,
+ * such as after finding a desired key.
+ *
+ * @note After calling this function, the @p iterator pointer must not be used.
+ */
 
 /* -------------------------------------------------------------------------- */
 

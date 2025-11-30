@@ -87,7 +87,15 @@ int test_trie(void)
     printf(" s\n");
     printf("(-) %i missing keys\n", missing);
 
-    trie_foreach_prefix(t, "800", strlen("800"), callback);
+    printf("(*) Iterator.\n");
+    start = clock();
+    m_trie_iterator *it = NULL;
+    for (it = trie_each_prefix(t, "800", 3); it; it = trie_next(it))
+        callback(it->key, it->len, it->val);
+    stop = clock();
+    printf("(-) Time elapsed = ");
+    printf("%.8f", (double)( stop - start ) / CLOCKS_PER_SEC);
+    printf(" s\n");
 
     missing = 0;
 

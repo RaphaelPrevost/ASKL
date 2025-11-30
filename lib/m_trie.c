@@ -454,78 +454,180 @@ public m_trie *trie_free(m_trie *t)
 }
 
 /* -------------------------------------------------------------------------- */
+/* Iterator */
+/* -------------------------------------------------------------------------- */
 
-static int _each_prefix(uint8_t *top, int (*f)(const char *, size_t, variant))
+static int _iterator_push(m_trie_iterator *iterator, uint8_t *p)
 {
-    _m_node *node = NULL;
-    _m_leaf *leaf = NULL;
-    int branch = 0, ret = 1;
+    if (iterator->_node_count == iterator->_node_alloc) {
+        uint8_t **nodes = NULL;
+        size_t new_size = iterator->_node_alloc + 16;
 
-    if ((uintptr_t) top & 0x1) {
-        node = (void *) (top - 1);
-
-        for (branch = 0; branch < 2; ++ branch) {
-            switch (_each_prefix(node->child[branch], f)) {
-            case 1: break;
-            case 0: return 0;
-            default: return -1;
-            }
+        if (unlikely(new_size < iterator->_node_alloc)) {
+            debug("_iterator_push(): integer overflow.\n");
+            return -1;
         }
 
-        return 1;
+        nodes = realloc(iterator->_node, new_size * sizeof(*iterator->_node));
+        if (! nodes) {
+            perror(ERR(_iterator_push, realloc));
+            return -1;
+        }
+
+        iterator->_node = nodes;
+        iterator->_node_alloc = new_size;
     }
 
-    leaf = (_m_leaf *) (top - offsetof(_m_leaf, key));
-    ret = f(leaf->key, leaf->len, leaf->val);
+    iterator->_node[iterator->_node_count ++] = p;
 
-    return ret;
+    return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void trie_foreach_prefix(m_trie *t, const char *prefix, size_t ulen,
-                                int (*f)(const char *, size_t, variant))
+static inline uint8_t *_iterator_pop(m_trie_iterator *iterator)
 {
-    const uint8_t * restrict const ubytes = (void *) prefix;
+    if (unlikely(! iterator->_node_count)) return NULL;
+    return iterator->_node[-- iterator->_node_count];
+}
+
+/* -------------------------------------------------------------------------- */
+
+public m_trie_iterator *trie_each(m_trie *t)
+{
+    m_trie_iterator *iterator = NULL;
+
+    if (! t) {
+        debug("trie_each(): bad parameters.\n");
+        return NULL;
+    }
+
+    pthread_rwlock_rdlock(t->_lock);
+
+    if (! t->_root) {
+        debug("trie_each(): empty trie.\n");
+        goto _err;
+    }
+
+    if (! (iterator = malloc(sizeof(*iterator)))) {
+        perror(ERR(trie_each, malloc));
+        goto _err;
+    }
+
+    iterator->trie = t;
+    iterator->_node_count = iterator->_node_alloc = 0;
+    iterator->_node = NULL;
+
+    if (_iterator_push(iterator, t->_root) == -1) goto _err_push;
+
+    return trie_next(iterator);
+
+_err_push:
+    free(iterator);
+_err:
+    pthread_rwlock_unlock(t->_lock);
+    return NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public m_trie_iterator *trie_each_prefix(m_trie *t, const char *pf, size_t ulen)
+{
+    const uint8_t * restrict const ubytes = (void *) pf;
     uint8_t *p = NULL, *top = NULL;
-    int branch = 0;
-    _m_node *node = NULL;
+    unsigned int branch = 0;
     _m_leaf *leaf = NULL;
+    m_trie_iterator *iterator = NULL;
 
     if (! t || ! ubytes || ! ulen) {
-        debug("trie_foreach_prefix(): bad parameters.\n");
-        return;
+        debug("trie_each_prefix(): bad parameters.\n");
+        return NULL;
     }
 
     pthread_rwlock_rdlock(t->_lock);
 
     if (! (top = p = t->_root) ) {
-        pthread_rwlock_unlock(t->_lock);
-        return;
+        debug("trie_each_prefix(): empty trie.\n");
+        goto _err;
     }
 
     /* find the best match for the given prefix */
     while ((uintptr_t) p & 0x1) {
-        node = (void *)(p - 1);
-        if (node->pos < ulen)
+        _m_node *node = (void *) (p - 1);
+        if (likely(node->pos < ulen)) {
             branch = (1 + (node->bit | ubytes[node->pos])) >> 8;
-        else branch = 0;
+            top = node->child[branch];
+        } else branch = 0;
         p = node->child[branch];
-        if (node->pos < ulen) top = p;
     }
 
     leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
 
-    /* check if the best match is ok */
-    if (leaf->len != ulen || memcmp(leaf->key, prefix, ulen)) {
-        pthread_rwlock_unlock(t->_lock);
-        return;
+    /* check if the best match is correct */
+    if (leaf->len < ulen || memcmp(leaf->key, ubytes, ulen)) {
+        debug("trie_each_prefix(): prefix not found.\n");
+        goto _err;
     }
 
-    /* start iterating through the child nodes */
-    _each_prefix(top, f);
+    if (! (iterator = malloc(sizeof(*iterator)))) {
+        perror(ERR(trie_each_prefix, malloc));
+        goto _err;
+    }
 
+    iterator->trie = t;
+    iterator->_node_count = iterator->_node_alloc = 0;
+    iterator->_node = NULL;
+
+    if (unlikely(_iterator_push(iterator, top) == -1)) goto _err_push;
+
+    return trie_next(iterator);
+
+_err_push:
+    free(iterator);
+_err:
     pthread_rwlock_unlock(t->_lock);
+    return NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public m_trie_iterator * CALLBACK trie_next(m_trie_iterator *iterator)
+{
+    uint8_t *p = NULL;
+    _m_node *node = NULL;
+    _m_leaf *leaf = NULL;
+
+    for (p = _iterator_pop(iterator); (uintptr_t) p & 0x1; p = *node->child) {
+        node = (void *) (p - 1);
+        if (unlikely(_iterator_push(iterator, node->child[1]) == -1))
+            return trie_break(iterator);
+    }
+
+    if (likely(p)) {
+        leaf = (_m_leaf *) (p - offsetof(_m_leaf, key));
+        iterator->key = leaf->key;
+        iterator->len = leaf->len;
+        iterator->val = leaf->val;
+        return iterator;
+    }
+
+    return trie_break(iterator);
+}
+
+/* -------------------------------------------------------------------------- */
+
+public m_trie_iterator *trie_break(m_trie_iterator *iterator)
+{
+    if (! iterator) {
+        debug("trie_break(): bad parameters.\n");
+        return NULL;
+    }
+
+    pthread_rwlock_unlock(iterator->trie->_lock);
+    free(iterator->_node);
+    free(iterator);
+
+    return NULL;
 }
 
 /* -------------------------------------------------------------------------- */
