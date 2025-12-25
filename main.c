@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,9 +33,8 @@
  *                                                                             *
  ******************************************************************************/
 
-#include "m_core_def.h"
-#include "m_socket.h"
-#include "m_plugin.h"
+#include "askl.h"
+#include "askl_server.h"
 
 /* -------------------------------------------------------------------------- */
 #ifndef WIN32 /* UNIX */
@@ -48,15 +47,15 @@ static void daemonize(int forcefork);
 static void _sigusr1_handler(UNUSED int _dummy);
 
 #ifdef __APPLE__
-#define CONCRETE_OS " for Mac OS X"
+#define ASKL_OS " for Mac OS X"
 #else
-#define CONCRETE_OS ""
+#define ASKL_OS ""
 #endif
 
 #define MAIN_PRINTVER \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"]"CONCRETE_OS"\n" \
-"Copyright (c) 2005-2024 Raphael Prevost, all rights reserved.\n\n"
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"]"ASKL_OS"\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n"
 
 #define MAIN_OPTSHRT_DAEMON "-d"
 #define MAIN_OPTLONG_DAEMON "--daemon"
@@ -71,11 +70,11 @@ static void _sigusr1_handler(UNUSED int _dummy);
 
 #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
 #define MAIN_PRINTHLP \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"]"CONCRETE_OS"\n" \
-"Copyright (c) 2005-2024 Raphael Prevost, all rights reserved.\n\n" \
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"]"ASKL_OS"\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n" \
 "Usage: %s [OPTION]\n" \
-"Start the Concrete Server.\n" \
+"Start ASKL.\n" \
 "\nOptions:\n\n" \
 "\t"MAIN_OPTSHRT_DAEMON", "MAIN_OPTLONG_DAEMON \
 "\t\tstart the server as a background process\n" \
@@ -89,11 +88,11 @@ static void _sigusr1_handler(UNUSED int _dummy);
 "\t\tforcefully select the production configuration\n\n"
 #else
 #define MAIN_PRINTHLP \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"]"CONCRETE_OS"\n" \
-"Copyright (c) 2005-2024 Raphael Prevost, all rights reserved.\n\n" \
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"]"ASKL_OS"\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n" \
 "Usage: %s [OPTION]\n" \
-"Start the Concrete Server.\n" \
+"Start ASKL.\n" \
 "\nOptions:\n\n" \
 "\t"MAIN_OPTSHRT_DAEMON", "MAIN_OPTLONG_DAEMON \
 "\t\tstart the server as a background process\n" \
@@ -113,9 +112,9 @@ static void _sigusr1_handler(UNUSED int _dummy);
 #endif
 
 #define WINMAIN_SERVICENAME \
-"Concrete"
+"ASKL"
 #define WINMAIN_REGISTRYKEY \
-"SYSTEM\\CurrentControlSet\\Services\\Concrete\\Parameters"
+"SYSTEM\\CurrentControlSet\\Services\\ASKL\\Parameters"
 
 typedef BOOL(WINAPI * fpCreateRestrictedToken) (HANDLE, DWORD, DWORD,
                                                 PSID_AND_ATTRIBUTES,
@@ -139,9 +138,9 @@ static void WINAPI _service_ctl(DWORD cmd);
 static VOID WINAPI _service_main(DWORD argc, LPSTR *argv);
 
 #define MAIN_PRINTVER \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"] for Windows NT\n" \
-"Copyright (c) 2005-2024 Raphael Prevost, all rights reserved.\n\n"
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"] for Windows NT\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n"
 
 #define MAIN_OPTSHRT_DAEMON "/d"
 #define MAIN_OPTLONG_DAEMON "/daemon"
@@ -167,11 +166,11 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv);
 
 #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
 #define MAIN_PRINTHLP \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"] for Windows NT\n" \
-"Copyright (c) 2005-2024 Raphael Prevost, all rights reserved.\n\n" \
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"] for Windows NT\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n" \
 "Usage: %s [OPTION]\n" \
-"Start the Concrete Server.\n" \
+"Start ASKL.\n" \
 "\nOptions:\n\n" \
 "\t"MAIN_OPTSHRT_INSTAL", "MAIN_OPTLONG_INSTAL \
 "\t\tinstall the NT service\n" \
@@ -191,11 +190,11 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv);
 "\t\tforcefully select the production configuration\n\n"
 #else
 #define MAIN_PRINTHLP \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"] for Windows NT\n" \
-"Copyright (c) 2005-2024 Raphael Prevost, all rights reserved.\n\n" \
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"] for Windows NT\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n" \
 "Usage: %s [OPTION]\n" \
-"Start the Concrete Server.\n" \
+"Start the ASKL.\n" \
 "\nOptions:\n\n" \
 "\t"MAIN_OPTSHRT_INSTAL", "MAIN_OPTLONG_INSTAL \
 "\t\tinstall the NT service\n" \
@@ -227,7 +226,7 @@ static VOID _spawn_child(UNUSED VOID *dummy);
 static void main_process(int option_daemon, int argc, char **argv);
 
 /* -------------------------------------------------------------------------- */
-/* CONCRETE SERVER MAIN */
+/* ASKL SERVER MAIN */
 /* -------------------------------------------------------------------------- */
 
 int main(int argc, char **argv)
@@ -600,7 +599,7 @@ static void main_process(int option_daemon, int argc, char **argv)
     } else {
         error = RegQueryValueEx(
             key,
-            "ConcretePath",
+            "ASKLPath",
             0,
             & type,
             _working_directory,
@@ -1218,21 +1217,21 @@ _error_0:
 #endif
 /* -------------------------------------------------------------------------- */
 
-/* This is a really simple example of builtin plugin. It simply listens on port
+/* This is a really simple example of builtin module. It simply listens on port
    8888 and echoes back what is sent to it. */
 
 /* -------------------------------------------------------------------------- */
-#ifdef _BUILTIN_PLUGIN
+#ifdef _BUILTIN_MODULE
 /* -------------------------------------------------------------------------- */
 
 #define BUILTIN_PORT "8888"
 
-/* plugin identifier */
-static uint32_t plugin_token = 0;
+/* module identifier */
+static uint32_t module_token = 0;
 
 /* -------------------------------------------------------------------------- */
 
-export unsigned int plugin_api(void)
+export unsigned int module_api(void)
 {
     unsigned int required_api_revision = 1390;
     return required_api_revision;
@@ -1240,26 +1239,26 @@ export unsigned int plugin_api(void)
 
 /* -------------------------------------------------------------------------- */
 
-export int plugin_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
+export int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 {
     /* XXX
-       It is possible to check if a plugin has already been loaded once by
-       inspecting the value of plugin_token. Loading the same plugin twice
+       It is possible to check if a module has already been loaded once by
+       inspecting the value of module_token. Loading the same module twice
        without checking may lead to memory corruptions if some pointers are
-       blindly clobbered by plugin_init(), since all instances of the same
-       plugin share the same address space.
+       blindly clobbered by module_init(), since all instances of the same
+       module share the same address space.
     */
-    if (plugin_token) {
-        fprintf(stderr, "BUILTIN: plugin already loaded.\n");
+    if (module_token) {
+        fprintf(stderr, "BUILTIN: module already started.\n");
         return -1;
     }
 
-    plugin_token = id;
+    module_token = id;
 
-    fprintf(stderr, "BUILTIN: loading builtin plugin...\n");
-    fprintf(stderr, "BUILTIN: Copyright (c) 2008-2024 ");
+    fprintf(stderr, "BUILTIN: starting builtin module...\n");
+    fprintf(stderr, "BUILTIN: Copyright (c) 2025 ");
     fprintf(stderr, "Raphael Prevost, all rights reserved.\n");
-    fprintf(stderr, "BUILTIN: version "CONCRETE_VERSION" ["__DATE__"]\n");
+    fprintf(stderr, "BUILTIN: version "ASKL_VERSION" ["__DATE__"]\n");
 
     fprintf(stderr, "BUILTIN: listening on port "BUILTIN_PORT".\n");
 
@@ -1290,37 +1289,45 @@ export int plugin_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-export void plugin_input_handler(uint16_t socket_id, UNUSED uint16_t ingress_id,
-                                 m_string *data)
+export void module_input_handler(
+    uint16_t socket_id,
+    UNUSED uint16_t ingress_id,
+    m_string *data
+)
 {
     /* send back the incoming data and close the connection */
     server_send_buffer(
-        plugin_token, socket_id,
+        module_token,
+        socket_id,
         SERVER_MSG_END,
-        DATA(data), SIZE(data)
+        DATA(data),
+        SIZE(data)
     );
 }
 
 /* -------------------------------------------------------------------------- */
 
-export void plugin_event_handler(UNUSED uint16_t socket_id,
-                                 UNUSED uint16_t ingress_id, int event)
+export void module_event_handler(
+    UNUSED uint16_t socket_id,
+    UNUSED uint16_t ingress_id,
+    int event
+)
 {
     switch (event) {
 
-    case PLUGIN_EVENT_INCOMING_CONNECTION:
+    case MODULE_EVENT_INCOMING_CONNECTION:
         /* new connection */ break;
 
-    case PLUGIN_EVENT_OUTGOING_CONNECTION:
+    case MODULE_EVENT_OUTGOING_CONNECTION:
         /* connected to remote host */ break;
 
-    case PLUGIN_EVENT_SOCKET_DISCONNECTED:
+    case MODULE_EVENT_SOCKET_DISCONNECTED:
         /* connection closed */ break;
 
-    case PLUGIN_EVENT_REQUEST_TRANSMITTED:
+    case MODULE_EVENT_REQUEST_TRANSMITTED:
         /* request sent */ break;
 
-    case PLUGIN_EVENT_SERVER_SHUTTINGDOWN:
+    case MODULE_EVENT_SERVER_SHUTTINGDOWN:
         /* server shutting down */ break;
 
     default: fprintf(stderr, "BUILTIN: spurious event.\n");
@@ -1330,7 +1337,7 @@ export void plugin_event_handler(UNUSED uint16_t socket_id,
 
 /* -------------------------------------------------------------------------- */
 
-export void plugin_exit(void)
+export void module_exit(void)
 {
     fprintf(stderr, "BUILTIN: successfully unloaded.\n");
 }

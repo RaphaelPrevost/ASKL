@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -37,7 +37,7 @@
 
 #define M_STRING_H
 
-#include "m_core_def.h"
+#include "askl.h"
 #include "util/m_util_vfprintf.h"
 #include "util/m_util_vfscanf.h"
 
@@ -53,8 +53,65 @@
 #include <iconv.h>
 #endif
 
-/** @defgroup string core::string */
+/** @defgroup buffer ASKL::buffer */
+#if 0
+typedef struct ASKL_Buffer {
+    char *data;
+    struct ASKL_Buffer *tokens;
+    struct ASKL_Buffer *parent;
+    uint32_t len;
+    uint32_t count;
+    union {
+        uint64_t metadata;
+        #ifdef __ASKL_INTERNALS__
+        struct {
+            uint32_t capacity;
+            uint16_t tokens_capacity;
+            uint16_t flags;
+        } buffer;
+        #endif
+    } internal;
+} ASKL_Buffer;
+#endif
 
+typedef struct m_search_string {
+    /* private */
+    size_t _len;
+    size_t _shift;
+    uint8_t _lut[UCHAR_MAX + 1];
+} m_search_string;
+#if 0
+/* private string flags */
+#define _BUFFER_COMMON_FLAGS 0x000f
+#define _BUFFER_CUSTOM_FLAGS 0xf000
+#define _BUFFER_FIXED_LENGTH 0x0001 /* disable string resizing */
+#define _BUFFER_READ_ONLY    0x0002 /* disable string writing */
+#define _BUFFER_IMMUTABLE    0x0003 /* disable writing and resizing */
+#define _BUFFER_DISABLE_FREE 0x0004 /* disable free() on string content */
+#define _BUFFER_ENCAPSULATED 0x0005 /* disable all dynamic allocation */
+#define _BUFFER_STATIC_ALLOC 0x0008 /* static, stack allocated string */
+#define _BUFFER_EXTENSION    0x000f /* mask extension flags */
+#define _BUFFER_VALIDATED    0x0010 /* this string has been validated */
+#define _BUFFER_HAS_ERROR    0x0020 /* this string contains errors */
+#define IS_ERROR(x) ((x)->_flags & _BUFFER_HAS_ERROR)
+#define _BUFFER_PARTIAL_DATA 0x0040 /* this string is used for buffering */
+#define IS_BUFFERING(x) ((x)->_flags & _STRING_PARTIAL_DATA)
+/*                           0x0080    reserved */
+#ifdef _ENABLE_HTTP
+#define _BUFFER_HTTP_REQUEST 0x0100 /* HTTP request */
+#define IS_HTTP(x) ((x)->_flags & _BUFFER_HTTP_REQUEST)
+#endif
+#define _BUFFER_STREAMING 0x0200 /* used by the server for streaming */
+#define IS_STREAMING(x) ((x)->_flags & _BUFFER_STREAMING)
+#define _BUFFER_LARGE 0x0400 /* large request */
+#define IS_LARGE(x) ((x)->_flags & _BUFFER_LARGE)
+#ifdef _ENABLE_HTTP
+#define _BUFFER_HTTP_CHUNKED 0x0800 /* HTTP 1.1 Chunked encoding */
+#define IS_CHUNK(x) ((x)->_flags & _BUFFER_HTTP_CHUNKED)
+#endif
+#endif
+
+/* legacy */
 typedef struct m_string {
     /* private */
     size_t _len;
@@ -66,15 +123,6 @@ typedef struct m_string {
     size_t _alloc;
     uint16_t _parts_alloc;
 } m_string;
-
-typedef struct m_search_string {
-    /* private */
-    size_t _len;
-    size_t _shift;
-    uint8_t _lut[UCHAR_MAX + 1];
-} m_search_string;
-
-/* private string flags */
 #define _STRING_FIXED_LENGTH 0x0001 /* disable string resizing */
 #define _STRING_READ_ONLY    0x0002 /* disable string writing */
 #define _STRING_IMMUTABLE    0x0003 /* disable writing and resizing */
@@ -100,6 +148,7 @@ typedef struct m_search_string {
 #define _STRING_HTTP_CHUNKED 0x0800 /* HTTP 1.1 Chunked encoding */
 #define IS_CHUNK(x) ((x)->_flags & _STRING_HTTP_CHUNKED)
 #endif
+/* /legacy */
 
 #ifdef _ENABLE_JSON
 typedef struct m_json_parser {

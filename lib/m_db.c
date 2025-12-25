@@ -810,7 +810,7 @@ public m_dbpool *dbpool_open(int drv, unsigned int n, const char *user,
 
     do {
         connection = db_open(drv, user, pwd, db, host, port, npflags);
-        ret = queue_add(pool->_pool, connection);
+        ret = queue_enqueue(pool->_pool, connection);
     } while (n -- && connection && ret != -1);
 
     if (ret == -1 || ! connection) {
@@ -836,7 +836,7 @@ public m_db *dbpool_borrow(m_dbpool *pool)
         return NULL;
     }
 
-    if (! (con = queue_get(pool->_pool)) )
+    if (! (con = queue_pop(pool->_pool)) )
         return pool->_safe;
 
     return con;
@@ -850,7 +850,7 @@ public m_db *dbpool_return(m_dbpool *pool, m_db *connection)
 
     if (connection == pool->_safe) return NULL;
 
-    if (queue_add(pool->_pool, connection) == -1) {
+    if (queue_enqueue(pool->_pool, connection) == -1) {
         debug("dbpool_return(): failed to return the connection!\n");
         return NULL;
     }

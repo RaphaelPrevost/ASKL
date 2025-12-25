@@ -1,6 +1,6 @@
 ################################################################################
-#  Concrete Server                                                             #
-#  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                       #
+#  ASKL.                                                                       #
+#  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                            #
 #                                                                              #
 #  This software is a computer program whose purpose is to provide a           #
 #  framework for developing and prototyping network services.                  #
@@ -33,11 +33,11 @@
 #                                                                              #
 ################################################################################
 
-PROJECT = CONCRETE
+PROJECT = askl
 CC      = gcc
 DBG     = gdb
 
-# Concrete Server configuration flags
+# ASKL configuration flags
 # Available CONFIG flags:
 # -DDEBUG                         : enable debug messages
 # -DDEBUG_SQL                     : display every SQL queries
@@ -48,7 +48,7 @@ DBG     = gdb
 # -D_ENABLE_FILE                  : enable the file API
 # -D_ENABLE_UDP                   : allow use of UDP sockets
 # -D_ENABLE_SSL                   : allow use of SSL/TLS secure sockets
-# -D_ENABLE_SERVER                : enable the Mammouth Server
+# -D_ENABLE_SERVER                : enable the server
 # -D_ENABLE_RANDOM                : enable builtin PRNG
 # -D_ENABLE_TRIE                  : enable builtin crit-bit trie implementation
 # -D_ENABLE_HASHTABLE             : enable builtin hashtable implementation
@@ -62,7 +62,6 @@ DBG     = gdb
 CONFIG  = -D_ENABLE_SERVER \
           -D_ENABLE_UDP \
           -D_ENABLE_SSL \
-          -D_ENABLE_HTTP \
           -D_ENABLE_RANDOM \
           -D_ENABLE_HASHTABLE \
           -D_ENABLE_TRIE \
@@ -71,12 +70,12 @@ CONFIG  = -D_ENABLE_SERVER \
           -D_ENABLE_JSON \
           -D_ENABLE_PARSER \
           -D_ENABLE_CONFIG \
-          -D_BUILTIN_PLUGIN \
+          -D_BUILTIN_MODULE \
           -D_USE_BIG_FDS=4095
 
-# Plugins configuration flags
+# Modules configuration flags
 # Available PLGCONF flags:
-# -D_DIALMSN_ENABLE_BOT           : enable the bot in the DialMessenger plugin
+# -D_DIALMSN_ENABLE_BOT           : enable the bot in the DialMessenger module
 
 PLGCONF = -D_DIALMSN_ENABLE_BOT
 
@@ -84,7 +83,7 @@ PLGCONF = -D_DIALMSN_ENABLE_BOT
 OBJBIN  = $(addsuffix .o, $(basename $(wildcard *.c)))
 OBJLIB  = $(addsuffix .o, $(basename $(wildcard lib/*.c))) \
           $(addsuffix .o, $(basename $(wildcard lib/util/*.c))) \
-          lib/ports/m_ports.o
+          lib/compat/askl_compat_layer.o
 OBJTEST = $(addsuffix .o, $(basename $(wildcard test/*.c)))
 OBJPROF = $(addsuffix .gcno, $(basename $(wildcard lib/*.c))) \
           $(addsuffix .gcno, $(basename $(wildcard lib/util/*.c))) \
@@ -92,21 +91,23 @@ OBJPROF = $(addsuffix .gcno, $(basename $(wildcard lib/*.c))) \
           $(addsuffix .gcda, $(basename $(wildcard lib/*.c))) \
           $(addsuffix .gcda, $(basename $(wildcard lib/util/*.c))) \
           $(addsuffix .gcda, $(basename $(wildcard test/*.c))) \
-          lib/ports/m_ports.gcno lib/ports/m_ports.gcda *.gcno *.gcda \
+          lib/compat/askl_compat_layer.gcno \
+		  lib/compat/askl_compat_layer.gcda \
+		  *.gcno *.gcda \
           gmon.out
 LIBS    = -lpthread
-BIN     = concrete
-LIB     = concrete
+BIN     = askl
+LIB     = askl
 DBG_BIN = test.out
-PLUGINS = $(shell find plugins/* -type d | grep -v .svn)
+MODULES = $(shell find plugins/* -type d | grep -v .svn)
 
 # Build options:
 # You can select the build options with the make target.
-# make       : enable FINAL build options
-# make all   : "
-# make plugin: "
-# make debug : enable DEBUG build options
-# make test  : run the unit tests and enable the DEBUG build options
+# make        : enable FINAL build options
+# make all    : "
+# make modules: "
+# make debug  : enable DEBUG build options
+# make test   : run the unit tests and enable the DEBUG build options
 
 # Build settings:
 # FINAL corresponds to production settings
@@ -209,7 +210,10 @@ endif
 
 # check for poll(2)
 ifeq ($(HAS_POLL),0)
+ifneq ($(OS),Darwin)
+# Mac OS X poll implementation is broken
 CONFIG += -DHAS_POLL
+endif
 endif
 
 # check for libxml2
@@ -277,7 +281,7 @@ ifeq ($(CC),gcc)
 FLAGS  += -rdynamic
 endif
 SHARED += -shared
-PLUGIN += $(SHARED)
+MODULE += $(SHARED)
 endif
 
 # Mac OS X specific settings
@@ -291,12 +295,12 @@ DBG = lldb
 LIBS   += -ldl
 DEBUG  += -fsanitize=address -fsanitize=undefined
 SHARED += -dynamiclib
-PLUGIN += -mmacosx-version-min=10.3 -bundle -undefined dynamic_lookup
+MODULE += -mmacosx-version-min=10.3 -bundle -undefined dynamic_lookup
 LIBEXT = dylib
 else
 # Mac OS 10.2
 SHARED += -bundle
-PLUGIN += -bundle -bundle_loader $(BIN)
+MODULE += -bundle -bundle_loader $(BIN)
 endif
 # iconv needs to be explicitly linked on Mac OS X
 ifeq ($(HAS_ICONV),0)
@@ -312,19 +316,19 @@ DBG_PARMS = ./$(DBG_BIN) -o r
 endif
 endif
 
-.PHONY: all debug lib dbglib server dbgserver plugin test install clean
+.PHONY: all debug lib dbglib server dbgserver modules test install clean
 
 # Build targets
 
-# build the server, the library and the plugins with optimizations enabled
+# build the server, the library and the modules with optimizations enabled
 all: BUILD = $(FINAL)
-all: plugin
-# build server, library and plugins with debug enabled
+all: modules
+# build server, library and modules with debug enabled
 debug: BUILD = $(DEBUG)
-debug: plugin
-# build server, library and plugins with tracing support
+debug: modules
+# build server, library and modules with tracing support
 trace: BUILD = $(TRACE)
-trace: plugin
+trace: modules
 
 # build only the library, with optimizations
 lib: BUILD = $(FINAL)
@@ -340,10 +344,10 @@ server: $(BIN)
 dbgserver: BUILD = $(DEBUG)
 dbgserver: $(BIN)
 
-# build server, library and plugins, and install them in the DESTDIR folder
+# build server, library and modules, and install them in the DESTDIR folder
 install: BUILD = $(FINAL)
 
-# build server, library and plugins, and run the unit tests suite
+# build server, library and modules, and run the unit tests suite
 test: BUILD = $(DEBUG)
 
 # same than test, but with optimizations enabled
@@ -374,11 +378,11 @@ lib$(LIB): $(OBJLIB)
 
 $(OBJTEST): lib$(LIB)
 
-plugin: CFLAGS = $(FLAGS) $(LIBFLAGS)
-plugin: $(BIN) lib$(LIB)
-	@for PLG in $(PLUGINS); do \
+modules: CFLAGS = $(FLAGS) $(LIBFLAGS)
+modules: $(BIN) lib$(LIB)
+	@for PLG in $(MODULES); do \
 		echo "LD: $${PLG}"; \
-		$(CC) $(PLUGIN) $(CFLAGS) $(CONFIG) $(PLGCONF) $${PLG}/*.c \
+		$(CC) $(MODULE) $(CFLAGS) $(CONFIG) $(PLGCONF) $${PLG}/*.c \
 		-L. -l$(LIB) -Ilib -o $${PLG}.so; \
 	done;
 
@@ -394,14 +398,14 @@ testfinal: $(OBJTEST)
 	@echo "TEST"
 	@-(LD_LIBRARY_PATH=. ./$(DBG_BIN))
 
-install: plugin
+install: modules
 	@echo "INSTALL"
 	@mkdir -p $(DESTDIR)$(PREFIX)/bin
-	@mkdir -p $(DESTDIR)$(PREFIX)/lib/concrete/plugins
+	@mkdir -p $(DESTDIR)$(PREFIX)/lib/$(LIB)/plugins
 	@strip $(BIN) lib$(LIB).$(LIBEXT) plugins/*.so
 	@cp $(BIN) $(DESTDIR)$(PREFIX)/bin
-	@cp lib$(LIB).$(LIBEXT) $(DESTDIR)$(PREFIX)/lib/concrete/
-	@cp plugins/*.so $(DESTDIR)$(PREFIX)/lib/concrete/plugins/
+	@cp lib$(LIB).$(LIBEXT) $(DESTDIR)$(PREFIX)/lib
+	@cp plugins/*.so $(DESTDIR)$(PREFIX)/lib/$(LIB)/plugins/
 
 json_checker:
 	@echo "JSON_CHECKER"
@@ -410,7 +414,7 @@ json_checker:
 	$(FINAL) -lpthread \
 	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
 	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
-	lib/ports/m_ports.c lib/m_string.c lib/m_trie.c \
+	lib/compat/askl_compat_layer.c lib/m_string.c lib/m_trie.c \
 	lib/m_variant.c lib/m_parser.c \
 	test/json/json_checker.c -o json_checker
 
@@ -421,7 +425,7 @@ json_debug:
 	$(DEBUG) -lpthread \
 	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
 	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
-	lib/ports/m_ports.c lib/m_string.c lib/m_trie.c \
+	lib/compat/askl_compat_layer.c lib/m_string.c lib/m_trie.c \
 	lib/m_variant.c lib/m_parser.c \
 	test/json/json_checker.c -o json_checker
 
@@ -429,9 +433,9 @@ clean:
 	@echo "CLEAN"
 	@rm -f $(BIN) lib$(LIB).$(LIBEXT) $(PLG).so \
 	$(OBJBIN) $(OBJLIB) $(OBJPLG) $(OBJTEST) $(OBJPROF) \
-	*~ lib/*~ lib/util/*~ lib/ports/*~ test/*~ $(DBG_BIN) \
-	plugins/*.so plugins/*/*~ lib/*.o lib/util/*.o lib/ports/*.o test/*.o \
-	*.d lib/*.d lib/util/*.d lib/ports/*.d test/*.d plugins/*/*.d \
+	*~ lib/*~ lib/util/*~ lib/compat/*~ test/*~ $(DBG_BIN) \
+	plugins/*.so plugins/*/*~ lib/*.o lib/util/*.o lib/compat/*.o test/*.o \
+	*.d lib/*.d lib/util/*.d lib/compat/*.d test/*.d plugins/*/*.d \
 	json_checker
 	@rm -rf *.dSYM plugins/*.dSYM
 

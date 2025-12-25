@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,14 +33,14 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef M_PARSER_H
+#ifndef ASKL_PARSER_H
 
-#define M_PARSER_H
+#define ASKL_PARSER_H
 
 #if defined(_ENABLE_PARSER) && defined(_ENABLE_JSON) && defined(_ENABLE_TRIE)
 
-#include "m_core_def.h"
-#include "m_trie.h"
+#include "askl.h"
+#include "askl_cbtrie.h"
 #include "m_string.h"
 
 /* -------------------------------------------------------------------------- */

@@ -1,0 +1,292 @@
+/*******************************************************************************
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *                                                                             *
+ *  This software is a computer program whose purpose is to provide a          *
+ *  framework for developing and prototyping network services.                 *
+ *                                                                             *
+ *  This software is governed by the CeCILL  license under French law and      *
+ *  abiding by the rules of distribution of free software.  You can  use,      *
+ *  modify and/ or redistribute the software under the terms of the CeCILL     *
+ *  license as circulated by CEA, CNRS and INRIA at the following URL          *
+ *  "http://www.cecill.info".                                                  *
+ *                                                                             *
+ *  As a counterpart to the access to the source code and  rights to copy,     *
+ *  modify and redistribute granted by the license, users are provided only    *
+ *  with a limited warranty  and the software's author,  the holder of the     *
+ *  economic rights,  and the successive licensors  have only  limited         *
+ *  liability.                                                                 *
+ *                                                                             *
+ *  In this respect, the user's attention is drawn to the risks associated     *
+ *  with loading,  using,  modifying and/or developing or reproducing the      *
+ *  software by the user in light of its specific status of free software,     *
+ *  that may mean  that it is complicated to manipulate,  and  that  also      *
+ *  therefore means  that it is reserved for developers  and  experienced      *
+ *  professionals having in-depth computer knowledge. Users are therefore      *
+ *  encouraged to load and test the software's suitability as regards their    *
+ *  requirements in conditions enabling the security of their systems and/or   *
+ *  data to be ensured and,  more generally, to use and operate it in the      *
+ *  same conditions as regards security.                                       *
+ *                                                                             *
+ *  The fact that you are presently reading this means that you have had       *
+ *  knowledge of the CeCILL license and that you accept its terms.             *
+ *                                                                             *
+ ******************************************************************************/
+
+#ifndef ASKL_VARIANT_H
+
+#define ASKL_VARIANT_H
+
+#include "askl.h"
+#include "m_string.h"
+
+/** @defgroup variant ASKL::variant */
+
+typedef struct variant {
+    union {
+        void *pointer;
+        uint64_t integer;
+        double decimal;     /* assume IEEE754 64-bits double precision format */
+    } value;
+    union {
+        struct {
+            uint32_t dword;
+            uint16_t word;
+            uint8_t  byte;
+            uint8_t  type;  /* reserved unless type & _VALUE_OBJECT */
+        } fields;
+        struct {
+            uint8_t bytes[7];
+            uint8_t type;
+        } raw;
+    } metadata;             /* 56 bits of reclaimed padding to store metadata */
+} variant;
+
+/**
+ * @ingroup variant
+ * @struct variant
+ * 
+ * The variant struct provides a small tagged value type used by ASKL containers
+ * (e.g. hashtables and tries) to store and retrieve values with lightweight
+ * runtime type identification.
+ *
+ * A @ref variant is passed by value. The value is stored either as:
+ *  - a pointer
+ *  - a 64-bit integer
+ *  - a 64-bit IEEE754 double
+ *
+ * A 1-byte type tag is stored in the metadata area.
+ *
+ * @note pointer variants are opaque: the API does not manage the pointed memory
+ *
+ */
+
+
+#define VALUE_NULL        0
+#define VALUE_STRING      1
+#define VALUE_INTEGER     2
+#define VALUE_BOOLEAN     3
+#define VALUE_DECIMAL     4
+#define VALUE_POINTER     5
+#define _VALUE_OBJECT  0x80
+
+#define is_null(v) ((v).metadata.fields.type == VALUE_NULL)
+#define is_string(v) ((v).metadata.fields.type == VALUE_STRING)
+#define is_integer(v) ((v).metadata.fields.type == VALUE_INTEGER)
+#define is_boolean(v) ((v).metadata.fields.type == VALUE_BOOLEAN)
+#define is_decimal(v) ((v).metadata.fields.type == VALUE_DECIMAL)
+#define is_pointer(v) ((v).metadata.fields.type == VALUE_POINTER)
+#define _is_object(v) ((v).metadata.fields.type & _VALUE_OBJECT)
+
+/**
+ * @ingroup variant
+ * @struct variant
+ *
+ * This structure allows some level of type-checking within the included data
+ * structures such as @ref m_trie or m_hashtable.
+ * 
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK variant_from_pointer(void *ptr);
+
+/**
+ * @ingroup variant
+ * @fn variant variant_from_pointer(void *ptr)
+ * @param ptr pointer value to store
+ * @return a pointer-typed variant
+ *
+ * Build a @ref VALUE_POINTER variant storing @p ptr.
+ *
+ * This function does not take ownership of @p ptr.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK variant_from_integer(uint64_t i);
+
+/**
+ * @ingroup variant
+ * @fn variant variant_from_integer(uint64_t i)
+ * @param i integer value to store
+ * @return an integer-typed variant
+ *
+ * Build a @ref VALUE_INTEGER variant storing @p i.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK variant_from_decimal(double d);
+
+/**
+ * @ingroup variant
+ * @fn variant variant_from_decimal(double d)
+ * @param d double value to store
+ * @return a decimal-typed variant
+ *
+ * Build a @ref VALUE_DECIMAL variant storing @p d.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK variant_from_boolean(int b);
+
+/**
+ * @ingroup variant
+ * @fn variant variant_from_boolean(int b)
+ * @param b boolean value (0 is false, non-zero is true)
+ * @return a boolean-typed variant
+ *
+ * Build a @ref VALUE_BOOLEAN variant.
+ *
+ * The stored value is normalized to 0 or 1.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK variant_from_string(m_string *s);
+
+/**
+ * @ingroup variant
+ * @fn variant variant_from_string(m_string *s)
+ * @param s pointer to an @ref m_string
+ * @return a string-typed variant
+ *
+ * Build a @ref VALUE_STRING variant storing @p s.
+ *
+ * This function stores the pointer as-is. It does not duplicate the string.
+ * Ownership is not modified; if the string must outlive its original owner,
+ * the caller must duplicate it prior to storing it.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK variant_null(void);
+
+/**
+ * @ingroup variant
+ * @fn variant variant_null(void)
+ * @return a null variant
+ *
+ * Return the canonical null value variant (@ref VALUE_NULL).
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public void * CALLBACK variant_to_pointer(variant v);
+
+/**
+ * @ingroup variant
+ * @fn void *variant_to_pointer(variant v)
+ * @param v a variant
+ * @return the contained pointer
+ *
+ * Extract the pointer from @p v.
+ *
+ * If @p v is not a pointer variant, the program will terminate with an error.
+ * Callers should test with @ref is_pointer() first.
+ * 
+ * @note VALUE_NULL or _VALUE_OBJECT are tolerated.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public uint64_t CALLBACK variant_to_integer(variant v);
+
+/**
+ * @ingroup variant
+ * @fn uint64_t variant_to_integer(variant v)
+ * @param v a variant
+ * @return the contained integer value
+ *
+ * Extract the integer from @p v.
+ *
+ * If @p v is not an integer variant, the program will terminate with an error.
+ * Callers should test with @ref is_integer() first.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public double CALLBACK variant_to_decimal(variant v);
+
+/**
+ * @ingroup variant
+ * @fn double variant_to_decimal(variant v)
+ * @param v a variant
+ * @return the contained double value
+ *
+ * Extract the double from @p v.
+ *
+ * If @p v is not a decimal variant, the program will terminate with an error.
+ * Callers should test with @ref is_decimal() first.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public int CALLBACK variant_to_boolean(variant v);
+
+/**
+ * @ingroup variant
+ * @fn int variant_to_boolean(variant v)
+ * @param v a variant
+ * @return 0 for false, non-zero for true
+ *
+ * Extract the boolean value from @p v.
+ *
+ * If @p v is not a boolean variant, the program will terminate with an error.
+ * Callers should test with @ref is_boolean() first.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public m_string * CALLBACK variant_to_string(variant v);
+
+/**
+ * @ingroup variant
+ * @fn m_string *variant_to_string(variant v)
+ * @param v a variant
+ * @return the contained @ref m_string pointer
+ *
+ * Extract the string pointer from @p v.
+ *
+ * If @p v is not a string variant, the program will terminate with an error.
+ * Callers should test with @ref is_string() first.
+ *
+ * The returned pointer is not duplicated; ownership is unchanged.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+#endif

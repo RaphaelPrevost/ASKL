@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  naer.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,10 +33,10 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef M_UTIL_DEF_H
+#ifndef NAER_UTIL_H
 
-#define M_UTIL_DEF_H
+#define NAER_UTIL_H
 
-#include "../m_core_def.h"
+#include "../askl.h"
 
 #endif

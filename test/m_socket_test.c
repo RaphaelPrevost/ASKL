@@ -1,5 +1,6 @@
-#include "../lib/m_server.h"
-#include "../lib/m_socket.h"
+#include "../lib/askl_server.h"
+#include "../lib/askl_socket.h"
+#include "../lib/arcane/socket.c"
 
 #define TESTPORT 8986
 
@@ -11,8 +12,8 @@ static int init_done = 0;
 
 static void *_server(void *params)
 {
-    m_socket *client = NULL;
-    m_socket *s = NULL;
+    ASKL_Socket *client = NULL;
+    ASKL_Socket *s = NULL;
     char buffer[SOCKET_BUFFER];
     ssize_t r = 0;
 
@@ -43,7 +44,7 @@ static void *_server(void *params)
     pthread_mutex_unlock(& m0);
 
     if (! (client = socket_accept(s)) ) {
-        if (s->_flags & SOCKET_UDP)
+        if (socket_option_isset(s, SOCKET_UDP))
             client = s;
         else {
             printf("(!) Accepting: FAILURE\n");
@@ -62,7 +63,7 @@ static void *_server(void *params)
         pthread_exit(NULL);
     } else printf("(*) Reading incoming request (\"%s\"): SUCCESS\n", buffer);
 
-    if (~s->_flags & SOCKET_UDP) client = socket_close(client);
+    if (socket_option_isset(s, SOCKET_UDP)) client = socket_close(client);
     s = socket_close(s);
 
     pthread_exit(NULL);
@@ -72,7 +73,7 @@ static void *_server(void *params)
 
 static void *_client(void *params)
 {
-    m_socket *client = NULL;
+    ASKL_Socket *client = NULL;
     char host[NI_MAXHOST];
     uint16_t port = 0;
     ssize_t r = 0;
@@ -88,7 +89,7 @@ static void *_client(void *params)
         pthread_exit(NULL);
     } else printf("(*) Connecting to TCP port "STR(TESTPORT)": SUCCESS\n");
 
-    if (socket_ip(SOCKET_ID(client), host, sizeof(host), & port) == -1) {
+    if (socket_ip(socket_get_id(client), host, sizeof(host), & port) == -1) {
         printf("(!) Getting server IP: FAILURE\n");
         client = socket_close(client);
         pthread_exit(NULL);
@@ -118,7 +119,7 @@ int test_socket(void)
     pthread_t client;
     unsigned int params = 0x0;
 
-    socket_api_setup();
+    socket_api_init();
 
     /* TCP, blocking */
     printf("(-) TCP\n");
@@ -199,7 +200,7 @@ int test_socket(void)
     pthread_join(server, NULL);
     #endif
 
-    socket_api_cleanup();
+    socket_api_exit();
 
     return 0;
 }

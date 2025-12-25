@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -39,15 +39,15 @@
 
 #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
 
-#include "m_core_def.h"
-#include "m_server.h"
+#include "askl.h"
+#include "askl_server.h"
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <libxml/valid.h>
 
 #if  defined(_ENABLE_DB) || defined(_ENABLE_SSL)
 #ifndef _ENABLE_HASHTABLE
-    #error "Concrete: the configuration module requires the builtin hashtable."
+    #error "ASKL: the configuration module requires the builtin hashtable."
 #endif
 #ifdef _ENABLE_DB
 #include "m_db.h"
@@ -71,7 +71,7 @@ private int configure(const char *path, const char *configfile);
  * @param configfile the name of the configuration file
  * @return 0 if everything went fine, -1 otherwise
  *
- * This function loads the Concrete XML configuration file, validates it
+ * This function loads the naer XML configuration file, validates it
  * against the DTD and applies the configuration.
  *
  * This function is private and should only be called by Concrete.

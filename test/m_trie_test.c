@@ -2,7 +2,7 @@
 #ifdef _ENABLE_TRIE
 /* -------------------------------------------------------------------------- */
 
-#include "../lib/m_trie.h"
+#include "../lib/askl_cbtrie.h"
 #include <signal.h>
 
 #define _CACHE_ITEMS   800000
@@ -33,7 +33,7 @@ static void _timeout(int dummy)
 
 int test_trie(void)
 {
-    m_trie *t = NULL;
+    ASKL_Trie *t = NULL;
     variant val = { 0 };
     uintptr_t i = 0, j = 0;
     int missing = 0;
@@ -89,7 +89,7 @@ int test_trie(void)
 
     printf("(*) Iterator.\n");
     start = clock();
-    m_trie_iterator *it = NULL;
+    ASKL_TrieIterator *it = NULL;
     for (it = trie_each_prefix(t, "800", 3); it; it = trie_next(it))
         callback(it->key, it->len, it->val);
     stop = clock();

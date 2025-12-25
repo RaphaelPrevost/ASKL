@@ -1,7 +1,7 @@
 #ifndef M_HASHLIB_H
 #define M_HASHLIB_H
 
-#include "../lib/m_core_def.h"
+#include "../lib/askl.h"
 
 /** @defgroup hashtable core::hashtable */
 

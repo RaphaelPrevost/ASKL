@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2025 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -181,7 +181,7 @@ static const char _unsafe[256] = {
 /* BITWISE OPERATIONS */
 /* -------------------------------------------------------------------------- */
 
-#include "ports/m_port_bitops.c"
+#include "arcane/bitops.c"
 
 /* -------------------------------------------------------------------------- */
 /* 0. Initialization */
@@ -1229,7 +1229,10 @@ public int string_dim(m_string *string, size_t size)
         return -1;
     }
 
-    if (string->_alloc == size) return 0;
+    if (string->_alloc == size + sizeof(wchar_t)) {
+        debug("string_dim(): correctly sized.\n");
+        return 0;
+    }
 
     /* XXX "need" is the number of bytes that should be added or removed
        to fit the new string size. "diff" is the difference between the
@@ -1273,7 +1276,7 @@ public int string_dim(m_string *string, size_t size)
             perror(ERR(string_dim, realloc)); return -1;
         }
 
-        string->_data = data; string->_alloc += need * sizeof(*string->_data);
+        string->_data = data; string->_alloc = allocsize;
         _string_rebase_token(string, base, data);
     }
 
@@ -1312,7 +1315,7 @@ public int string_extend(m_string *string, size_t size)
         return -1;
     }
 
-    return (size > string->_alloc) ? string_dim(string, size) : 0;
+    return (size >= string->_alloc) ? string_dim(string, size) : 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1379,7 +1382,8 @@ static m_string *_string_mov(m_string *to, off_t o, const char * from, size_t l)
 
     /* update the string */
     to->_len = (SIZE(to) < o + l) ? o + l : SIZE(to);
-    if (! to->parent) memset(to->_data + SIZE(to), 0x0, sizeof(wchar_t));
+    if (! to->parent)
+        memset(to->_data + SIZE(to), 0x0, to->_alloc - to->_len);
 
     /* NOTE it is up to the caller to deal with the tokens */
 

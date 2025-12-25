@@ -273,7 +273,7 @@ public m_string *http_compile(m_http *h, int method, const char *action,
     size_t len = 0;
     int i = 0;
     uint32_t random[10];
-    m_random *ctx = NULL;
+    ASKL_Random *ctx = NULL;
     #endif
     m_string *token = NULL, *multipart = NULL;
 

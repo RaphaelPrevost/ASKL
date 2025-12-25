@@ -1,7 +1,7 @@
 #include "../lib/m_string.h"
 
 #ifdef _ENABLE_RANDOM
-#include "../lib/m_random.h"
+#include "../lib/askl_random.h"
 #endif
 
 #define DUMMY_LEN 256
@@ -95,10 +95,11 @@ int test_string(void)
     unsigned int i = 0;
     off_t pos = 0;
     char buffer[256];
+    char small_buffer[4];
     size_t item_size = 0;
     #ifdef _ENABLE_RANDOM
     uint32_t random_token[10];
-    m_random *r = NULL;
+    ASKL_Random *r = NULL;
     #endif
 
     setlocale(LC_CTYPE, "zh_CN.UTF8");
@@ -256,6 +257,13 @@ int test_string(void)
         printf("(!) Catching integer overflow in string_alloc(): FAILURE\n");
         return -1;
     } else printf("(*) Catching integer overflow in string_alloc(): SUCCESS\n");
+
+    /* consume binary data from static buffer */
+    z = string_encaps(small_buffer, 1);
+    i = string_fetch_uint8(z);
+    if (SIZE(z) > 0) {
+        printf("(!) Fetching binary data: FAILURE\n");
+    } else printf("(*) Fetching binary data: SUCCESS\n");
 
     #ifdef _ENABLE_HTTP
     if (string_rawurlencode("http://integeroverflow.net", 1431655765, 0x0)) {

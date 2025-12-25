@@ -1,18 +1,18 @@
-#include "../lib/m_server.h"
-#include "../lib/m_queue.h"
+#include "../lib/askl_server.h"
+#include "../lib/askl_steque.h"
 
 #define ITEMS 800000
 
-#define enqueue(i) do { queue_add(q, (void *) (uintptr_t) (i)); } while (0)
-#define dequeue() ((uintptr_t) queue_get(q))
+#define enqueue(i) do { queue_enqueue(q, (void *) (uintptr_t) (i)); } while (0)
+#define dequeue() ((uintptr_t) queue_pop(q))
 
-static m_queue *q = NULL;
+static ASKL_Queue *q = NULL;
 
 static void *_enqueue(UNUSED void *dummy)
 {
     unsigned int i = 0;
 
-    for (i = 1; i < ITEMS; i ++) queue_add(q, (void *) (uintptr_t) i);
+    for (i = 1; i < ITEMS; i ++) queue_enqueue(q, (void *) (uintptr_t) i);
 
     return NULL;
 }
@@ -22,7 +22,7 @@ static void *_dequeue(UNUSED void *dummy)
     unsigned int i = 0;
 
     for (i = 1; i < ITEMS; i ++) {
-        if (queue_get(q) != (void *) (uintptr_t) i) {
+        if (queue_pop(q) != (void *) (uintptr_t) i) {
             i --; queue_wait(q, 1000);
         }
     }
@@ -56,8 +56,8 @@ int test_queue(void)
         return -1;
     }
 
-    queue_add(q, (void *) 0x8888);
-    ret = (uintptr_t) queue_get(q);
+    queue_enqueue(q, (void *) 0x8888);
+    ret = (uintptr_t) queue_pop(q);
     if (ret != 0x8888) {
         printf("(!) Enqueue/Dequeue: missing value !\n");
         return -1;

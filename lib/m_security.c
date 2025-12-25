@@ -42,7 +42,7 @@
 #define POLICY_DENY     0
 #define POLICY_ALLOW    1
 
-static UNUSED m_trie *rules = NULL;
+static UNUSED ASKL_Trie *rules = NULL;
 
 /* -------------------------------------------------------------------------- */
 

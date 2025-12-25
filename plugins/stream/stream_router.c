@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,34 +33,34 @@
  *                                                                             *
  ******************************************************************************/
 
-#include "stream_plugin.h"
+#include "stream.h"
 
 /* streams */
 static struct {
-    char route[4];
-} streams[_STREAMS_MAX];
+    int16_t route[4];
+} streams[_STREAMS_MAX + 1];
 
 /* ingress id */
-static char ingress = 1;
+static int16_t ingress = 1;
 
 /* map an ingress id to a route type */
-static char route_type[INGRESS_MAX];
+static int16_t route_type[INGRESS_MAX + 1];
 
 /* map an ingress id to a stream */
-static char route_stream[INGRESS_MAX];
+static int16_t route_stream[INGRESS_MAX + 1];
 
 /* map a master socket to a worker stream */
-static char worker_stream[SOCKET_MAX];
+static int16_t worker_stream[SOCKET_MAX + 1];
 
 /* MASTER: socket pairs */
 static pthread_rwlock_t _master_lock;
-static uint16_t _public_to_worker[SOCKET_MAX];
-static uint16_t _worker_to_public[SOCKET_MAX];
+static int16_t _public_to_worker[SOCKET_MAX + 1];
+static int16_t _worker_to_public[SOCKET_MAX + 1];
 
 /* WORKER: socket pairs */
 static pthread_rwlock_t _worker_lock;
-static uint16_t _server_to_master[SOCKET_MAX];
-static uint16_t _master_to_server[SOCKET_MAX];
+static int16_t _server_to_master[SOCKET_MAX + 1];
+static int16_t _master_to_server[SOCKET_MAX + 1];
 
 /* -------------------------------------------------------------------------- */
 
@@ -83,14 +83,14 @@ private int stream_router_init(void)
 
     if (stream_personality() & PERSONALITY_MASTER) {
 
-        for (s = stream_master_streams(); i < s; i ++) {
+        for (i = 0, s = stream_master_streams(); i < s; i ++) {
             /* ingress end */
             port = stream_config_port(i, STREAM_INGRESS);
             fprintf(stderr, "Stream[%i]: ingress port set to %s\n", i, port);
 
             iid = stream_open_ingress(i, ROUTE_PUBLIC);
             ret = server_open_managed_socket(
-                plugin_get_token(),
+                module_get_token(),
                 NULL,
                 port,
                 SOCKET_LISTEN(iid)
@@ -107,7 +107,7 @@ private int stream_router_init(void)
 
             iid = stream_open_ingress(i, ROUTE_WORKER);
             ret = server_open_managed_socket(
-                plugin_get_token(),
+                module_get_token(),
                 NULL,
                 port,
                 SOCKET_LISTEN(iid)
@@ -125,12 +125,12 @@ private int stream_router_init(void)
 
         memset(worker_stream, -1, sizeof(worker_stream));
 
-        for (s = stream_worker_streams(); i < s; i ++) {
+        for (i = 0, s = stream_worker_streams(); i < s; i ++) {
             host = stream_config_host(i, MASTER_ADDRESS);
             port = stream_config_port(i, MASTER_ADDRESS);
 
             master = server_open_managed_socket(
-                plugin_get_token(),
+                module_get_token(),
                 host,
                 port,
                 SOCKET_CLIENT
@@ -175,12 +175,12 @@ private int stream_heartbeat(int socket_id)
 
     reply = server_reply_init(
         SERVER_MSG_ACK | SERVER_MSG_OOB,
-        plugin_get_token()
+        module_get_token()
     );
 
     if (! reply) goto _err_rep;
 
-    if (! (data = string_fmt(NULL, "%bB4u", WORKER_OP_ALIVE)) ) goto _err_fmt;
+    if (! (data = string_alloc("!", 1)) ) goto _err_fmt;
 
     if (server_reply_setheader(reply, data) == -1) goto _err_set;
 
@@ -207,14 +207,14 @@ private int stream_get_id(int hint, int personality)
 
     if (personality == PERSONALITY_MASTER) {
         /* the hint must be a valid ingress id */
-        if (hint < 0 || hint >= INGRESS_MAX) {
+        if (hint < 1 || hint >= INGRESS_MAX) {
             debug("stream_get_id(): bad parameters.\n");
             return -1;
         }
         ret = route_stream[hint];
     } else if (personality == PERSONALITY_WORKER) {
         /* the hint must be a valid socket id */
-        if (hint < 0 || hint >= SOCKET_MAX) {
+        if (hint < 1 || hint >= SOCKET_MAX) {
             debug("stream_get_id(): bad parameters.\n");
             return -1;
         }
@@ -261,12 +261,12 @@ private int stream_open_ingress(int stream_id, int type)
         return 0;
     }
 
-    if (type < 0 || type >= ROUTE_MAX) {
+    if (type < 0 || type > ROUTE_MAX) {
         debug("stream_alloc_ingress(): bad parameters.\n");
         return 0;
     }
 
-    if (ingress + 1 >= INGRESS_MAX) {
+    if (ingress + 1 > INGRESS_MAX) {
         debug("stream_alloc_ingress(): all ids are in use!\n");
         return 0;
     }

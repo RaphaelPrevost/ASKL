@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -40,7 +40,7 @@
 /* -------------------------------------------------------------------------- */
 
 typedef struct jsonpath_context {
-    m_trie *tree;
+    ASKL_Trie *tree;
     m_string *path;
     uint32_t count;
 } jsonpath_context;
@@ -428,7 +428,7 @@ static const uint16_t u32toa_lut[] = {
 /* BITWISE OPERATIONS */
 /* -------------------------------------------------------------------------- */
 
-#include "ports/m_port_bitops.c"
+#include "arcane/bitops.c"
 
 /* -------------------------------------------------------------------------- */
 
@@ -1025,7 +1025,7 @@ private int CALLBACK json_data(m_string *data, m_json_parser *ctx)
         debug("End of JSON document!\n");
     }
 
-    return (ctx->parent) ? 0 : 1;
+    return (! ctx->parent);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1064,7 +1064,7 @@ private int CALLBACK json_exit(int type, struct m_json_parser *ctx)
         debug("End of JSON document!\n");
     }
 
-    return (ctx->parent) ? 0 : 1;
+    return (! ctx->parent);
 }
 
 /* -------------------------------------------------------------------------- */

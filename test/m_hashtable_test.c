@@ -1,4 +1,4 @@
-#include "../lib/m_server.h"
+#include "../lib/askl_server.h"
 #include "hashlib.h"
 #include <signal.h>
 
@@ -20,7 +20,7 @@ static pthread_t _thread[_CACHE_CONCURRENCY];
 
 static int timeout = 0;
 
-static m_hashtable *v;
+static ASKL_HashTable *v;
 
 /* -------------------------------------------------------------------------- */
 
@@ -383,7 +383,7 @@ static void *_insert_loop(void *range)
 
     for (i = r; i <= r + _CACHE_THRNG; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        hashtable_insert(v, key, len, variant_from_integer(i));
+        htable_insert(v, key, len, variant_from_integer(i));
     }
 
     pthread_exit(NULL);
@@ -407,7 +407,7 @@ static void *_read_loop(void *range)
 
     for (i = r; i <= r + _CACHE_THRNG; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        val = hashtable_find(v, key, len);
+        val = htable_get(v, key, len);
         if (is_integer(val)) {
             if ( (j = variant_to_integer(val)) != i) {
                 missing ++;
@@ -440,7 +440,7 @@ static int _print_and_delete_key(const char *key, size_t len, UNUSED variant val
 
 int test_hashtable(void)
 {
-    m_cache *h = NULL;
+    ASKL_LinkedMap *h = NULL;
     uintptr_t i = 0, j = 0;
     variant val = { 0 };
     int missing = 0;
@@ -453,7 +453,7 @@ int test_hashtable(void)
     signal(SIGALRM, _timeout);
 
     printf("(-) Testing hash table implementation.\n");
-    if (! (h = cache_alloc(NULL)) ) {
+    if (! (h = map_alloc(NULL)) ) {
         printf("(!) Allocating hash table: FAILURE\n");
         return -1;
     } else printf("(*) Allocating hash table: SUCCESS\n");
@@ -462,23 +462,23 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        cache_push(h, key, len, variant_from_integer(i));
+        map_set(h, key, len, variant_from_integer(i));
     }
     stop = clock();
     printf("(-) Time elapsed = ");
     printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
     printf(" s\n");
 
-    printf("(-) Size of the hashtable: %zu items/%zu buckets\n",
-            h->_bucket_count, h->_bucket_size);
-    printf("(-) Memory footprint: %zu bytes.\n", cache_footprint(h, & len));
+    //printf("(-) Size of the hashtable: %zu items/%zu buckets\n",
+    //        h->_bucket_count, h->_bucket_size);
+    printf("(-) Memory footprint: %zu bytes.\n", map_footprint(h, & len));
     printf("(-) Overhead: %zu bytes (%zu KiB).\n", len, len / 1024);
 
     printf("(*) Getting back values from keys.\n");
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        val = cache_find(h, key, len);
+        val = map_get(h, key, len);
         if (is_integer(val)) {
             if ( (j = variant_to_integer(val)) != i) {
                 missing ++;
@@ -506,14 +506,14 @@ int test_hashtable(void)
     while (! timeout && missing < _CACHE_RNDDL) {
         i = rand() % _CACHE_ITEMS;
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        if (is_integer(cache_pop(h, key, len))) missing ++;
+        if (is_integer(map_remove(h, key, len))) missing ++;
     }
     timeout = 1;
 
     /* sorting */
     printf("(*) Sorting.\n");
     start = clock();
-    cache_sort(h, CACHE_ASC, cache_sort_keys);
+    map_sort(h, MAP_ASC, map_sort_keys);
     stop = clock();
     printf("(-) Time elapsed = ");
     printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
@@ -525,7 +525,7 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        val = cache_find(h, key, len);
+        val = map_get(h, key, len);
         if (is_integer(val)) {
             if ( (j = variant_to_integer(val)) != i)
                 missing ++;
@@ -543,7 +543,7 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        cache_push(h, key, len, variant_from_integer(i + 1));
+        map_set(h, key, len, variant_from_integer(i + 1));
     }
     stop = clock();
     printf("(-) Time elapsed = ");
@@ -558,7 +558,7 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        val = cache_pop(h, key, len);
+        val = map_remove(h, key, len);
         if (! is_integer(val) || variant_to_integer(val) != (i + 1))
             missing ++;
     }
@@ -574,7 +574,7 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        val = cache_find(h, key, len);
+        val = map_get(h, key, len);
         if (! is_integer(val) || variant_to_integer(val) != (i + 1))
             missing ++;
         else printf("(!) found phantom key %" PRIuPTR " !\n", i);
@@ -586,14 +586,14 @@ int test_hashtable(void)
     printf("(-) %i missing keys\n", missing);
 
     printf("(*) Overwriting a key.\n");
-    val = cache_push(h, key, len, variant_from_integer(0xc0ffee));
+    val = map_set(h, key, len, variant_from_integer(0xc0ffee));
     if (is_integer(val)) {
         printf(
             "(!) Key insertion returned 0x%" PRIxPTR "\n",
             (uintptr_t) variant_to_integer(val)
         );
     }
-    val = cache_push(h, key, len, variant_from_integer(0xcafe));
+    val = map_set(h, key, len, variant_from_integer(0xcafe));
     if (is_integer(val)) {
         if (variant_to_integer(val) != 0xc0ffee) {
             printf(
@@ -602,7 +602,7 @@ int test_hashtable(void)
             );
         }
     } else printf("(!) Key overwrite failure!\n");
-    val = cache_pop(h, key, len);
+    val = map_remove(h, key, len);
     if (is_integer(val)) {
         if (variant_to_integer(val) != 0xcafe) {
             printf(
@@ -613,31 +613,31 @@ int test_hashtable(void)
     } else printf("(!) Key was not overwritten!\n");
 
     /* sort test */
-    cache_push(h, "zzzzz", strlen("zzzzz"), variant_from_integer(0x0));
-    cache_push(h, "tedst", strlen("tedst"), variant_from_integer(0x1));
-    cache_push(h, "testa", strlen("testa"), variant_from_integer(0x2));
-    cache_push(h, "btest", strlen("btest"), variant_from_integer(0x4));
-    cache_push(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
-    cache_sort(h, CACHE_ASC, cache_sort_keys);
-    cache_foreach(h, _print_and_delete_key);
+    map_set(h, "zzzzz", strlen("zzzzz"), variant_from_integer(0x0));
+    map_set(h, "tedst", strlen("tedst"), variant_from_integer(0x1));
+    map_set(h, "testa", strlen("testa"), variant_from_integer(0x2));
+    map_set(h, "btest", strlen("btest"), variant_from_integer(0x4));
+    map_set(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
+    map_sort(h, MAP_ASC, map_sort_keys);
+    map_foreach(h, _print_and_delete_key);
 
-    cache_push(h, "zzzzz", strlen("zzzzz"), variant_from_integer(0x0));
-    cache_push(h, "tedst", strlen("tedst"), variant_from_integer(0x1));
-    cache_push(h, "testa", strlen("testa"), variant_from_integer(0x2));
-    cache_push(h, "btest", strlen("btest"), variant_from_integer(0x4));
-    cache_push(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
-    cache_sort(h, CACHE_DESC, cache_sort_keys);
-    cache_foreach(h, _print_and_delete_key);
+    map_set(h, "zzzzz", strlen("zzzzz"), variant_from_integer(0x0));
+    map_set(h, "tedst", strlen("tedst"), variant_from_integer(0x1));
+    map_set(h, "testa", strlen("testa"), variant_from_integer(0x2));
+    map_set(h, "btest", strlen("btest"), variant_from_integer(0x4));
+    map_set(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
+    map_sort(h, MAP_DESC, map_sort_keys);
+    map_foreach(h, _print_and_delete_key);
 
-    cache_push(h, "btest", strlen("btest"), variant_from_integer(0x4));
-    cache_push(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
-    cache_sort(h, CACHE_DESC, cache_sort_keys);
-    cache_foreach(h, _print_and_delete_key);
+    map_set(h, "btest", strlen("btest"), variant_from_integer(0x4));
+    map_set(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
+    map_sort(h, MAP_DESC, map_sort_keys);
+    map_foreach(h, _print_and_delete_key);
 
-    h = cache_free(h);
+    h = map_free(h);
 
     printf("(-) Testing hash table implementation.\n");
-    if (! (v = hashtable_alloc(NULL)) ) {
+    if (! (v = htable_alloc(NULL)) ) {
         printf("(!) Allocating hash table: FAILURE\n");
         return -1;
     } else printf("(*) Allocating hash table: SUCCESS\n");
@@ -669,7 +669,7 @@ int test_hashtable(void)
     printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
     printf(" s\n");
 
-    printf("(-) Memory footprint: %zu bytes.\n", hashtable_footprint(v, & len));
+    printf("(-) Memory footprint: %zu bytes.\n", htable_footprint(v, & len));
     printf("(-) Overhead: %zu bytes (%zu KiB).\n", len, len / 1024);
 
     /* spawn the worker threads */
@@ -700,7 +700,7 @@ int test_hashtable(void)
     printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
     printf(" s\n");
 
-    v = hashtable_free(v);
+    v = htable_free(v);
 
     signal(SIGALRM, _timeout);
 

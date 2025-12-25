@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -39,8 +39,8 @@
 
 #if defined(_ENABLE_FILE) && defined(_ENABLE_TRIE) && defined(HAS_LIBXML)
 
-#include "m_core_def.h"
-#include "m_trie.h"
+#include "askl.h"
+#include "askl_cbtrie.h"
 #include "m_string.h"
 #include "m_security.h"
 
@@ -48,8 +48,8 @@ typedef struct m_view {
     char *root;
     size_t rootlen;
     int flags;
-    m_trie *_cache;
-    m_trie *_handlers;
+    ASKL_Trie *_cache;
+    ASKL_Trie *_handlers;
 } m_view;
 
 typedef struct m_file {

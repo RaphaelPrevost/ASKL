@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2024 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,23 +33,23 @@
  *                                                                             *
  ******************************************************************************/
 
-#include "stream_plugin.h"
+#include "stream.h"
 
 /* MASTER: number of master streams */
 static int master_streams = 0;
 
 /* MASTER: list of available workers */
-static m_socket_queue **_workers = NULL;
+static ASKL_SocketQueue **_workers = NULL;
 
 /* MASTER: list of available connections */
-static m_socket_queue **_pending = NULL;
+static ASKL_SocketQueue **_pending = NULL;
 
 /* MASTER: list of connections waiting for a worker */
-static m_socket_queue **_waiting = NULL;
+static ASKL_SocketQueue **_waiting = NULL;
 
 /* MASTER: pending packets */
 static pthread_mutex_t _packets_lock = PTHREAD_MUTEX_INITIALIZER;
-static m_queue *_packets[SOCKET_MAX];
+static ASKL_Queue *_packets[SOCKET_MAX];
 
 /* ALL: link status */
 static pthread_mutex_t _status_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -139,7 +139,7 @@ private void stream_add_worker(int stream_id, uint16_t worker)
     }
 
     if (! stream_set_status(worker, STREAM_STATUS_WORK))
-        socket_queue_add(_workers[stream_id], worker);
+        socket_enqueue(_workers[stream_id], worker);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -153,7 +153,7 @@ private uint16_t stream_borrow_worker(int stream_id)
         return 0;
     }
 
-    do worker = socket_queue_get(_workers[stream_id]);
+    do worker = socket_dequeue(_workers[stream_id]);
     while (worker && stream_get_status(worker) != STREAM_STATUS_WORK);
 
     return worker;
@@ -174,7 +174,7 @@ private uint16_t stream_release_worker(int stream_id, uint16_t worker)
     }
 
     if (stream_get_status(worker) == STREAM_STATUS_WORK)
-        socket_queue_add(_workers[stream_id], worker);
+        socket_enqueue(_workers[stream_id], worker);
 
     return 0;
 }
@@ -194,7 +194,7 @@ private uint16_t stream_enqueue_connection(int stream_id, uint16_t conn)
     }
 
     if (! stream_set_status(conn, STREAM_STATUS_WAIT))
-        socket_queue_add(_pending[stream_id], conn);
+        socket_enqueue(_pending[stream_id], conn);
 
     return 0;
 }
@@ -210,7 +210,7 @@ private uint16_t stream_dequeue_connection(int stream_id)
         return 0;
     }
 
-    do conn = socket_queue_get(_pending[stream_id]);
+    do conn = socket_dequeue(_pending[stream_id]);
     while (conn && stream_get_status(conn) != STREAM_STATUS_WAIT);
 
     return conn;
@@ -230,7 +230,7 @@ private uint16_t stream_enqueue_waiting(int stream_id, uint16_t conn)
         return 0;
     }
 
-    socket_queue_add(_waiting[stream_id], conn);
+    socket_enqueue(_waiting[stream_id], conn);
 
     return 0;
 }
@@ -246,7 +246,7 @@ private uint16_t stream_dequeue_waiting(int stream_id)
         return 0;
     }
 
-    do conn = socket_queue_get(_waiting[stream_id]);
+    do conn = socket_dequeue(_waiting[stream_id]);
     while (conn && stream_get_status(conn) != STREAM_STATUS_CONN);
 
     return conn;
@@ -266,7 +266,7 @@ private m_string *stream_enqueue_packet(uint16_t socket_id, m_string *data)
         if (! _packets[socket_id]) _packets[socket_id] = queue_alloc();
 
         if (_packets[socket_id])
-            queue_add(_packets[socket_id], string_dup(data));
+            queue_enqueue(_packets[socket_id], string_dup(data));
 
     pthread_mutex_unlock(& _packets_lock);
 
@@ -286,7 +286,7 @@ private m_string *stream_dequeue_packet(uint16_t socket_id)
 
     pthread_mutex_lock(& _packets_lock);
 
-        data = queue_get(_packets[socket_id]);
+        data = queue_pop(_packets[socket_id]);
 
     pthread_mutex_unlock(& _packets_lock);
 
@@ -312,6 +312,39 @@ private void stream_drop_packets(uint16_t socket_id)
 
 /* -------------------------------------------------------------------------- */
 
+private void stream_flush_packets(uint16_t socket_id, uint16_t egress)
+{
+    m_string *data = NULL;
+    int packets = 0;
+
+    if (socket_id < 1 || socket_id >= SOCKET_MAX) {
+        debug("stream_flush_packets(): bad parameters.\n");
+        return;
+    }
+
+    pthread_mutex_lock(& _packets_lock);
+
+        while ( (data = queue_pop(_packets[socket_id])) ) {
+            debug("sending last packets...\n");
+            server_send_buffer(
+                module_get_token(),
+                egress,
+                queue_empty(_packets[socket_id]) ? SERVER_MSG_END : 0x0,
+                DATA(data),
+                SIZE(data)
+            );
+            packets ++;
+        }
+
+        _packets[socket_id] = queue_free(_packets[socket_id]);
+
+    pthread_mutex_unlock(& _packets_lock);
+
+    if (! packets) server_close_managed_socket(module_get_token(), egress);
+}
+
+/* -------------------------------------------------------------------------- */
+
 private int stream_get_connection(int stream_id)
 {
     uint16_t worker = 0;
@@ -324,7 +357,7 @@ private int stream_get_connection(int stream_id)
 
     /* ask the worker to connect */
     server_send_response(
-        plugin_get_token(),
+        module_get_token(),
         worker,
         0x0,
         "%bB4u",
@@ -359,7 +392,7 @@ private int stream_get_pipe(int stream_id, uint16_t socket_id)
 
         /* check if there is pending packets and send them directly */
         while ( (packet = stream_dequeue_packet(socket_id)) )
-            server_send_string(plugin_get_token(), worker, 0x0, packet);
+            server_send_string(module_get_token(), worker, 0x0, packet);
     }
 
     if (! stream_get_connection(stream_id) && ! worker) {
@@ -378,31 +411,33 @@ private void stream_open_pipe(int stream_id)
     const char *host = NULL;
     const char *port = NULL;
 
+    /* connect to the master */
     host = stream_config_host(stream_id, MASTER_ADDRESS);
     port = stream_config_port(stream_id, MASTER_ADDRESS);
     ingress_id = stream_get_ingress(stream_id, ROUTE_MASTER);
 
     master_id = server_open_managed_socket(
-        plugin_get_token(),
+        module_get_token(),
         host,
         port,
         INGRESS(ingress_id)
     );
 
     server_send_response(
-        plugin_get_token(),
+        module_get_token(),
         master_id,
         0x0,
         "%bB4u",
         WORKER_OP_READY
     );
 
+    /* connect to the endpoint */
     host = stream_config_host(stream_id, SERVER_ADDRESS);
     port = stream_config_port(stream_id, SERVER_ADDRESS);
     ingress_id = stream_get_ingress(stream_id, ROUTE_SERVER);
 
     server_id = server_open_managed_socket(
-        plugin_get_token(),
+        module_get_token(),
         host,
         port,
         INGRESS(ingress_id)

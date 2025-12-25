@@ -1,5 +1,5 @@
-#include "../lib/m_core_def.h"
-#include "../lib/m_server.h"
+#include "../lib/askl.h"
+#include "../lib/askl_server.h"
 #include <signal.h>
 
 extern int test_socket(void);
