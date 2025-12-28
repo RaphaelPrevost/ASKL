@@ -175,19 +175,15 @@ struct _ASKL_HashTable {
 
 static int _set_item(ASKL_LinkedMap *h, _item *item, int replace, variant *val)
 {
-    unsigned int i = 0;
-    uintptr_t index = 0;
-    unsigned int retry = 0;
-    unsigned int hash_cache[HASH_COUNT];
-    _item *slot = NULL, *tmp = NULL;
+    unsigned int i = 0, index = 0, retry = 0;
+    _item *slot = NULL;
     uint32_t mask = h->_bucket_size - 1;
 
     /* avoid rehashing every key */
-    if (! (index = (uintptr_t) item->ptr) ) {
+    if (unlikely(! (index = (uintptr_t) item->ptr))) {
         index = _hash(item->key.str, item->key.len, h->_seed[0]);
-        item->ptr = (void *) index;
+        item->ptr = (void *) ((uintptr_t) index);
     }
-
     index &= mask; goto _loop;
 
     /* look for a free slot */
@@ -203,34 +199,34 @@ _loop:  if (! h->_bucket[index]) {
 
         if (replace) {
             slot = h->_bucket[index];
-            if (likely(item->key.len == slot->key.len)) {
-                if (! memcmp(& item->key.str, & slot->key.str, item->key.len))
+            if (item->ptr == slot->ptr && item->key.len == slot->key.len) {
+                if (! memcmp(item->key.str, slot->key.str, item->key.len))
                     goto _replace;
             }
         }
-
-        hash_cache[i] = index;
     }
 
     if (replace) {
         /* couldn't find it, look in the basket */
         for (slot = h->_basket; slot; slot = slot->ptr) {
             if (likely(item->key.len == slot->key.len)) {
-                if (! memcmp(& item->key.str, & slot->key.str, item->key.len))
+                if (! memcmp(item->key.str, slot->key.str, item->key.len))
                     goto _replace;
             }
         }
     }
 
-    /* no free slot found, try cuckoo hashing */
-    for (index = hash_cache[0]; retry < HASH_RETRY; retry ++) {
-        /* get data off the last slot and replace them */
-        tmp = h->_bucket[index]; h->_bucket[index] = item; item = tmp;
+    /* no free slot found, try cuckoo eviction */
+    for (index = (uintptr_t) item->ptr & mask; retry < HASH_RETRY; retry ++) {
+        _item *tmp = h->_bucket[index];
+        int loop = (tmp->ptr == item->ptr);
+        h->_bucket[index] = item; item = tmp;
 
         /* get rid of tombstones */
-        if (! item->key.len) return 0;
+        if (unlikely(! item->key.len)) return 0;
 
-        for (i = 0; i < HASH_COUNT; i ++) {
+        /* skip the first seed as the slot is obviously taken */
+        for (i = 1; i < HASH_COUNT; i ++) {
             index = _hash(item->key.str, item->key.len, h->_seed[i]) & mask;
 
             if (! h->_bucket[index]) {
@@ -238,11 +234,14 @@ _loop:  if (! h->_bucket[index]) {
                 h->_bucket[index] = item;
                 h->_bucket_count ++;
                 return 0;
-            } else hash_cache[i] = index;
+            }
         }
+
+        /* avoid evicting the original cuckoo */
+        if (unlikely(loop)) break;
     }
 
-    /* cuckoo hashing did not help, store the key in the basket... */
+    /* store the key in the overflow basket */
     item->ptr = h->_basket; h->_basket = item; h->_bucket_count ++;
 
     return 0;
@@ -435,11 +434,12 @@ public variant map_get_with(
 )
 {
     unsigned int i = 0, j = 0;
+    uintptr_t hash = 0;
     _item *ptr = NULL;
     variant res = { 0 };
     uint32_t mask = 0;
 
-    if (! h || ! key || ! len) {
+    if (unlikely(! h || ! key || ! len)) {
         debug("map_get_with(): bad parameters.\n");
         return res;
     }
@@ -447,16 +447,20 @@ public variant map_get_with(
     pthread_rwlock_rdlock(h->_lock);
 
     mask = h->_bucket_size - 1;
+    hash = _hash(key, len, h->_seed[i]);
+    j = hash & mask; goto _loop;
 
     for (i = 0; i < HASH_COUNT; i ++) {
         j = _hash(key, len, h->_seed[i]) & mask;
 
         /* if an empty slot is found, no need to look further */
-        if (! (ptr = h->_bucket[j])) break;
+_loop:  if (! (ptr = h->_bucket[j]) ) break;
 
-        if (ptr->key.len == len && memcmp(ptr->key.str, key, len) == 0) {
-            res = ptr->val; if (function) res = function(res);
-            goto _result;
+        if (hash == (uintptr_t) ptr->ptr && likely(ptr->key.len == len)) {
+            if (likely(! memcmp(ptr->key.str, key, len))) {
+                res = ptr->val; if (function) res = function(res);
+                goto _result;
+            }
         }
     }
 
