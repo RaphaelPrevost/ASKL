@@ -29,6 +29,8 @@ int main(void)
 {
     signal(SIGPIPE, SIG_IGN);
 
+    monotonic_timer_init();
+
     if (test_string() == -1) {
         printf("!!! m_string test: FAILURE !!!\n");
         exit(EXIT_FAILURE);

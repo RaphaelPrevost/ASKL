@@ -222,19 +222,39 @@ public void queue_wait(ASKL_Queue *q, unsigned int duration)
     ts.tv_sec = tv.tv_sec;
     ts.tv_nsec = tv.tv_usec * 1000;
     #elif ! defined(__APPLE__)
-    clock_gettime(CLOCK_MONOTONIC, & ts);
+    monotonic_timer(& ts);
     #endif
 
     ts.tv_sec += duration / 1000000;
     ts.tv_nsec += (duration % 1000000) * 1000;
 
+    #ifndef __APPLE__
+    if (ts.tv_nsec >= 1000000000) {
+        /* handle overflow */
+        ts.tv_sec += ts.tv_nsec / 1000000000;
+        ts.tv_nsec %= 1000000000;
+    }
+    #endif
+
     pthread_mutex_lock(& q->_tail_lock);
 
-    if (queue_empty(q)) {
+    while (queue_empty(q)) {
         #ifdef __APPLE__
+        struct timespec start, awake;
+        long elapsed;
+        monotonic_timer(& start);
         pthread_cond_timedwait_relative_np(& q->_empty, & q->_tail_lock, & ts);
+        monotonic_timer(& awake);
+        elapsed = (awake.tv_nsec - start.tv_nsec) / 1000;
+        elapsed += (awake.tv_sec - start.tv_sec) * 1000000;
+        if (elapsed >= (long) duration) break;
+        duration -= elapsed;
+        ts.tv_sec = duration / 1000000;
+        ts.tv_nsec = (duration % 1000000) * 1000;
         #else
-        pthread_cond_timedwait(& q->_empty, & q->_tail_lock, & ts);
+        int ret;
+        ret = pthread_cond_timedwait(& q->_empty, & q->_tail_lock, & ts);
+        if (ret == ETIMEDOUT) break;
         #endif
     }
 
