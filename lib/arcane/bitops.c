@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,7 +33,7 @@
  *                                                                             *
  ******************************************************************************/
 
-#if defined(_MSC_VER) && (_MSC_VER >= 1400)
+#if (defined(_MSC_VER) && (_MSC_VER >= 1400))
 #include <intrin.h>
 #endif
 
@@ -113,7 +113,6 @@ static inline unsigned int __ctz(uint32_t i)
         if (i & 0xf0f0f0f0U) c |= 4;
         if (i & 0xff00ff00U) c |= 8;
         if (i & 0xffff0000U) c |= 16;
-        
         #endif
     } else c = 32;
 
@@ -151,7 +150,6 @@ static inline unsigned int __ctzll(uint64_t i)
             62, 11, 23, 32, 36, 44, 52, 55, 61, 22, 43, 51, 60, 42, 59, 58
         };
 
-
         return seq[((i & -i) * 0x0218a392cd3d5dbfULL) >> 58];
 
         #endif
@@ -181,7 +179,7 @@ static inline unsigned int __clz(uint32_t i)
         _BitScanReverse(& ret, (unsigned long) i);
 
         return 31 - ret;
-        
+
         #else
         /* portable software implementation (de Bruijn sequence) */
         static const char seq[32] = {
@@ -195,9 +193,9 @@ static inline unsigned int __clz(uint32_t i)
         i |= i >> 8;
         i |= i >> 16;
         i ++;
-        
+
         return seq[i * 0x076be629 >> 27];
-        
+
         #endif
     } else return 32;
 }
@@ -344,7 +342,7 @@ static inline uint64_t __bswap64(uint64_t i)
 
 static inline unsigned int __zero_idx(uint32_t i)
 {
-    #if defined(BIG_ENDIAN_HOST)
+    #if (defined(BIG_ENDIAN_HOST))
     i = __bswap32(i);
     #endif
     return __ctz(i) >> 3;
@@ -354,7 +352,7 @@ static inline unsigned int __zero_idx(uint32_t i)
 
 static inline unsigned int __zero_idx64(uint64_t i)
 {
-    #if defined(BIG_ENDIAN_HOST)
+    #if (defined(BIG_ENDIAN_HOST))
     i = __bswap64(i);
     #endif
     return __ctzll(i) >> 3;
@@ -407,7 +405,7 @@ static inline int __is_pow5_multiple(uint64_t value, const uint32_t p)
 
 static inline uint64_t umul128(uint64_t a, uint64_t b, uint64_t *high)
 {
-    #if defined(__SIZEOF_INT128__)
+    #if (defined(__SIZEOF_INT128__))
     __uint128_t result = (__uint128_t) a * (__uint128_t) b;
     *high = (uint64_t) (result >> 64);
     return (uint64_t) result;
@@ -558,5 +556,149 @@ static inline uint8_t _crc7(const char *string, size_t len)
     while (len --) crc = _crc7_lut[(crc << 1) ^ *p ++];
     return crc & 0x7f;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Atomics */
+/* -------------------------------------------------------------------------- */
+
+#if ((defined(_MSC_VER)) && ((_MSC_VER >= 1300) || (defined(_M_IX86)))) || \
+    ((defined(__GNUC__)) && (((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1)) || \
+     (__GNUC__ > 4) || defined(__i386__) || defined(__x86_64__))) || \
+    ((defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)))
+#define HAS_ATOMICS
+#endif
+
+#ifdef HAS_ATOMICS
+
+#if (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+#include <stdatomic.h>
+#define _ATOMIC _Atomic
+#else
+#define _ATOMIC volatile
+#endif
+
+#if ((defined(_MSC_VER)) && (_MSC_VER == 1300))
+    extern long __cdecl _InterlockedCompareExchange(
+        long volatile *Destination, long Exchange, long Comparand);
+    void _ReadWriteBarrier(void);
+    #pragma intrinsic(_InterlockedCompareExchange)
+    #pragma intrinsic(_ReadWriteBarrier)
+#endif
+
+static inline int _atomic_cas(_ATOMIC int *ptr, int expected, int desired)
+{
+    #if (defined(_MSC_VER))
+        #if (_MSC_VER >= 1300)
+        return _InterlockedCompareExchange(
+            (volatile long *) ptr,
+            (long) desired,
+            (long) expected
+        ) == expected;
+        #elif (defined(_M_IX86))
+        {
+            long result;
+            __asm {
+                mov eax, expected
+                mov ecx, ptr
+                mov edx, desired
+                lock cmpxchg [ecx], edx
+                mov result, eax
+            }
+            return result == expected;
+        }
+        #endif
+    #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+        return atomic_compare_exchange_weak_explicit(
+            ptr,
+            & expected,
+            desired,
+            memory_order_acq_rel,
+            memory_order_relaxed
+        );
+    #elif (defined(__GNUC__))
+        #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
+        return __atomic_compare_exchange_n(
+            ptr,
+            & expected,
+            desired,
+            1,
+            __ATOMIC_ACQ_REL,
+            __ATOMIC_RELAXED
+        );
+        #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
+        return __sync_bool_compare_and_swap(ptr, expected, desired);
+        #elif defined(__i386__) || defined(__x86_64__)
+        int prev;
+        __asm__ __volatile__(
+            "lock; cmpxchgl %2, %1"
+            : "=a"(prev), "+m"(*ptr)
+            : "r"(desired), "0"(expected)
+            : "memory", "cc"
+        );
+        return prev == expected;
+        #endif
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline int _atomic_ldr(_ATOMIC int *ptr)
+{
+    #if (defined(_MSC_VER))
+        int ret = *ptr;
+        #if _MSC_VER >= 1300
+        _ReadWriteBarrier();
+        #elif (defined(_M_IX86))
+        __asm { /* empty, acts as barrier */ }
+        #endif
+        return ret;
+    #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+        return atomic_load_explicit(ptr, memory_order_acquire);
+    #elif (defined(__GNUC__))
+        #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
+        return __atomic_load_n(ptr, __ATOMIC_ACQUIRE);
+        #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
+        return __sync_fetch_and_add(ptr, 0);
+        #elif defined(__i386__) || defined(__x86_64__)
+        int value;
+        __asm__ __volatile__(
+            "movl %1, %0"
+            : "=r"(value)
+            : "m"(*ptr)
+            : "memory"
+        );
+        return value;
+        #endif
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline void _atomic_str(_ATOMIC int *ptr, int value)
+{
+    #if (defined(_MSC_VER))
+        #if _MSC_VER >= 1300
+        _ReadWriteBarrier();
+        #endif
+        *ptr = value;
+    #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+        atomic_store_explicit(ptr, value, memory_order_release);
+    #elif (defined(__GNUC__))
+        #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
+        __atomic_store_n(ptr, value, __ATOMIC_RELEASE);
+        #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
+        __sync_lock_test_and_set(ptr, value);
+        #elif defined(__i386__) || defined(__x86_64__)
+        __asm__ __volatile__(
+            "movl %1, %0"
+            : "=m"(*ptr)
+            : "r"(value)
+            : "memory"
+        );
+        #endif
+    #endif
+}
+
+#endif
 
 /* -------------------------------------------------------------------------- */

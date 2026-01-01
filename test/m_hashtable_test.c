@@ -235,9 +235,25 @@ static int _print_and_delete_key(const char *key, size_t len, UNUSED variant val
 
 /* -------------------------------------------------------------------------- */
 
+static int _print_key_intval(const char *key, size_t len, variant val)
+{
+    printf("%.*s = %i\n", (int) len, key, variant_to_integer(val));
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static variant _merge(const char *key, size_t len, variant dest, variant src)
+{
+    /* overwrite */
+    return src;
+}
+
+/* -------------------------------------------------------------------------- */
+
 int test_hashtable(void)
 {
-    ASKL_LinkedMap *h = NULL;
+    ASKL_LinkedMap *h = NULL, *h2 = NULL;
     uintptr_t i = 0, j = 0;
     variant val = { 0 };
     int missing = 0;
@@ -430,6 +446,21 @@ int test_hashtable(void)
     map_set(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
     map_sort(h, MAP_DESC, map_sort_keys);
     map_foreach(h, _print_and_delete_key);
+
+    map_set(h, "A", 1, variant_from_integer(0x1));
+    map_set(h, "B", 1, variant_from_integer(0x2));
+    map_set(h, "C", 1, variant_from_integer(0x3));
+    map_set(h, "D", 1, variant_from_integer(0x4));
+
+    h2 = map_alloc(NULL);
+    map_set(h2, "D", 1, variant_from_integer(0x44));
+    map_set(h2, "E", 1, variant_from_integer(0x5));
+    map_set(h2, "F", 1, variant_from_integer(0x6));
+    map_set(h2, "G", 1, variant_from_integer(0x7));
+    map_set(h2, "H", 1, variant_from_integer(0x8));
+
+    map_merge(h, h2, _merge);
+    map_foreach(h, _print_key_intval);
 
     h = map_free(h);
 

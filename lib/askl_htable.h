@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -178,6 +178,52 @@ public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len);
  * This is a convenience wrapper around @ref map_get_with() with a NULL
  * callback. It simply returns the value associated with @p key, or
  * VARIANT_NULL if the key is not in the map.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public int map_merge(
+    ASKL_LinkedMap *dest,
+    ASKL_LinkedMap *src,
+    variant merge(const char *key, size_t len, variant dest, variant src)
+);
+
+/**
+ * @ingroup hashtable
+ * @fn int map_merge(ASKL_LinkedMap *dest, ASKL_LinkedMap *src,
+ *                   variant (*merge)(const char *, size_t, variant, variant))
+ * @param dest  destination hashmap
+ * @param src   source hashmap (consumed and destroyed)
+ * @param merge conflict resolution callback
+ * @return 0 on success, or -1 on error
+ *
+ * The function transfers all entries from @p src into @p dest and resolves
+ * conflicts using the user-supplied @p merge callback.
+ *
+ * When a key exists in both maps, the callback is invoked with the key and
+ * the values from @p dest and @p src. The callback's return value replaces
+ * the value stored in @p dest for that key.
+ *
+ * If the callback returns the original value from @p dest, the value from
+ * @p src is discarded. If it returns the original value from @p src, the
+ * value from @p dest is discarded. If it returns a different value, both
+ * original values are discarded.
+ *
+ * Discarded values are released using the owning map's @p _freeval callback,
+ * if defined. If no @p _freeval callback is configured for the map owning a
+ * discarded value, the @p merge callback must release that value itself to
+ * avoid leaks.
+ *
+ * After a successful call, @p src is destroyed. The @p src pointer becomes
+ * invalid and must not be accessed again.
+ *
+ * @note The @p merge callback is executed while both maps are write-locked.
+ *       It must be fast and must not attempt to access either map or perform
+ *       blocking operations.
+ *
+ * @warning This function consumes and destroys @p src.
+ *          The caller must ensure that no other threads access @p src
+ *          concurrently with this call, or after it returns.
  */
 
 /* -------------------------------------------------------------------------- */

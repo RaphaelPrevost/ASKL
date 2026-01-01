@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -63,9 +63,9 @@ typedef struct _item {
  * - a value (as a @ref variant),
  * - a pointer field used by the map internals.
  *
- * The key is stored inline to minimize allocations: the @ref key.str field is a
- * flexible array member and holds a NUL-terminated byte string of length
- * @ref key.len (not counting the trailing NUL).
+ * The key is stored inline to minimize allocations: the @ref key.str field
+ * is a flexible array member and holds a NUL-terminated byte string of
+ * length @ref key.len (not counting the trailing NUL).
  *
  * @b private @ref ptr is an internal pointer used to link or reference entries
  *            depending on the operation (e.g. index bucket ownership, ordering,
@@ -100,12 +100,12 @@ typedef struct _bucket {
  */
 
 struct _ASKL_LinkedMap {
-    pthread_rwlock_t *_lock;
-    size_t _bucket_size;
-    size_t _bucket_count;
+    struct _rwlock *_lock;
     struct _bucket *_index;
     struct _item **_bucket;
     struct _item *_basket;
+    size_t _bucket_size;
+    size_t _bucket_count;
     void (*_freeval)(variant);
     uint32_t _seed[HASH_COUNT];
 };
@@ -332,7 +332,7 @@ static inline variant _insert(
     bucket->item.val = val;
     bucket->item.ptr = NULL;
 
-    pthread_rwlock_wrlock(h->_lock);
+    if (_map_wrlock(h->_lock) == -1) goto _err_lock;
 
     if (! _set_item(h, & bucket->item, replace, & val)) {
         bucket->next = h->_index; h->_index = bucket;
@@ -343,8 +343,12 @@ static inline variant _insert(
     if (h->_basket && h->_basket->ptr)
         _resize(h, h->_bucket_size + 1);
 
-    pthread_rwlock_unlock(h->_lock);
+    _map_unlock(h->_lock);
 
+    return val;
+
+_err_lock:
+    free(bucket);
     return val;
 }
 
@@ -375,15 +379,23 @@ public ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
             h->_seed[i] ++;
     }
 
+    /* initialize the inner semaphore */
     if (! (h->_lock = malloc(sizeof(*h->_lock))) ) {
         perror(ERR(map_alloc, malloc));
         goto _err_lock;
     }
 
-    if (pthread_rwlock_init(h->_lock, NULL) == -1) {
-        perror(ERR(map_alloc, pthread_rwlock_init));
+    if (pthread_mutex_init(& h->_lock->mutex, NULL) == -1) {
+        perror(ERR(map_alloc, pthread_mutex_init));
         goto _err_init;
     }
+
+    if (pthread_cond_init(& h->_lock->cond, NULL) == -1) {
+        perror(ERR(map_alloc, pthread_cond_init));
+        goto _err_cond;
+    }
+
+    h->_lock->state = 1; /* unlocked */
 
     h->_bucket = NULL;
     h->_bucket_count = h->_bucket_size = 0; h->_basket = NULL;
@@ -400,7 +412,9 @@ public ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
 _err_size:
     free(h->_bucket);
     free(h->_basket);
-    pthread_rwlock_destroy(h->_lock);
+    pthread_cond_destroy(& h->_lock->cond);
+_err_cond:
+    pthread_mutex_destroy(& h->_lock->mutex);
 _err_init:
     free(h->_lock);
 _err_lock:
@@ -444,7 +458,7 @@ public variant map_get_with(
         return res;
     }
 
-    pthread_rwlock_rdlock(h->_lock);
+    if (_map_rdlock(h->_lock) == -1) return res;
 
     mask = h->_bucket_size - 1;
     hash = _hash(key, len, h->_seed[i]);
@@ -473,7 +487,7 @@ _loop:  if (! (ptr = h->_bucket[j]) ) break;
     }
 
 _result:
-    pthread_rwlock_unlock(h->_lock);
+    _map_unlock(h->_lock);
 
     return res;
 }
@@ -483,6 +497,65 @@ _result:
 public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len)
 {
     return map_get_with(h, key, len, NULL);
+}
+
+/* -------------------------------------------------------------------------- */
+
+public int map_merge(
+    ASKL_LinkedMap *dest,
+    ASKL_LinkedMap *src,
+    variant merge(const char *key, size_t len, variant dest, variant src)
+)
+{
+    _bucket *b = NULL, *next = NULL;
+
+    if (! dest || ! src || ! merge) {
+        debug("map_union(): bad parameters.\n");
+        return -1;
+    }
+
+    /* pry both maps open */
+    if (_map_wrlock(dest->_lock) == -1) return -1;
+    if (_map_wrlock(src->_lock) == -1) {
+        _map_unlock(dest->_lock);
+        return -1;
+    }
+
+    _map_break_lock(src->_lock);
+
+    for (b = src->_index, src->_index = NULL; b; b = next) {
+        variant v = variant_null();
+        next = b->next;
+
+        if (! b->item.key.len) { free(b); continue; }
+
+        b->item.ptr = NULL;
+
+        /* handle conflicts with the merge helper */
+        if (_set_item(dest, & b->item, 1, & v)) {
+            variant ret;
+            ret = merge(b->item.key.str, b->item.key.len, v, b->item.val);
+            if (v.value.pointer != ret.value.pointer) {
+                if (dest->_freeval) dest->_freeval(v);
+                if (ret.value.pointer != b->item.val.value.pointer)
+                    if (src->_freeval) src->_freeval(b->item.val);
+                _set_item(dest, & b->item, 1, & ret);
+            } else if (src->_freeval) src->_freeval(b->item.val);
+            free(b);
+        } else {
+            b->next = dest->_index; dest->_index = b;
+        }
+    }
+
+    /* destroy the source map */
+    free(src->_bucket);
+    pthread_cond_destroy(& src->_lock->cond);
+    pthread_mutex_destroy(& src->_lock->mutex);
+    free(src->_lock); free(src);
+
+    _map_unlock(dest->_lock);
+
+    return 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -499,7 +572,7 @@ public void map_foreach(
         return;
     }
 
-    pthread_rwlock_wrlock(h->_lock);
+    if (_map_wrlock(h->_lock) == -1) return;
 
     for (bucket = h->_index; bucket; bucket = bucket->next) {
         if (bucket->item.key.len) {
@@ -515,7 +588,7 @@ public void map_foreach(
         }
     }
 
-    pthread_rwlock_unlock(h->_lock);
+    _map_unlock(h->_lock);
 
     return;
 }
@@ -544,7 +617,7 @@ public int map_sort(
         return -1;
     }
 
-    pthread_rwlock_wrlock(h->_lock);
+    if (_map_wrlock(h->_lock) == -1) return -1;
 
     /* simple merge sort */
     do {
@@ -587,7 +660,7 @@ public int map_sort(
 
     } while (merge > 1);
 
-    pthread_rwlock_unlock(h->_lock);
+    _map_unlock(h->_lock);
 
     return 0;
 }
@@ -619,7 +692,7 @@ public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
         return result;
     }
 
-    pthread_rwlock_wrlock(h->_lock);
+    if (_map_wrlock(h->_lock) == -1) return result;
 
     mask = h->_bucket_size - 1;
 
@@ -633,7 +706,7 @@ public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
             result = h->_bucket[j]->val;
             /* a length of 0 indicates a tombstone */
             h->_bucket[j]->key.len = 0;
-            pthread_rwlock_unlock(h->_lock);
+            _map_unlock(h->_lock);
             return result;
         }
     }
@@ -646,11 +719,10 @@ public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
                 result = tmp->val;
                 if (tmp == h->_basket) h->_basket = tmp->ptr;
                 else prev->ptr = tmp->ptr;
+
                 /* XXX tombstone for garbage collection */
                 tmp->key.len = 0;
-
-                pthread_rwlock_unlock(h->_lock);
-
+                _map_unlock(h->_lock);
                 return result;
             }
         }
@@ -659,7 +731,7 @@ public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
     /* garbage collection if necessary */
     _resize(h, (size_t) (h->_bucket_count * HASH_RATIO));
 
-    pthread_rwlock_unlock(h->_lock);
+    _map_unlock(h->_lock);
 
     return variant_null();
 }
@@ -680,7 +752,7 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
     /* the lock is dynamically allocated */
     ret += sizeof(*h->_lock);
 
-    pthread_rwlock_wrlock(h->_lock);
+    if (_map_wrlock(h->_lock) == -1) return 0;
 
     if (h->_bucket_size) {
         /* segment bucket size */
@@ -703,7 +775,7 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
         }
     }
 
-    pthread_rwlock_unlock(h->_lock);
+    _map_unlock(h->_lock);
 
     if (overhead) *overhead = ret - key;
 
@@ -718,6 +790,11 @@ public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h)
 
     if (! h) return NULL;
 
+    if (_map_wrlock(h->_lock) == -1) return NULL;
+
+    /* free the threads waiting after the linked hashmap */
+    _map_break_lock(h->_lock);
+
     for (bucket = h->_index; bucket; bucket = next) {
         next = bucket->next;
         if (h->_freeval && bucket->item.key.len)
@@ -726,7 +803,8 @@ public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h)
     }
 
     free(h->_bucket);
-    pthread_rwlock_destroy(h->_lock);
+    pthread_cond_destroy(& h->_lock->cond);
+    pthread_mutex_destroy(& h->_lock->mutex);
     free(h->_lock); free(h);
 
     return NULL;

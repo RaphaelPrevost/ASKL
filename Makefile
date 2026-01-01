@@ -1,6 +1,6 @@
 ################################################################################
 #  ASKL.                                                                       #
-#  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                            #
+#  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                            #
 #                                                                              #
 #  This software is a computer program whose purpose is to provide a           #
 #  framework for developing and prototyping network services.                  #
@@ -120,7 +120,7 @@ BUILD    =
 FINAL    = -O2 -pipe
 DEBUG    = -O0 -g -DDEBUG -DDEBUG_SQL
 TRACE    = -O0 -g -pg -fprofile-generate
-FLAGS    = -std=c99 -W -Wall $(BUILD) -Wpointer-arith
+FLAGS    = -std=c11 -W -Wall $(BUILD) -Wpointer-arith
 
 SHARED   =
 LIBFLAGS =
@@ -414,8 +414,8 @@ json_checker:
 	$(FINAL) -lpthread \
 	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
 	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
-	lib/compat/askl_compat_layer.c lib/m_string.c lib/m_trie.c \
-	lib/m_variant.c lib/m_parser.c \
+	lib/compat/askl_compat_layer.c lib/m_string.c lib/askl_cbtrie.c \
+	lib/askl_variant.c lib/m_parser.c \
 	test/json/json_checker.c -o json_checker
 
 json_debug:
@@ -425,9 +425,18 @@ json_debug:
 	$(DEBUG) -lpthread \
 	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
 	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
-	lib/compat/askl_compat_layer.c lib/m_string.c lib/m_trie.c \
-	lib/m_variant.c lib/m_parser.c \
+	lib/compat/askl_compat_layer.c lib/m_string.c lib/askl_cbtrie.c \
+	lib/askl_variant.c lib/m_parser.c \
 	test/json/json_checker.c -o json_checker
+
+hashbench:
+	@echo "HASHBENCH"
+	@$(CC) \
+	-D_ENABLE_HASHTABLE \
+	$(FINAL) -lpthread \
+	lib/compat/askl_compat_layer.c lib/askl_htable.c \
+	lib/askl_variant.c \
+	test/hash/hash.c -o hashbench
 
 clean:
 	@echo "CLEAN"
@@ -436,7 +445,7 @@ clean:
 	*~ lib/*~ lib/util/*~ lib/compat/*~ test/*~ $(DBG_BIN) \
 	plugins/*.so plugins/*/*~ lib/*.o lib/util/*.o lib/compat/*.o test/*.o \
 	*.d lib/*.d lib/util/*.d lib/compat/*.d test/*.d plugins/*/*.d \
-	json_checker
+	json_checker hashbench
 	@rm -rf *.dSYM plugins/*.dSYM
 
 -include $(OBJBIN:.o=.d)
