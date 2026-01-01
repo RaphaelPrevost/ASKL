@@ -87,6 +87,51 @@ public ASKL_LinkedMap *map_alloc(void (*freeval)(variant));
 
 /* -------------------------------------------------------------------------- */
 
+public variant map_set_with(
+    ASKL_LinkedMap *h,
+    const char *k,
+    size_t l,
+    variant v,
+    variant (*function)(const char *k, size_t l, variant old, variant new)
+);
+
+/**
+ * @ingroup hashtable
+ * @fn variant map_set_with(ASKL_LinkedMap *h, const char *key, size_t len,
+ *                          variant value,
+ *                          variant (*function)(const char *, size_t,
+ *                                              variant, variant))
+ * @param h        a pointer to a linked hashmap
+ * @param key      pointer to the key bytes
+ * @param len      length of the key in bytes
+ * @param value    the new value (also available to @p function as @p new)
+ * @param function optional callback used to resolve replacement
+ * @return the previous value associated with @p key, or VARIANT_NULL if the
+ *         key was newly inserted
+ *
+ * This function sets @p key to @p value, inserting a new entry if needed.
+ *
+ * If @p function is NULL, the stored value is replaced unconditionally and
+ * the previous value is returned (or VARIANT_NULL if the key was not present).
+ *
+ * If @p function is non-NULL and the key already exists, it is invoked with
+ * the current value (@p old) and the requested value (@p new).
+ *
+ * If @p function returns:
+ * - @p old: the map is left unchanged and map_set_with returns @p new.
+ * - @p new: the @p new value is stored in the map and map_set_with returns
+ *           the previous value (@p old).
+ * - any other value: the previous value (@p old) is discarded (and the
+ *                    _freeval callback invoked if defined), the returned value
+ *                    is stored in the map, and map_set_with returns @p new
+ *                    for the caller to dispose of.
+ *
+ * @note The callback @p function is executed while the map's write lock is
+ *       held, ensuring atomicity. The callback must be fast and non-blocking.
+ */
+
+/* -------------------------------------------------------------------------- */
+
 public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v);
 
 /**
@@ -102,6 +147,44 @@ public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v);
  * If an entry with the same key already exists, its value is replaced and the
  * previous value is returned. Otherwise, the value is inserted and
  * VARIANT_NULL is returned.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_insert_with(
+    ASKL_LinkedMap *h,
+    const char *key,
+    size_t len,
+    variant value,
+    variant (*function)(const char *k, size_t l, variant new)
+);
+
+/**
+ * @ingroup hashtable
+ * @fn variant map_insert_with(ASKL_LinkedMap *h, const char *key, size_t len,
+ *                             variant value,
+ *                             variant (*function)(const char *, size_t,
+ *                                                 variant))
+ * @param h        a pointer to a linked hashmap
+ * @param key      pointer to the key bytes
+ * @param len      length of the key in bytes
+ * @param value    value passed to @p function as @p new
+ * @param function optional callback to compute or initialize the inserted value
+ * @return the existing value associated with @p key if it already existed,
+ *         or VARIANT_NULL if the key was newly inserted
+ *
+ * This function performs an insert-only operation with an optional callback.
+ *
+ * If an entry with @p key already exists, the map is left unchanged and the
+ * existing value is returned.
+ *
+ * If the key does not exist, a new entry is inserted. If @p function is NULL,
+ * @p value is stored directly. If @p function is non-NULL, it is invoked with
+ * @p value as parameter and its return value is stored instead.
+ *
+ * @note The callback @p function is executed only when the key is newly
+ *       inserted. It is executed while the map's write lock is held, ensuring
+ *       atomicity. The callback must be fast and non-blocking.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -153,7 +236,7 @@ public variant map_get_with(
  * and its return value is returned instead.
  *
  * If the key is not present in the map, VARIANT_NULL is returned.
- * 
+ *
  * @note The callback @p function is executed while the map's read lock is
  *       held, ensuring atomicity. This is useful for acquiring locks on
  *       stored objects, or other operations that must be atomic with the
@@ -178,6 +261,22 @@ public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len);
  * This is a convenience wrapper around @ref map_get_with() with a NULL
  * callback. It simply returns the value associated with @p key, or
  * VARIANT_NULL if the key is not in the map.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public int map_has(ASKL_LinkedMap *h, const char *key, size_t len);
+
+/**
+ * @ingroup hashtable
+ * @fn int map_has(ASKL_LinkedMap *h, const char *key, size_t len)
+ * @param h   a pointer to a linked hashmap
+ * @param key pointer to the key bytes
+ * @param len length of the key in bytes
+ * @return non-zero if @p key exists in the map, or 0 otherwise
+ *
+ * This function checks whether an entry with the given key exists in the map.
+ *
  */
 
 /* -------------------------------------------------------------------------- */
@@ -326,6 +425,37 @@ public int map_sort_keys(
  * This is a convenience comparator suitable for use with @ref map_sort().
  * It performs a simple @c memcmp() of the first @p l bytes of @p key0 and
  * @p key1 and ignores the values.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_remove_if(
+    ASKL_LinkedMap *h,
+    const char *key,
+    size_t len,
+    int (*condition)(const char *key, size_t len, variant val)
+);
+
+/**
+ * @ingroup hashtable
+ * @fn variant map_remove_if(ASKL_LinkedMap *h, const char *key, size_t len,
+ *                           int (*condition)(const char *, size_t, variant))
+ * @param h         a pointer to a linked hashmap
+ * @param key       pointer to the key bytes
+ * @param len       length of the key in bytes
+ * @param condition optional predicate controlling removal
+ * @return the removed value if the entry was removed, or VARIANT_NULL if the
+ *         key was not present or was not removed
+ *
+ * This function removes the entry associated with @p key from @p h.
+ *
+ * If @p condition is NULL, the entry is removed unconditionally.
+ *
+ * If @p condition is non-NULL, it is invoked with the stored value. The entry
+ * is removed only if the callback returns non-zero.
+ *
+ * @note The callback @p condition is executed while the map's write lock is
+ *       held, ensuring atomicity. The callback must be fast and non-blocking.
  */
 
 /* -------------------------------------------------------------------------- */

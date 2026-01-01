@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -78,6 +78,41 @@ public ASKL_Trie *trie_alloc(void (*freeval)(variant));
 
 /* -------------------------------------------------------------------------- */
 
+public int trie_insert_with(
+    ASKL_Trie *t,
+    const char *key,
+    size_t len,
+    variant value,
+    variant (*function)(const char *key, size_t len, variant new)
+);
+
+/**
+ * @ingroup trie
+ * @fn int trie_insert_with(ASKL_Trie *t, const char *key, size_t len,
+ *                          variant value,
+ *                          variant (*function)(const char *, size_t, variant))
+ * @param t        a pointer to the trie
+ * @param key      the key to associate with the stored value
+ * @param len      the length of the key
+ * @param value    value passed to @p function as @p new
+ * @param function optional callback to compute or initialize the inserted value
+ * @return 0 on success, or -1 on error
+ *
+ * This function performs an insert-only operation.
+ *
+ * If no entry with the given key exists, the key is inserted. If @p function
+ * is NULL, @p value is stored directly. If @p function is non-NULL, it is
+ * invoked with @p value as parameter and its return value is stored instead.
+ *
+ * If an entry already exists, the trie is left unchanged and -1 is returned.
+ *
+ * @note The callback @p function is executed only when the key is newly
+ *       inserted. It is executed while the trie's write lock is held, ensuring
+ *       atomicity. The callback must be fast and non-blocking.
+ */
+
+/* -------------------------------------------------------------------------- */
+
 public int trie_insert(ASKL_Trie *t, const char *key, size_t len, variant value);
 
 /**
@@ -137,6 +172,52 @@ public variant trie_lookup(
  * @note The callback @b f must not modify the stored value unless such
  * modifications are safe in the presence of concurrent access.
  *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public int trie_has(ASKL_Trie *t, const char *key, size_t len);
+
+/**
+ * @ingroup trie
+ * @fn int trie_has(ASKL_Trie *t, const char *key, size_t len)
+ * @param t   a pointer to the trie
+ * @param key the key used to retrieve the stored value
+ * @param len the length of the key
+ * @return non-zero if @p key exists in the trie, or 0 otherwise
+ *
+ * This function checks whether an entry with the given key exists in the trie.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant trie_remove_if(
+    ASKL_Trie *t,
+    const char *key,
+    size_t len,
+    int (*condition)(const char *key, size_t len, variant value)
+);
+
+/**
+ * @ingroup trie
+ * @fn variant trie_remove_if(ASKL_Trie *t, const char *key, size_t len,
+ *                            int (*condition)(const char *, size_t, variant))
+ * @param t         a pointer to the trie
+ * @param key       the key used to retrieve the stored value
+ * @param len       the length of the key
+ * @param condition optional predicate controlling removal
+ * @return the removed value if the entry was removed, or VARIANT_NULL if the
+ *         key was not present or was not removed
+ *
+ * This function removes the entry associated with @p key from @p t.
+ *
+ * If @p condition is NULL, the entry is removed unconditionally.
+ * If @p condition is non-NULL, it is invoked with the stored value and the
+ * entry is removed only if the callback returns non-zero.
+ *
+ * @note The callback @p condition is executed while the trie's write lock is
+ *       held, ensuring atomicity. The callback must be fast and non-blocking.
  */
 
 /* -------------------------------------------------------------------------- */

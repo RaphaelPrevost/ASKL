@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -97,6 +97,25 @@ public variant CALLBACK variant_null(void)
 
 /* -------------------------------------------------------------------------- */
 
+public variant CALLBACK variant_true(void)
+{
+    variant v = { 0 };
+    v.metadata.fields.type = VALUE_BOOLEAN;
+    v.value.integer = 1;
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK variant_false(void)
+{
+    variant v = { 0 };
+    v.metadata.fields.type = VALUE_BOOLEAN;
+    return v;
+}
+
+/* -------------------------------------------------------------------------- */
+
 public void * CALLBACK variant_to_pointer(variant v)
 {
     if (! is_pointer(v)) {
@@ -138,6 +157,30 @@ public m_string * CALLBACK variant_to_string(variant v)
 {
     if (! is_string(v)) die("type error");
     return v.value.pointer;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public int variant_equal(variant a, variant b)
+{
+    if (a.metadata.fields.type != b.metadata.fields.type) return 0;
+
+    switch (a.metadata.fields.type) {
+    case VALUE_NULL: return 1;
+    case VALUE_STRING: return (a.value.pointer == b.value.pointer);
+    case VALUE_INTEGER:
+    case VALUE_BOOLEAN: return (a.value.integer == b.value.integer);
+    case VALUE_DECIMAL: {
+        return memcmp(
+            & a.value.decimal,
+            & b.value.decimal,
+            sizeof(a.value.decimal)
+        ) == 0;
+    }
+    case VALUE_POINTER:
+    case _VALUE_OBJECT: return (a.value.pointer == b.value.pointer);
+    default: return 0;
+    }
 }
 
 /* -------------------------------------------------------------------------- */

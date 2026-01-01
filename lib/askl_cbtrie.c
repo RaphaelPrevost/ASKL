@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -98,7 +98,13 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert(ASKL_Trie *t, const char *key, size_t len, variant value)
+public int trie_insert_with(
+    ASKL_Trie *t,
+    const char *key,
+    size_t len,
+    variant value,
+    variant (*function)(const char *key, size_t len, variant new)
+)
 {
     const uint8_t * restrict const k = (void *) key;
     uint8_t *p = NULL, byte = 0;
@@ -122,8 +128,6 @@ public int trie_insert(ASKL_Trie *t, const char *key, size_t len, variant value)
         perror(ERR(trie_insert, malloc));
         goto _err_leaf;
     }
-
-    newleaf->val = value; newleaf->len = len;
 
     pthread_rwlock_wrlock(t->_lock);
 
@@ -222,6 +226,10 @@ _newbyte:
 _success:
     memcpy(newleaf->key, k, len);
     newleaf->key[len] = '\0';
+    newleaf->len = len;
+    if (function)
+        newleaf->val = function(newleaf->key, newleaf->len, value);
+    else newleaf->val = value;
     pthread_rwlock_unlock(t->_lock);
     return 0;
 
@@ -230,6 +238,13 @@ _failure:
     free(newleaf);
 _err_leaf:
     return -1;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public int trie_insert(ASKL_Trie *t, const char *key, size_t len, variant value)
+{
+    return trie_insert_with(t, key, len, value, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -277,7 +292,27 @@ public variant trie_lookup(ASKL_Trie *t, const char *key, size_t len,
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_remove(ASKL_Trie *t, const char *key, size_t len)
+static variant _exists(UNUSED variant v)
+{
+    return variant_true();
+}
+
+/* -------------------------------------------------------------------------- */
+
+public int trie_has(ASKL_Trie *t, const char *key, size_t len)
+{
+    variant v = trie_lookup(t, key, len, _exists);
+    return (is_boolean(v) && v.value.integer);
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant trie_remove_if(
+    ASKL_Trie *t,
+    const char *key,
+    size_t len,
+    int (*condition)(const char *key, size_t len, variant value)
+)
 {
     const uint8_t * restrict const k = (void *) key;
     uint8_t *p = NULL;
@@ -313,21 +348,30 @@ public variant trie_remove(ASKL_Trie *t, const char *key, size_t len)
     /* check for exact match */
     if (leaf->len != len || memcmp(leaf->key, k, len)) goto _err;
 
-    /* get the associated value and free up the node */
-    ret = leaf->val; free(leaf);
+    if (! condition || condition(leaf->key, leaf->len, leaf->val)) {
+        /* get the associated value and free up the node */
+        ret = leaf->val; free(leaf);
 
-    if (unlikely(! ancestor)) {
-        /* the tree is empty */
-        t->_root = NULL; goto _err;
-    } else {
-        /* simplify the tree */
-        *ancestor = node->child[1 - branch]; free(node);
+        if (unlikely(! ancestor)) {
+            /* the tree is empty */
+            t->_root = NULL; goto _err;
+        } else {
+            /* simplify the tree */
+            *ancestor = node->child[1 - branch]; free(node);
+        }
     }
 
 _err:
     pthread_rwlock_unlock(t->_lock);
 
     return ret;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant trie_remove(ASKL_Trie *t, const char *key, size_t len)
+{
+    return trie_remove_if(t, key, len, NULL);
 }
 
 /* -------------------------------------------------------------------------- */

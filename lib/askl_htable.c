@@ -173,7 +173,14 @@ struct _ASKL_HashTable {
 
 /* -------------------------------------------------------------------------- */
 
-static int _set_item(ASKL_LinkedMap *h, _item *item, int replace, variant *val)
+static int _set_item(
+    ASKL_LinkedMap *h,
+    _item *item,
+    int replace,
+    variant *val,
+    variant (*on_insert)(const char *k, size_t l, variant new),
+    variant (*on_update)(const char *k, size_t l, variant old, variant new)
+)
 {
     unsigned int i = 0, index = 0, retry = 0;
     _item *slot = NULL;
@@ -192,6 +199,8 @@ static int _set_item(ASKL_LinkedMap *h, _item *item, int replace, variant *val)
 
 _loop:  if (! h->_bucket[index]) {
             /* this slot is free, insert */
+            if (on_insert)
+                item->val = on_insert(item->key.str, item->key.len, item->val);
             h->_bucket[index] = item;
             h->_bucket_count ++;
             return 0;
@@ -231,6 +240,13 @@ _loop:  if (! h->_bucket[index]) {
 
             if (! h->_bucket[index]) {
                 /* this slot is free, insert */
+                if (on_insert) {
+                    item->val = on_insert(
+                        item->key.str,
+                        item->key.len,
+                        item->val
+                    );
+                }
                 h->_bucket[index] = item;
                 h->_bucket_count ++;
                 return 0;
@@ -242,13 +258,30 @@ _loop:  if (! h->_bucket[index]) {
     }
 
     /* store the key in the overflow basket */
+    if (on_insert)
+        item->val = on_insert(item->key.str, item->key.len, item->val);
     item->ptr = h->_basket; h->_basket = item; h->_bucket_count ++;
 
     return 0;
 
 _replace:
-    if (replace == -1) *val = item->val;
-    else { *val = slot->val; slot->val = item->val; }
+    if (likely(replace != -1)) {
+        variant new = item->val, rejected = slot->val;
+        if (on_update) {
+            new = on_update(item->key.str, item->key.len, slot->val, item->val);
+            if (! variant_equal(new, item->val)) {
+                if (! variant_equal(new, slot->val)) {
+                    /* the function returned an entirely new value */
+                    if (h->_freeval) h->_freeval(slot->val);
+                }
+                /* the item value was unused */
+                rejected = item->val;
+            }
+        }
+        *val = rejected;
+        slot->val = new;
+    } else *val = item->val; /* return the existing value */
+
     return 1;
 }
 
@@ -296,7 +329,7 @@ static int _resize(ASKL_LinkedMap *h, size_t size)
 
         if (! b->item.key.len) { free(b); continue; }
 
-        _set_item(h, & b->item, 0, NULL);
+        _set_item(h, & b->item, 0, NULL, NULL, NULL);
 
         b->next = h->_index; h->_index = b;
     }
@@ -311,7 +344,9 @@ static inline variant _insert(
     const char *key,
     size_t len,
     variant val,
-    int replace
+    int replace,
+    variant (*on_insert)(const char *k, size_t l, variant new),
+    variant (*on_update)(const char *k, size_t l, variant old, variant new)
 )
 {
     _bucket *bucket = NULL;
@@ -334,7 +369,7 @@ static inline variant _insert(
 
     if (_map_wrlock(h->_lock) == -1) goto _err_lock;
 
-    if (! _set_item(h, & bucket->item, replace, & val)) {
+    if (! _set_item(h, & bucket->item, replace, & val, on_insert, on_update)) {
         bucket->next = h->_index; h->_index = bucket;
         val = variant_null();
     } else free(bucket);
@@ -426,16 +461,42 @@ _err_rand:
 
 /* -------------------------------------------------------------------------- */
 
+public variant map_set_with(
+    ASKL_LinkedMap *h,
+    const char *k,
+    size_t l,
+    variant v,
+    variant (*function)(const char *k, size_t l, variant old, variant new)
+)
+{
+    return _insert(h, k, l, v, 1, NULL, function);
+}
+
+/* -------------------------------------------------------------------------- */
+
 public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 {
-    return _insert(h, k, l, v, 1);
+    return _insert(h, k, l, v, 1, NULL, NULL);
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_insert_with(
+    ASKL_LinkedMap *h,
+    const char *k,
+    size_t l,
+    variant v,
+    variant (*function)(const char *k, size_t l, variant new)
+)
+{
+    return _insert(h, k, l, v, -1, function, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
 
 public variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 {
-    return _insert(h, k, l, v, -1);
+    return _insert(h, k, l, v, -1, NULL, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -501,6 +562,21 @@ public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
+static variant _exists(UNUSED variant v)
+{
+    return variant_true();
+}
+
+/* -------------------------------------------------------------------------- */
+
+public int map_has(ASKL_LinkedMap *h, const char *key, size_t len)
+{
+    variant v = map_get_with(h, key, len, _exists);
+    return (is_boolean(v) && v.value.integer);
+}
+
+/* -------------------------------------------------------------------------- */
+
 public int map_merge(
     ASKL_LinkedMap *dest,
     ASKL_LinkedMap *src,
@@ -532,15 +608,10 @@ public int map_merge(
         b->item.ptr = NULL;
 
         /* handle conflicts with the merge helper */
-        if (_set_item(dest, & b->item, 1, & v)) {
-            variant ret;
-            ret = merge(b->item.key.str, b->item.key.len, v, b->item.val);
-            if (v.value.pointer != ret.value.pointer) {
-                if (dest->_freeval) dest->_freeval(v);
-                if (ret.value.pointer != b->item.val.value.pointer)
-                    if (src->_freeval) src->_freeval(b->item.val);
-                _set_item(dest, & b->item, 1, & ret);
-            } else if (src->_freeval) src->_freeval(b->item.val);
+        if (_set_item(dest, & b->item, 1, & v, NULL, merge)) {
+            if (variant_equal(v, b->item.val)) {
+                if (src->_freeval) src->_freeval(v);
+            } else if (dest->_freeval) dest->_freeval(v);
             free(b);
         } else {
             b->next = dest->_index; dest->_index = b;
@@ -680,7 +751,12 @@ public int map_sort_keys(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
+public variant map_remove_if(
+    ASKL_LinkedMap *h,
+    const char *key,
+    size_t len,
+    int (*condition)(const char *key, size_t len, variant val)
+)
 {
     unsigned int i = 0, j = 0;
     _item *tmp = NULL, *prev = NULL;
@@ -702,10 +778,12 @@ public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
         if (! h->_bucket[j] || h->_bucket[j]->key.len != len) continue;
 
         if (memcmp(h->_bucket[j]->key.str, key, len) == 0) {
-            /* remove from the bucket */
-            result = h->_bucket[j]->val;
-            /* a length of 0 indicates a tombstone */
-            h->_bucket[j]->key.len = 0;
+            if (! condition || condition(key, len, h->_bucket[j]->val)) {
+                /* remove from the bucket */
+                result = h->_bucket[j]->val;
+                /* a length of 0 indicates a tombstone */
+                h->_bucket[j]->key.len = 0;
+            }
             _map_unlock(h->_lock);
             return result;
         }
@@ -715,13 +793,15 @@ public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
     for (tmp = prev = h->_basket; tmp; prev = tmp, tmp = tmp->ptr) {
         if (tmp->key.len == len) {
             if (memcmp(tmp->key.str, key, len) == 0) {
-                /* remove the orphan from the basket */
-                result = tmp->val;
-                if (tmp == h->_basket) h->_basket = tmp->ptr;
-                else prev->ptr = tmp->ptr;
+                if (! condition || condition(key, len, tmp->val)) {
+                    /* remove the orphan from the basket */
+                    result = tmp->val;
+                    if (tmp == h->_basket) h->_basket = tmp->ptr;
+                    else prev->ptr = tmp->ptr;
 
-                /* XXX tombstone for garbage collection */
-                tmp->key.len = 0;
+                    /* XXX tombstone for garbage collection */
+                    tmp->key.len = 0;
+                }
                 _map_unlock(h->_lock);
                 return result;
             }
@@ -734,6 +814,13 @@ public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
     _map_unlock(h->_lock);
 
     return variant_null();
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
+{
+    return map_remove_if(h, key, len, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -836,7 +923,7 @@ public variant htable_set(ASKL_HashTable *h, const char *k, size_t l, variant v)
         return v;
     }
 
-    return _insert(h->_segment[_crc8(k, l)], k, l, v, 1);
+    return _insert(h->_segment[_crc8(k, l)], k, l, v, 1, NULL, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -853,7 +940,7 @@ public variant htable_insert(
         return v;
     }
 
-    return _insert(h->_segment[_crc8(k, l)], k, l, v, -1);
+    return _insert(h->_segment[_crc8(k, l)], k, l, v, -1, NULL, NULL);
 }
 
 /* -------------------------------------------------------------------------- */

@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -200,6 +200,32 @@ public variant CALLBACK variant_null(void);
 
 /* -------------------------------------------------------------------------- */
 
+public variant CALLBACK variant_true(void);
+
+/**
+ * @ingroup variant
+ * @fn variant variant_true(void)
+ * @return a TRUE boolean variant
+ *
+ * Return the canonical TRUE value variant.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant CALLBACK variant_false(void);
+
+/**
+ * @ingroup variant
+ * @fn variant variant_false(void)
+ * @return a FALSE boolean variant
+ *
+ * Return the canonical FALSE value variant.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
 public void * CALLBACK variant_to_pointer(variant v);
 
 /**
@@ -288,5 +314,29 @@ public m_string * CALLBACK variant_to_string(variant v);
  */
 
 /* -------------------------------------------------------------------------- */
+
+public int variant_equal(variant a, variant b);
+
+/**
+ * @ingroup variant
+ * @fn int variant_equal(variant a, variant b)
+ * @param a first variant
+ * @param b second variant
+ * @return non-zero if the variants are equal, zero otherwise
+ *
+ * This function compares two variants for equality.
+ *
+ * Two variants are considered equal if they have the same runtime type and
+ * carry the same value for that type.
+ *
+ * @note For pointer-like types (VALUE_STRING, VALUE_POINTER, _VALUE_OBJECT),
+ *       equality means the pointers are equal; it does not compare the
+ *       pointed-to contents.
+ *
+ * @note For VALUE_DECIMAL, this function uses exact representation equality.
+ *       This means that values that compare equal numerically may still be
+ *       considered different if their bit patterns differ (e.g. +0.0 vs -0.0),
+ *       and NaN payloads will only compare equal if their representations match
+ */
 
 #endif
