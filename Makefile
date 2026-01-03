@@ -415,7 +415,7 @@ json_checker:
 	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
 	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
 	lib/compat/askl_compat_layer.c lib/m_string.c lib/askl_cbtrie.c \
-	lib/askl_variant.c lib/m_parser.c \
+	lib/askl_variant.c lib/askl_rwlock.c lib/m_parser.c \
 	test/json/json_checker.c -o json_checker
 
 json_debug:
@@ -426,7 +426,7 @@ json_debug:
 	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
 	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
 	lib/compat/askl_compat_layer.c lib/m_string.c lib/askl_cbtrie.c \
-	lib/askl_variant.c lib/m_parser.c \
+	lib/askl_variant.c lib/askl_rwlock.c lib/m_parser.c \
 	test/json/json_checker.c -o json_checker
 
 hashbench:

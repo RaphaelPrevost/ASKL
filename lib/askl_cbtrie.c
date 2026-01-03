@@ -122,7 +122,7 @@ public int trie_insert_with(
         goto _err_leaf;
     }
 
-    if (lock_wrlock(t->_lock) == -1) goto _err_lock;
+    if (unlikely(lock_wrlock(t->_lock) == -1)) goto _err_lock;
 
     if (unlikely(! t->_root)) {
         /* the tree is empty, add a new leaf */
