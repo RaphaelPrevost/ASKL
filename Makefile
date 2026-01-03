@@ -164,9 +164,9 @@ HAS_LIBXML   = $(shell which xml2-config 2> /dev/null)
 HAS_MYSQL    = $(shell which mysql_config 2> /dev/null)
 HAS_SQLITE   = $(shell echo '\#include <sqlite3.h>' | $(GCC_INC); echo $$?)
 HAS_ICONV    = $(shell echo '\#include <iconv.h>' | $(GCC_INC); echo $$?)
+
 ifeq ($(GCC_ALIASED),gcc)
-FINAL   += -finline -mpreferred-stack-boundary=4 -minline-all-stringops
-FLAGS   += -findirect-inlining -posix
+FLAGS += -findirect-inlining -posix
 # disable some judgemental warnings
 ifeq ($(shell test $(GCC_MAJ) -ge 6; echo $$?),0)
 FLAGS += -Wno-misleading-indentation
@@ -435,7 +435,7 @@ hashbench:
 	-D_ENABLE_HASHTABLE \
 	$(FINAL) -lpthread \
 	lib/compat/askl_compat_layer.c lib/askl_htable.c \
-	lib/askl_variant.c \
+	lib/askl_rwlock.c lib/askl_variant.c \
 	test/hash/hash.c -o hashbench
 
 clean:

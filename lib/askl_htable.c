@@ -100,7 +100,7 @@ typedef struct _bucket {
  */
 
 struct _ASKL_LinkedMap {
-    struct _rwlock *_lock;
+    ASKL_RWLock *_lock;
     struct _bucket *_index;
     struct _item **_bucket;
     struct _item *_basket;
@@ -199,24 +199,23 @@ static int _set_item(
 
 _loop:  if (! h->_bucket[index]) {
             /* this slot is free, insert */
+            if (unlikely(replace == MODIFY_ONLY)) goto _failure;
             if (on_insert)
                 item->val = on_insert(item->key.str, item->key.len, item->val);
             h->_bucket[index] = item;
             h->_bucket_count ++;
             return 0;
-        }
+        } else if (replace == RESIZE_HMAP) continue;
 
-        if (replace) {
-            slot = h->_bucket[index];
-            if (item->ptr == slot->ptr && item->key.len == slot->key.len) {
-                if (! memcmp(item->key.str, slot->key.str, item->key.len))
-                    goto _replace;
-            }
+        slot = h->_bucket[index];
+        if (item->ptr == slot->ptr && item->key.len == slot->key.len) {
+            if (! memcmp(item->key.str, slot->key.str, item->key.len))
+                goto _replace;
         }
     }
 
-    if (replace) {
-        /* couldn't find it, look in the basket */
+    /* couldn't find it, look in the basket */
+    if (replace != RESIZE_HMAP) {
         for (slot = h->_basket; slot; slot = slot->ptr) {
             if (likely(item->key.len == slot->key.len)) {
                 if (! memcmp(item->key.str, slot->key.str, item->key.len))
@@ -240,6 +239,7 @@ _loop:  if (! h->_bucket[index]) {
 
             if (! h->_bucket[index]) {
                 /* this slot is free, insert */
+                if (unlikely(replace == MODIFY_ONLY)) goto _failure;
                 if (on_insert) {
                     item->val = on_insert(
                         item->key.str,
@@ -257,6 +257,8 @@ _loop:  if (! h->_bucket[index]) {
         if (unlikely(loop)) break;
     }
 
+    if (unlikely(replace == MODIFY_ONLY)) goto _failure;
+
     /* store the key in the overflow basket */
     if (on_insert)
         item->val = on_insert(item->key.str, item->key.len, item->val);
@@ -265,7 +267,7 @@ _loop:  if (! h->_bucket[index]) {
     return 0;
 
 _replace:
-    if (likely(replace != -1)) {
+    if (replace) {
         variant new = item->val, rejected = slot->val;
         if (on_update) {
             new = on_update(item->key.str, item->key.len, slot->val, item->val);
@@ -278,11 +280,18 @@ _replace:
                 rejected = item->val;
             }
         }
-        *val = rejected;
-        slot->val = new;
-    } else *val = item->val; /* return the existing value */
+
+        if (replace == MODIFY_ONLY && lock_upgrade(h->_lock) == -1) return -1;
+            *val = rejected;
+            slot->val = new;
+        if (replace == MODIFY_ONLY) lock_restore(h->_lock);
+    } else *val = slot->val; /* return the existing value */
 
     return 1;
+
+_failure:
+    *val = item->val; /* return the rejected value */
+    return -1;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -329,7 +338,7 @@ static int _resize(ASKL_LinkedMap *h, size_t size)
 
         if (! b->item.key.len) { free(b); continue; }
 
-        _set_item(h, & b->item, 0, NULL, NULL, NULL);
+        _set_item(h, & b->item, RESIZE_HMAP, NULL, NULL, NULL);
 
         b->next = h->_index; h->_index = b;
     }
@@ -350,6 +359,9 @@ static inline variant _insert(
 )
 {
     _bucket *bucket = NULL;
+    int (*lockfn[3])(ASKL_RWLock *) = {
+        lock_wrlock, lock_wrlock, lock_rdlock
+    };
 
     if (! h || ! key || ! len) {
         debug("_insert(): bad parameters.\n");
@@ -367,7 +379,7 @@ static inline variant _insert(
     bucket->item.val = val;
     bucket->item.ptr = NULL;
 
-    if (_map_wrlock(h->_lock) == -1) goto _err_lock;
+    if (lockfn[replace](h->_lock) == -1) goto _err_lock;
 
     if (! _set_item(h, & bucket->item, replace, & val, on_insert, on_update)) {
         bucket->next = h->_index; h->_index = bucket;
@@ -378,7 +390,7 @@ static inline variant _insert(
     if (h->_basket && h->_basket->ptr)
         _resize(h, h->_bucket_size + 1);
 
-    _map_unlock(h->_lock);
+    lock_unlock(h->_lock);
 
     return val;
 
@@ -415,22 +427,8 @@ public ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
     }
 
     /* initialize the inner semaphore */
-    if (! (h->_lock = malloc(sizeof(*h->_lock))) ) {
-        perror(ERR(map_alloc, malloc));
-        goto _err_lock;
-    }
-
-    if (pthread_mutex_init(& h->_lock->mutex, NULL) == -1) {
-        perror(ERR(map_alloc, pthread_mutex_init));
-        goto _err_init;
-    }
-
-    if (pthread_cond_init(& h->_lock->cond, NULL) == -1) {
-        perror(ERR(map_alloc, pthread_cond_init));
-        goto _err_cond;
-    }
-
-    h->_lock->state = 1; /* unlocked */
+    if (! (h->_lock = lock_alloc()) ) goto _err_lock;
+    if (lock_init(h->_lock) == -1) goto _err_init;
 
     h->_bucket = NULL;
     h->_bucket_count = h->_bucket_size = 0; h->_basket = NULL;
@@ -447,11 +445,9 @@ public ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
 _err_size:
     free(h->_bucket);
     free(h->_basket);
-    pthread_cond_destroy(& h->_lock->cond);
-_err_cond:
-    pthread_mutex_destroy(& h->_lock->mutex);
+    lock_destroy(h->_lock);
 _err_init:
-    free(h->_lock);
+    lock_free(h->_lock);
 _err_lock:
 _err_rand:
     free(h);
@@ -469,14 +465,14 @@ public variant map_set_with(
     variant (*function)(const char *k, size_t l, variant old, variant new)
 )
 {
-    return _insert(h, k, l, v, 1, NULL, function);
+    return _insert(h, k, l, v, STORE_VALUE, NULL, function);
 }
 
 /* -------------------------------------------------------------------------- */
 
 public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 {
-    return _insert(h, k, l, v, 1, NULL, NULL);
+    return _insert(h, k, l, v, STORE_VALUE, NULL, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -489,14 +485,34 @@ public variant map_insert_with(
     variant (*function)(const char *k, size_t l, variant new)
 )
 {
-    return _insert(h, k, l, v, -1, function, NULL);
+    return _insert(h, k, l, v, CREATE_ONLY, function, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
 
 public variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 {
-    return _insert(h, k, l, v, -1, NULL, NULL);
+    return _insert(h, k, l, v, CREATE_ONLY, NULL, NULL);
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_update_with(
+    ASKL_LinkedMap *h,
+    const char *k,
+    size_t l,
+    variant v,
+    variant (*function)(const char *k, size_t l, variant old, variant new)
+)
+{
+    return _insert(h, k, l, v, MODIFY_ONLY, NULL, function);
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_update(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
+{
+    return _insert(h, k, l, v, MODIFY_ONLY, NULL, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -519,7 +535,7 @@ public variant map_get_with(
         return res;
     }
 
-    if (_map_rdlock(h->_lock) == -1) return res;
+    if (lock_rdlock(h->_lock) == -1) return res;
 
     mask = h->_bucket_size - 1;
     hash = _hash(key, len, h->_seed[i]);
@@ -548,7 +564,7 @@ _loop:  if (! (ptr = h->_bucket[j]) ) break;
     }
 
 _result:
-    _map_unlock(h->_lock);
+    lock_unlock(h->_lock);
 
     return res;
 }
@@ -591,13 +607,13 @@ public int map_merge(
     }
 
     /* pry both maps open */
-    if (_map_wrlock(dest->_lock) == -1) return -1;
-    if (_map_wrlock(src->_lock) == -1) {
-        _map_unlock(dest->_lock);
+    if (lock_wrlock(dest->_lock) == -1) return -1;
+    if (lock_wrlock(src->_lock) == -1) {
+        lock_unlock(dest->_lock);
         return -1;
     }
 
-    _map_break_lock(src->_lock);
+    lock_break(src->_lock);
 
     for (b = src->_index, src->_index = NULL; b; b = next) {
         variant v = variant_null();
@@ -620,11 +636,10 @@ public int map_merge(
 
     /* destroy the source map */
     free(src->_bucket);
-    pthread_cond_destroy(& src->_lock->cond);
-    pthread_mutex_destroy(& src->_lock->mutex);
-    free(src->_lock); free(src);
+    lock_destroy(src->_lock);
+    lock_free(src->_lock); free(src);
 
-    _map_unlock(dest->_lock);
+    lock_unlock(dest->_lock);
 
     return 0;
 }
@@ -643,7 +658,7 @@ public void map_foreach(
         return;
     }
 
-    if (_map_wrlock(h->_lock) == -1) return;
+    if (lock_wrlock(h->_lock) == -1) return;
 
     for (bucket = h->_index; bucket; bucket = bucket->next) {
         if (bucket->item.key.len) {
@@ -659,7 +674,7 @@ public void map_foreach(
         }
     }
 
-    _map_unlock(h->_lock);
+    lock_unlock(h->_lock);
 
     return;
 }
@@ -688,7 +703,7 @@ public int map_sort(
         return -1;
     }
 
-    if (_map_wrlock(h->_lock) == -1) return -1;
+    if (lock_wrlock(h->_lock) == -1) return -1;
 
     /* simple merge sort */
     do {
@@ -731,7 +746,7 @@ public int map_sort(
 
     } while (merge > 1);
 
-    _map_unlock(h->_lock);
+    lock_unlock(h->_lock);
 
     return 0;
 }
@@ -768,7 +783,7 @@ public variant map_remove_if(
         return result;
     }
 
-    if (_map_wrlock(h->_lock) == -1) return result;
+    if (lock_wrlock(h->_lock) == -1) return result;
 
     mask = h->_bucket_size - 1;
 
@@ -784,7 +799,7 @@ public variant map_remove_if(
                 /* a length of 0 indicates a tombstone */
                 h->_bucket[j]->key.len = 0;
             }
-            _map_unlock(h->_lock);
+            lock_unlock(h->_lock);
             return result;
         }
     }
@@ -802,7 +817,7 @@ public variant map_remove_if(
                     /* XXX tombstone for garbage collection */
                     tmp->key.len = 0;
                 }
-                _map_unlock(h->_lock);
+                lock_unlock(h->_lock);
                 return result;
             }
         }
@@ -811,7 +826,7 @@ public variant map_remove_if(
     /* garbage collection if necessary */
     _resize(h, (size_t) (h->_bucket_count * HASH_RATIO));
 
-    _map_unlock(h->_lock);
+    lock_unlock(h->_lock);
 
     return variant_null();
 }
@@ -836,10 +851,7 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
         return 0;
     }
 
-    /* the lock is dynamically allocated */
-    ret += sizeof(*h->_lock);
-
-    if (_map_wrlock(h->_lock) == -1) return 0;
+    if (lock_wrlock(h->_lock) == -1) return 0;
 
     if (h->_bucket_size) {
         /* segment bucket size */
@@ -862,7 +874,7 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
         }
     }
 
-    _map_unlock(h->_lock);
+    lock_unlock(h->_lock);
 
     if (overhead) *overhead = ret - key;
 
@@ -877,10 +889,10 @@ public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h)
 
     if (! h) return NULL;
 
-    if (_map_wrlock(h->_lock) == -1) return NULL;
+    if (lock_wrlock(h->_lock) == -1) return NULL;
 
     /* free the threads waiting after the linked hashmap */
-    _map_break_lock(h->_lock);
+    lock_break(h->_lock);
 
     for (bucket = h->_index; bucket; bucket = next) {
         next = bucket->next;
@@ -890,9 +902,112 @@ public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h)
     }
 
     free(h->_bucket);
-    pthread_cond_destroy(& h->_lock->cond);
-    pthread_mutex_destroy(& h->_lock->mutex);
-    free(h->_lock); free(h);
+    lock_destroy(h->_lock);
+    lock_free(h->_lock); free(h);
+
+    return NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Iterator */
+/* -------------------------------------------------------------------------- */
+
+public ASKL_MapIterator *map_each(ASKL_LinkedMap *h)
+{
+    ASKL_MapIterator *iterator = NULL;
+
+    if (! h) {
+        debug("map_each(): bad parameters.\n");
+        return NULL;
+    }
+
+    if (lock_rdlock(h->_lock) == -1) goto _err_lock;
+
+    if (! h->_index) {
+        debug("map_each(): empty map.\n");
+        goto _err_init;
+    }
+
+    if (! (iterator = malloc(sizeof(*iterator)))) {
+        perror(ERR(map_each, malloc));
+        goto _err_init;
+    }
+
+    iterator->map = h;
+    iterator->_current = h->_index;
+    if (likely(iterator->_current->item.key.len)) {
+        iterator->key = h->_index->item.key.str;
+        iterator->len = h->_index->item.key.len;
+        iterator->val = h->_index->item.val;
+    } else return map_next(iterator);
+
+    return iterator;
+
+_err_init:
+    lock_unlock(h->_lock);
+_err_lock:
+    return NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public ASKL_MapIterator * CALLBACK map_next(ASKL_MapIterator *iterator)
+{
+    _bucket *bucket = NULL;
+
+    for (bucket = iterator->_current->next; bucket; bucket = bucket->next) {
+        if (likely(bucket->item.key.len)) {
+            iterator->_current = bucket;
+            iterator->key = bucket->item.key.str;
+            iterator->len = bucket->item.key.len;
+            iterator->val = bucket->item.val;
+            return iterator;
+        }
+    }
+
+    return map_break(iterator);
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_set_at(ASKL_MapIterator *iterator, variant new)
+{
+    variant old;
+
+    if (lock_upgrade(iterator->map->_lock) == -1) return new;
+        old = iterator->_current->item.val;
+        iterator->_current->item.val = new;
+        iterator->val = new;
+    lock_restore(iterator->map->_lock);
+
+    return old;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_remove_at(ASKL_MapIterator *iterator)
+{
+    variant ret = { 0 };
+
+    if (lock_upgrade(iterator->map->_lock) == -1) return ret;
+        ret = iterator->_current->item.val;
+        iterator->_current->item.key.len = 0;
+    lock_restore(iterator->map->_lock);
+
+    return ret;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public ASKL_MapIterator *map_break(ASKL_MapIterator *iterator)
+{
+    if (! iterator) {
+        debug("map_break(): bad parameters.\n");
+        return NULL;
+    }
+
+    lock_unlock(iterator->map->_lock);
+    free(iterator);
 
     return NULL;
 }

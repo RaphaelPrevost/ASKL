@@ -15,12 +15,7 @@ static pthread_mutex_t mx_switch = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cd_switch = PTHREAD_COND_INITIALIZER;
 static int start_switch = 0;
 
-/* worker threads */
-static pthread_t _thread[_CACHE_CONCURRENCY];
-
 static int timeout = 0;
-
-static ASKL_HashTable *v;
 
 /* -------------------------------------------------------------------------- */
 
@@ -166,67 +161,6 @@ static void _timeout(int dummy)
 
 /* -------------------------------------------------------------------------- */
 
-static void *_insert_loop(void *range)
-{
-    uintptr_t i = 0;
-    size_t len = 0;
-    char key[BUFSIZ];
-    uintptr_t r = (uintptr_t) range;
-
-    /* wait for it... */
-    pthread_mutex_lock(& mx_switch);
-        while (! start_switch) pthread_cond_wait(& cd_switch, & mx_switch);
-    pthread_mutex_unlock(& mx_switch);
-
-    for (i = r; i <= r + _CACHE_THRNG; i ++) {
-        len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        htable_insert(v, key, len, variant_from_integer(i));
-    }
-
-    pthread_exit(NULL);
-}
-
-/* -------------------------------------------------------------------------- */
-
-static void *_read_loop(void *range)
-{
-    uintptr_t i = 0, j = 0;
-    variant val;
-    int missing = 0;
-    size_t len = 0;
-    char key[BUFSIZ];
-    uintptr_t r = (uintptr_t) range;
-
-    /* wait for it... */
-    pthread_mutex_lock(& mx_switch);
-        while (! start_switch) pthread_cond_wait(& cd_switch, & mx_switch);
-    pthread_mutex_unlock(& mx_switch);
-
-    for (i = r; i <= r + _CACHE_THRNG; i ++) {
-        len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        val = htable_get(v, key, len);
-        if (is_integer(val)) {
-            if ( (j = variant_to_integer(val)) != i) {
-                missing ++;
-                printf(
-                    "(!) Key %" PRIuPTR " is missing ! "
-                    "(found %" PRIuPTR " instead)\n",
-                    i, j
-                );
-            }
-        } else {
-            missing ++;
-            printf("(!) Key %" PRIuPTR " is missing ! ", i);
-        }
-    }
-
-    printf("(-) %i missing keys\n", missing);
-
-    pthread_exit(NULL);
-}
-
-/* -------------------------------------------------------------------------- */
-
 static int _print_and_delete_key(const char *key, size_t len, UNUSED variant val)
 {
     printf("%.*s\n", (int) len, key);
@@ -237,18 +171,389 @@ static int _print_and_delete_key(const char *key, size_t len, UNUSED variant val
 
 static int _print_key_intval(const char *key, size_t len, variant val)
 {
-    printf("%.*s = %i\n", (int) len, key, variant_to_integer(val));
+    printf("%.*s = %llu\n", (int) len, key, variant_to_integer(val));
     return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static variant _merge(const char *key, size_t len, variant dest, variant src)
+static variant _merge(
+    UNUSED const char *key,
+    UNUSED size_t len,
+    UNUSED variant dest,
+    variant src
+)
 {
     /* overwrite */
     return src;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Iterator Concurrent Test (No External Writers)                            */
+/* -------------------------------------------------------------------------- */
+
+#define _ITER_THREADS 4
+#define _ITER_ITEMS 10000
+
+static pthread_t _iter_thread[_ITER_THREADS];
+static ASKL_LinkedMap *_iter_map = NULL;
+static volatile int _iter_errors = 0;
+
+/* Thread that reads via iterator (no modifications) */
+static void *_iterator_reader(void *arg)
+{
+    uintptr_t tid = (uintptr_t) arg;
+    ASKL_MapIterator *it;
+    int iterations = 0;
+
+    pthread_mutex_lock(& mx_switch);
+    while (! start_switch) pthread_cond_wait(& cd_switch, & mx_switch);
+    pthread_mutex_unlock(& mx_switch);
+
+    /* Iterate multiple times */
+    for (int pass = 0; pass < 3; pass++) {
+        int count = 0;
+        for (it = map_each(_iter_map); it; it = map_next(it)) {
+            if (! is_integer(it->val)) {
+                printf("(!) Reader thread %zu: Found non-integer value!\n", tid);
+                __sync_fetch_and_add(& _iter_errors, 1);
+                map_break(it);
+                pthread_exit(NULL);
+            }
+            count ++;
+
+            if (count % 500 == 0) {
+                usleep(10);
+            }
+        }
+        iterations += count;
+    }
+
+    printf("(-) Reader thread %zu: Completed %d total iterations\n", tid, iterations);
+    pthread_exit(NULL);
+}
+
+/* Thread that iterates and updates values using map_set_at */
+static void *_iterator_updater(void *arg)
+{
+    uintptr_t tid = (uintptr_t) arg;
+    ASKL_MapIterator *it;
+    int updates = 0;
+    int iterations = 0;
+
+    pthread_mutex_lock(& mx_switch);
+    while (! start_switch) pthread_cond_wait(& cd_switch, & mx_switch);
+    pthread_mutex_unlock(& mx_switch);
+
+    printf("(-) Updater thread %zu: Starting...\n", tid);
+
+    /* Perform several passes, updating some values each time */
+    for (int pass = 0; pass < 2; pass ++) {
+        int count = 0;
+
+        printf("(-) Updater thread %zu: Starting pass %d\n", tid, pass);
+
+        for (it = map_each(_iter_map); it; it = map_next(it)) {
+            count ++;
+            iterations ++;
+
+            if (!is_integer(it->val)) {
+                printf("(!) Updater thread %zu: Iterator found non-integer value!\n", tid);
+                __sync_fetch_and_add(&_iter_errors, 1);
+                map_break(it);
+                pthread_exit(NULL);
+            }
+
+            /* Update every 10th entry */
+            if (count % 10 == (int) tid) {
+                unsigned int old_val = variant_to_integer(it->val);
+                unsigned int new_val = old_val + 2000000;
+
+                variant old = map_set_at(it, variant_from_integer(new_val));
+
+                if (! is_integer(old)) {
+                    printf("(!) Updater thread %zu: map_set_at returned non-integer!\n", tid);
+                    __sync_fetch_and_add(&_iter_errors, 1);
+                    map_break(it);
+                    pthread_exit(NULL);
+                }
+
+                if (variant_to_integer(old) != old_val) {
+                    printf("(!) Updater thread %zu: Expected old=%u, got=%llu\n",
+                           tid, old_val, variant_to_integer(old));
+                    __sync_fetch_and_add(&_iter_errors, 1);
+                }
+
+                /* Verify the iterator cache was updated */
+                if (! is_integer(it->val) || variant_to_integer(it->val) != new_val) {
+                    printf("(!) Updater thread %zu: Iterator cache not updated! Expected %u, got %llu\n",
+                           tid, new_val, variant_to_integer(it->val));
+                    __sync_fetch_and_add(&_iter_errors, 1);
+                }
+
+                updates ++;
+
+                if (updates % 500 == 0) {
+                    printf("(-) Updater thread %zu: %d updates so far...\n", tid, updates);
+                }
+            }
+
+            if (count % 100 == 0) {
+                usleep(1);
+            }
+        }
+
+        printf("(-) Updater thread %zu: Completed pass %d (%d items)\n", tid, pass, count);
+
+        if (count != _ITER_ITEMS) {
+            printf("(!) Updater thread %zu: Expected %d items, got %d\n",
+                   tid, _ITER_ITEMS, count);
+            __sync_fetch_and_add(&_iter_errors, 1);
+        }
+    }
+
+    printf("(-) Updater thread %zu: Updated %d items across %d iterations\n",
+           tid, updates, iterations);
+    pthread_exit(NULL);
+}
+
+static int test_iterator_concurrency(void)
+{
+    uintptr_t i;
+    size_t len;
+    char key[BUFSIZ];
+    clock_t start, stop;
+
+    printf("(-) Testing iterator with concurrent reads and updates.\n");
+
+    if (!(_iter_map = map_alloc(NULL))) {
+        printf("(!) Allocating map for iterator test: FAILURE\n");
+        return -1;
+    }
+
+    printf("(*) Populating map with %d items.\n", _ITER_ITEMS);
+    for (i = 1; i <= _ITER_ITEMS; i ++) {
+        len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
+        map_set(_iter_map, key, len, variant_from_integer(i));
+    }
+
+    _iter_errors = 0;
+    start_switch = 0;
+
+    printf("(*) Spawning %d concurrent threads.\n", _ITER_THREADS);
+    printf("    - 2 iterator readers (read-only)\n");
+    printf("    - 2 iterator updaters (map_set_at)\n");
+
+    if (pthread_create(&_iter_thread[0], NULL, _iterator_reader, (void *) 0) == -1) {
+        perror("pthread_create reader 1");
+        return -1;
+    }
+
+    if (pthread_create(&_iter_thread[1], NULL, _iterator_reader, (void *) 1) == -1) {
+        perror("pthread_create reader 2");
+        return -1;
+    }
+
+    if (pthread_create(&_iter_thread[2], NULL, _iterator_updater, (void *) 2) == -1) {
+        perror("pthread_create updater 1");
+        return -1;
+    }
+
+    if (pthread_create(&_iter_thread[3], NULL, _iterator_updater, (void *) 3) == -1) {
+        perror("pthread_create updater 2");
+        return -1;
+    }
+
+    pthread_mutex_lock(& mx_switch);
+    start_switch = 1;
+    pthread_cond_broadcast(& cd_switch);
+    pthread_mutex_unlock(& mx_switch);
+
+    start = clock();
+
+    for (i = 0; i < _ITER_THREADS; i ++) {
+        pthread_join(_iter_thread[i], NULL);
+    }
+
+    stop = clock();
+
+    printf("(-) Time elapsed = %.3f s\n", (double)(stop - start) / CLOCKS_PER_SEC);
+
+    printf("(*) Verifying final map integrity.\n");
+    int final_count = 0;
+    ASKL_MapIterator *it;
+    for (it = map_each(_iter_map); it; it = map_next(it)) {
+        if (!is_integer(it->val)) {
+            printf("(!) Found non-integer value after test!\n");
+            _iter_errors ++;
+        }
+        final_count ++;
+    }
+
+    printf("(-) Final map contains %d items (expected %d)\n",
+           final_count, _ITER_ITEMS);
+
+    if (final_count != _ITER_ITEMS) {
+        printf("(!) Item count mismatch!\n");
+        _iter_errors ++;
+    }
+
+    map_free(_iter_map);
+    _iter_map = NULL;
+
+    if (_iter_errors > 0) {
+        printf("(!) Iterator concurrency test FAILED with %d errors!\n", _iter_errors);
+        return -1;
+    } else {
+        printf("(*) Iterator concurrency test PASSED!\n");
+        return 0;
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Test: map_remove_at() - Concurrent removal by multiple iterators          */
+/* -------------------------------------------------------------------------- */
+
+typedef struct {
+    ASKL_LinkedMap *map;
+    int thread_id;
+    int removed_count;
+    int iterations;
+} removal_test_args;
+
+static void* removal_thread(void* arg)
+{
+    removal_test_args *args = (removal_test_args*) arg;
+    ASKL_MapIterator *it = NULL;
+    variant removed;
+    int count = 0;
+
+    printf("(-) Removal thread %d: Starting...\n", args->thread_id);
+
+    /* Iterate over map entries */
+    it = map_each(args->map);
+
+    while ((it = map_next(it)) != NULL) {
+        args->iterations ++;
+
+        /* Remove every 3rd item seen by this iterator */
+        if ((count % 3) == (args->thread_id % 3)) {
+            removed = map_remove_at(it);
+
+            /* Check if removal succeeded (non-null variant) */
+            if (! is_null(removed)) {
+                args->removed_count ++;
+            }
+        }
+        count++;
+    }
+
+    printf("(-) Removal thread %d: Iterated %d times, removed %d items\n",
+           args->thread_id, args->iterations, args->removed_count);
+
+    return NULL;
+}
+
+static int test_map_remove_at_concurrent(void)
+{
+    ASKL_LinkedMap *map = NULL;
+    pthread_t threads[3];
+    removal_test_args args[3] = {{0}};
+    variant val;
+    int total_removed = 0;
+    int total_iterations = 0;
+    int remaining = 0;
+
+    printf("(-) Testing concurrent map_remove_at().\n");
+
+    /* Create map */
+    map = map_alloc(NULL);
+    if (map == NULL) {
+        printf("(!) Failed to allocate map\n");
+        return -1;
+    }
+
+    /* Populate map with 1000 items */
+    printf("(*) Populating map with 1000 items.\n");
+    for (unsigned int i = 0; i < 1000; i ++) {
+        char keybuf[32];
+        snprintf(keybuf, sizeof(keybuf), "key_%04d", i);
+
+        val = variant_from_integer(i);
+
+        map_set(map, keybuf, strlen(keybuf), val);
+    }
+
+    printf("(*) Spawning 3 concurrent removal threads.\n");
+
+    /* Spawn 3 concurrent removal threads */
+    for (int i = 0; i < 3; i ++) {
+        args[i].map = map;
+        args[i].thread_id = i;
+        args[i].removed_count = 0;
+        args[i].iterations = 0;
+
+        if (pthread_create(&threads[i], NULL, removal_thread, & args[i]) != 0) {
+            printf("(!) Failed to create thread %d\n", i);
+            map_free(map);
+            return -1;
+        }
+    }
+
+    /* Wait for all threads */
+    for (int i = 0; i < 3; i ++) {
+        pthread_join(threads[i], NULL);
+        total_removed += args[i].removed_count;
+        total_iterations += args[i].iterations;
+    }
+
+    printf("(-) Total items removed: %d\n", total_removed);
+    printf("(-) Total iterations: %d\n", total_iterations);
+
+    /* Count remaining items */
+    for (ASKL_MapIterator *it = map_each(map); it; it = map_next(it))
+        remaining ++;
+
+    printf("(-) Remaining items: %d\n", remaining);
+    printf("(-) Removed + Remaining = %d (expected 1000)\n",
+           total_removed + remaining);
+
+    /* Verify total consistency */
+    if (total_removed + remaining != 1000) {
+        printf("(!) FAILED: Data inconsistency detected!\n");
+        printf("(!) Expected 1000, got %d\n", total_removed + remaining);
+        map_free(map);
+        return -1;
+    }
+
+    /* try to add some new entries */
+    for (unsigned int i = 0; i < 1000; i ++) {
+        char keybuf[32];
+        snprintf(keybuf, sizeof(keybuf), "key_%04d", i);
+
+        val = variant_from_integer(i + 1);
+
+        map_set(map, keybuf, strlen(keybuf), val);
+    }
+
+    /* and read them back */
+    for (unsigned int i = 0; i < 1000; i ++) {
+        char keybuf[32];
+        snprintf(keybuf, sizeof(keybuf), "key_%04d", i);
+        if (variant_to_integer(map_get(map, keybuf, strlen(keybuf))) != i + 1) {
+            map_free(map);
+            return -1;
+        }
+    }
+
+    /* Cleanup */
+    map_free(map);
+
+    printf("(*) Concurrent map_remove_at() test PASSED!\n");
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
 int test_hashtable(void)
@@ -464,73 +769,13 @@ int test_hashtable(void)
 
     h = map_free(h);
 
-    printf("(-) Testing hash table implementation.\n");
-    if (! (v = htable_alloc(NULL)) ) {
-        printf("(!) Allocating hash table: FAILURE\n");
+    if (test_iterator_concurrency() == -1) {
         return -1;
-    } else printf("(*) Allocating hash table: SUCCESS\n");
-
-    /* spawn the worker threads */
-    for (i = 0; i < _CACHE_CONCURRENCY; i ++) {
-        if (pthread_create(
-                & _thread[i], NULL,
-                _insert_loop,
-                (void *) (uintptr_t) (i * _CACHE_THRNG)
-            ) == -1) {
-            perror(ERR(test_hashtable, pthread_create));
-            return -1;
-        }
     }
 
-    /* everything is ready, start the worker threads */
-    pthread_mutex_lock(& mx_switch);
-    start_switch = 1;
-    pthread_cond_broadcast(& cd_switch);
-    pthread_mutex_unlock(& mx_switch);
-
-    printf("(*) Inserting key-value pairs.\n");
-    start = clock();
-    for (i = 0; i < _CACHE_CONCURRENCY; i ++)
-        pthread_join(_thread[i], NULL);
-    stop = clock();
-    printf("(-) Time elapsed = ");
-    printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
-    printf(" s\n");
-
-    printf("(-) Memory footprint: %zu bytes.\n", htable_footprint(v, & len));
-    printf("(-) Overhead: %zu bytes (%zu KiB).\n", len, len / 1024);
-
-    /* spawn the worker threads */
-    for (i = 0; i < _CACHE_CONCURRENCY; i ++) {
-        if (pthread_create(
-                & _thread[i], NULL,
-                _read_loop,
-                (void *) (uintptr_t) (i * _CACHE_THRNG)) == -1) {
-            perror(ERR(test_hashtable, pthread_create));
-            return -1;
-        }
+    if (test_map_remove_at_concurrent() == -1) {
+        return -1;
     }
-
-    start_switch = 0;
-
-    /* everything is ready, start the worker threads */
-    pthread_mutex_lock(& mx_switch);
-    start_switch = 1;
-    pthread_cond_broadcast(& cd_switch);
-    pthread_mutex_unlock(& mx_switch);
-
-    printf("(*) Getting back values from keys.\n");
-    start = clock();
-    for (i = 0; i < _CACHE_CONCURRENCY; i ++)
-        pthread_join(_thread[i], NULL);
-    stop = clock();
-    printf("(-) Time elapsed = ");
-    printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
-    printf(" s\n");
-
-    v = htable_free(v);
-
-    signal(SIGALRM, _timeout);
 
     printf("(-) Testing C.B. Falconer Hashlib for comparison.\n");
     if (! (x = hashlib_alloc(_hash, _rehash, _hashcmp, _hashdup, _hashfree, 0)) ) {

@@ -56,7 +56,7 @@ typedef struct _leaf {
 } _leaf;
 
 struct _ASKL_Trie {
-    pthread_rwlock_t *_lock;
+    ASKL_RWLock *_lock;
     void *_root;
     void (*_freeval)(variant);
 };
@@ -74,15 +74,8 @@ public ASKL_Trie *trie_alloc(void (*freeval)(variant))
         return NULL;
     }
 
-    if (! (t->_lock = malloc(sizeof(*t->_lock))) ) {
-        perror(ERR(trie_alloc, malloc));
-        goto _err_lock;
-    }
-
-    if (pthread_rwlock_init(t->_lock, NULL) == -1) {
-        perror(ERR(trie_alloc, pthread_rwlock_init));
-        goto _err_init;
-    }
+    if (! (t->_lock = lock_alloc()) ) goto _err_lock;
+    if (lock_init(t->_lock) == -1) goto _err_init;
 
     t->_root = NULL; t->_freeval = freeval;
 
@@ -129,7 +122,7 @@ public int trie_insert_with(
         goto _err_leaf;
     }
 
-    pthread_rwlock_wrlock(t->_lock);
+    if (lock_wrlock(t->_lock) == -1) goto _err_lock;
 
     if (unlikely(! t->_root)) {
         /* the tree is empty, add a new leaf */
@@ -230,11 +223,12 @@ _success:
     if (function)
         newleaf->val = function(newleaf->key, newleaf->len, value);
     else newleaf->val = value;
-    pthread_rwlock_unlock(t->_lock);
+    lock_unlock(t->_lock);
     return 0;
 
 _failure:
-    pthread_rwlock_unlock(t->_lock);
+    lock_unlock(t->_lock);
+_err_lock:
     free(newleaf);
 _err_leaf:
     return -1;
@@ -264,10 +258,10 @@ public variant trie_lookup(ASKL_Trie *t, const char *key, size_t len,
         return ret;
     }
 
-    pthread_rwlock_rdlock(t->_lock);
+    if (lock_rdlock(t->_lock) == -1) return ret;
 
     if (unlikely(! t->_root)) {
-        pthread_rwlock_unlock(t->_lock);
+        lock_unlock(t->_lock);
         return ret;
     }
 
@@ -285,7 +279,7 @@ public variant trie_lookup(ASKL_Trie *t, const char *key, size_t len,
     if (leaf->len == len && memcmp(leaf->key, k, len) == 0)
         ret = (function) ? function(leaf->val) : leaf->val;
 
-    pthread_rwlock_unlock(t->_lock);
+    lock_unlock(t->_lock);
 
     return ret;
 }
@@ -327,7 +321,7 @@ public variant trie_remove_if(
         return ret;
     }
 
-    pthread_rwlock_wrlock(t->_lock);
+    if (lock_wrlock(t->_lock) == -1) return ret;
 
     if (unlikely(! t->_root))
         goto _err;
@@ -362,7 +356,7 @@ public variant trie_remove_if(
     }
 
 _err:
-    pthread_rwlock_unlock(t->_lock);
+    lock_unlock(t->_lock);
 
     return ret;
 }
@@ -390,10 +384,10 @@ public variant trie_update(ASKL_Trie *t, const char *key, size_t len, variant v)
         return ret;
     }
 
-    pthread_rwlock_wrlock(t->_lock);
+    if (lock_wrlock(t->_lock) == -1) return ret;
 
     if (! t->_root) {
-        pthread_rwlock_unlock(t->_lock);
+        lock_unlock(t->_lock);
         return ret;
     }
 
@@ -413,7 +407,7 @@ public variant trie_update(ASKL_Trie *t, const char *key, size_t len, variant v)
         leaf->val = v;
     }
 
-    pthread_rwlock_unlock(t->_lock);
+    lock_unlock(t->_lock);
 
     return ret;
 }
@@ -473,16 +467,16 @@ public void trie_foreach(ASKL_Trie *t, int (*f)(const char *, size_t, variant))
         return;
     }
 
-    pthread_rwlock_wrlock(t->_lock);
+    if (lock_wrlock(t->_lock) == -1) return;
 
     if (! (t->_root) ) {
-        pthread_rwlock_unlock(t->_lock);
+        lock_unlock(t->_lock);
         return;
     }
 
     _each(t, & t->_root, f);
 
-    pthread_rwlock_unlock(t->_lock);
+    lock_unlock(t->_lock);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -498,8 +492,8 @@ public ASKL_Trie *trie_free(ASKL_Trie *t)
 {
     if (! t) return NULL;
     trie_foreach(t, _delete);
-    pthread_rwlock_destroy(t->_lock);
-    free(t->_lock); free(t);
+    lock_destroy(t->_lock);
+    lock_free(t->_lock); free(t);
     return NULL;
 }
 
@@ -552,7 +546,7 @@ public ASKL_TrieIterator *trie_each(ASKL_Trie *t)
         return NULL;
     }
 
-    pthread_rwlock_rdlock(t->_lock);
+    if (lock_rdlock(t->_lock) == -1) return NULL;
 
     if (! t->_root) {
         debug("trie_each(): empty trie.\n");
@@ -575,7 +569,7 @@ public ASKL_TrieIterator *trie_each(ASKL_Trie *t)
 _err_push:
     free(iterator);
 _err:
-    pthread_rwlock_unlock(t->_lock);
+    lock_unlock(t->_lock);
     return NULL;
 }
 
@@ -598,7 +592,7 @@ public ASKL_TrieIterator *trie_each_prefix(
         return NULL;
     }
 
-    pthread_rwlock_rdlock(t->_lock);
+    if (lock_rdlock(t->_lock) == -1) return NULL;
 
     if (! (top = p = t->_root) ) {
         debug("trie_each_prefix(): empty trie.\n");
@@ -639,7 +633,7 @@ public ASKL_TrieIterator *trie_each_prefix(
 _err_push:
     free(iterator);
 _err:
-    pthread_rwlock_unlock(t->_lock);
+    lock_unlock(t->_lock);
     return NULL;
 }
 
@@ -677,7 +671,7 @@ public ASKL_TrieIterator *trie_break(ASKL_TrieIterator *iterator)
         return NULL;
     }
 
-    pthread_rwlock_unlock(iterator->trie->_lock);
+    lock_unlock(iterator->trie->_lock);
     free(iterator->_node);
     free(iterator);
 

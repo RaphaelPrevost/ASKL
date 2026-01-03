@@ -38,6 +38,7 @@
 #define ASKL_HASHTABLE_H
 
 #include "askl.h"
+#include "askl_rwlock.h"
 #include "askl_variant.h"
 
 #define MAP_ASC                 0
@@ -62,6 +63,14 @@ typedef struct _ASKL_LinkedMap ASKL_LinkedMap;
  * the @ref ASKL_HashTable structure and the related API.
  *
  */
+
+typedef struct ASKL_MapIterator {
+    ASKL_LinkedMap *map;
+    struct _bucket *_current;
+    const char *key;
+    size_t len;
+    variant val;
+} ASKL_MapIterator;
 
 typedef struct _ASKL_HashTable ASKL_HashTable;
 
@@ -208,6 +217,88 @@ public variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
  *
  * This is useful when the caller wants to create an entry only if it does not
  * already exist, and otherwise reuse the previous value.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_update_with(
+    ASKL_LinkedMap *h,
+    const char *k,
+    size_t l,
+    variant v,
+    variant (*function)(const char *k, size_t l, variant old, variant new)
+);
+
+/**
+ * @ingroup hashtable
+ * @fn variant map_update_with(ASKL_LinkedMap *h, const char *key, size_t len,
+ *                             variant value,
+ *                             variant (*function)(const char *key, size_t len,
+ *                                                  variant old, variant new))
+ * @param h        a pointer to a linked hashmap
+ * @param key      pointer to the key bytes (not necessarily NUL-terminated)
+ * @param len      length of the key in bytes
+ * @param value    the proposed new value (also passed to @p function as @p new)
+ * @param function optional callback used to compute the replacement value
+ * @return the previous value associated with @p key if it existed, or
+ *         @p value if the key was not present and no update was performed
+ *
+ * This function performs an update-only operation with an optional callback.
+ * It never inserts new keys into the map.
+ *
+ * If the key @p key does not exist in @p h, the map is left unchanged and
+ * @p value is returned to be disposed of.
+ *
+ * If the key exists and @p function is NULL, the stored value is replaced
+ * unconditionally with @p value and the previous value is returned.
+ *
+ * If the key exists and @p function is non-NULL, the callback is invoked with
+ * the current value (@p old) and the proposed value (@p new). Its return
+ * value determines what is stored in the map and what is returned:
+ *
+ * - If @p function returns @p old: the map is left unchanged and
+ *   map_update_with() returns @p new.
+ * - If @p function returns @p new: the returned value is stored in the map
+ *   and map_update_with() returns @p old.
+ * - If @p function returns any other value: the previous value (@p old) is
+ *   discarded (and the map's @c _freeval callback is invoked if defined),
+ *   the returned value is stored in the map, and map_update_with() returns
+ *   @p new so that the caller may dispose of it if necessary.
+ *
+ * @note The callback @p function is executed only when the key already exists.
+ *       It is executed while the map's write lock is held, ensuring atomicity.
+ *       The callback must be fast and non-blocking.
+ *
+ * @see map_set_with()
+ * @see map_insert_with()
+ * @see map_update()
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_update(ASKL_LinkedMap *h, const char *k, size_t l, variant v);
+
+/**
+ * @ingroup hashtable
+ * @fn variant map_update(ASKL_LinkedMap *h, const char *key, size_t len,
+ *                        variant value)
+ * @param h     a pointer to a linked hashmap
+ * @param key   pointer to the key bytes (not necessarily NUL-terminated)
+ * @param len   length of the key in bytes
+ * @param value the new value to store
+ * @return the previous value associated with @p key if it existed, or
+ *         @p value if the key was not present and no update was performed
+ *
+ * This function performs a simple update-only operation. If an entry with
+ * @p key exists, its value is replaced with @p value and the previous value
+ * is returned.
+ *
+ * If the key does not exist in the map, the map is left unchanged and
+ * @p value is returned to be disposed of. No new entry is created.
+ *
+ * This is the update-only counterpart to @ref map_insert(), and is useful
+ * when the caller wants to modify an entry only if it already exists, and
+ * do nothing otherwise.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -514,6 +605,142 @@ public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h);
  * This function always returns NULL so it can be used to clear the pointer:
  * @code
  * map = map_free(map);
+ * @endcode
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public ASKL_MapIterator *map_each(ASKL_LinkedMap *h);
+
+/**
+ * @ingroup hashtable
+ * @fn ASKL_MapIterator *map_each(ASKL_LinkedMap *h)
+ * @param h   a pointer to a linked hashmap
+ * @return a newly allocated iterator positioned on the first entry, or @c NULL
+ *         if the map is empty or an error occurred
+ *
+ * This function creates an iterator that allows the caller to traverse all
+ * entries of the hashmap in key order as stored in the internal index list.
+ *
+ * The returned iterator holds a read lock on @p h for the duration of the
+ * iteration. The iterator must be advanced using @ref map_next and eventually
+ * destroyed using @ref map_break (or implicitly when @ref map_next reaches
+ * the end).
+ *
+ * @note The iterator acquires a read lock on @p h when created. This lock
+ *       is automatically released when the iterator is exhausted or explicitly
+ *       destroyed with @ref map_break.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public ASKL_MapIterator * CALLBACK map_next(ASKL_MapIterator *iterator);
+
+/**
+ * @ingroup hashtable
+ * @fn ASKL_MapIterator *map_next(ASKL_MapIterator *iterator)
+ * @param iterator  an iterator previously created with @ref map_each
+ * @return the same iterator positioned on the next entry, or @c NULL if the
+ *         end of the traversal is reached or an error occurred
+ *
+ * This function advances the iterator to the next entry in the map. If another
+ * entry is found, the iterator's @c key, @c len and @c val fields are updated
+ * accordingly and @p iterator is returned.
+ *
+ * When there are no more entries, the iterator is automatically destroyed,
+ * its read lock on the map is released, and @c NULL is returned.
+ *
+ * @note The caller must not free the iterator returned by @ref map_next; it is
+ *       freed automatically when the iteration ends. To stop early, call
+ *       @ref map_break instead.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_set_at(ASKL_MapIterator *iterator, variant new);
+
+/**
+ * @ingroup hashtable
+ * @fn variant map_set_at(ASKL_MapIterator *iterator, variant value)
+ * @param iterator  a valid iterator positioned on an existing entry
+ * @param value     the new value to store at the current position
+ * @return the previous value stored at the iterator’s current key
+ *
+ * This function replaces the value associated with the entry currently pointed
+ * to by @p iterator. The key is left unchanged; only the value is updated.
+ *
+ * Internally, the implementation upgrades the iterator's read lock to a write
+ * lock for the duration of the update, then restores it back to a read lock.
+ * This ensures that the update is atomic with respect to other concurrent
+ * map operations and that the iterator remains valid after the call.
+ *
+ * @warning The iterator must currently point to a valid entry (i.e. it must
+ *          be the result of a successful call to @ref map_each or
+ *          @ref map_next). Calling this function on an exhausted or broken
+ *          iterator results in undefined behaviour.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_remove_at(ASKL_MapIterator *iterator);
+
+/**
+ * @ingroup hashtable
+ * @fn variant map_remove_at(ASKL_MapIterator *iterator)
+ * @param iterator  a valid iterator positioned on an existing entry
+ * @return the value that was stored at the iterator’s current key
+ *
+ * This function removes the entry currently pointed to by @p iterator from
+ * the map and returns its value. The key is removed from the map; subsequent
+ * lookups for that key will fail as if it had never been inserted.
+ *
+ * Internally, the implementation upgrades the iterator's read lock to a write
+ * lock for the duration of the update, then restores it back to a read lock.
+ * This ensures that the update is atomic with respect to other concurrent
+ * map operations and that the iterator remains valid after the call.
+ *
+ * After @ref map_remove_at() returns, @p iterator remains valid but its
+ * current position should be considered implementation-defined. The only
+ * valid operations on the iterator are to continue the traversal with
+ * @ref map_next() or to stop it with @ref map_break(). The caller must not
+ * attempt to reuse the previous @c key/@c len/@c val fields after the entry
+ * has been removed.
+ *
+ * The caller is responsible for disposing of the returned value if needed.
+ * In particular, if the map was configured with a @c _freeval callback, that
+ * callback is **not** invoked automatically by @ref map_remove_at(); it is
+ * up to the caller to free or recycle the removed value as appropriate.
+ *
+ * @warning The iterator must currently point to a valid entry (i.e. it must
+ *          be the result of a successful call to @ref map_each or
+ *          @ref map_next). Calling this function on an exhausted or broken
+ *          iterator results in undefined behaviour.
+ *
+ * @see map_each()
+ * @see map_next()
+ * @see map_break()
+ */
+
+/* -------------------------------------------------------------------------- */
+
+public ASKL_MapIterator *map_break(ASKL_MapIterator *iterator);
+
+/**
+ * @ingroup hashtable
+ * @fn ASKL_MapIterator *map_break(ASKL_MapIterator *iterator)
+ * @param iterator  an iterator obtained from @ref map_each
+ * @return always @c NULL
+ *
+ * This function explicitly destroys @p iterator and releases its read lock on
+ * the underlying map. After this call, @p iterator must not be used again.
+ *
+ * This is the manual counterpart to the implicit destruction performed by
+ * @ref map_next when the end of the traversal is reached.
+ *
+ * @note This function always returns @c NULL so that callers can conveniently
+ *       clear their iterator variables:
+ * @code
+ * it = map_break(it);
  * @endcode
  */
 

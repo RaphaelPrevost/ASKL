@@ -40,6 +40,7 @@
 #ifdef _ENABLE_TRIE
 
 #include "askl.h"
+#include "askl_rwlock.h"
 #include "askl_variant.h"
 
 /** @defgroup trie ASKL::trie */
