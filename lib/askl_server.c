@@ -56,7 +56,7 @@ static unsigned int _concurrency = 0;
 
 #ifdef _ENABLE_UDP
 /* UDP sockets registry */
-static ASKL_HashTable *_UDP = NULL;
+static ASKL_LinkedMap *_UDP = NULL;
 #endif
 
 #define _POLL_MAX      1024
@@ -405,7 +405,7 @@ _wait:
 
     #ifdef _ENABLE_UDP
     /* poll the virtual udp sockets for writing */
-    htable_foreach(_UDP, _server_poll_udp);
+    map_foreach(_UDP, _server_poll_udp);
     #endif
 
     socket_queue_wait(_readable, 10000);
@@ -486,11 +486,11 @@ static ASKL_Socket *_server_receive(m_string *buffer)
        these virtual sockets are actually using the same descriptor
        as the UDP listener.
        the mapping between IP addresses and ASKL socket ids
-       is stored in the _UDP hashtable. */
+       is stored in the _UDP hashmap. */
     if (socket_option_isset(s, SOCKET_UDP)) {
         unsigned int udp = 0;
         ASKL_Socket *z = NULL;
-        variant val = htable_get(
+        variant val = map_get(
             _UDP,
             (const char *) socket_get_sockaddr(s),
             socket_get_socklen(s)
@@ -521,7 +521,7 @@ static ASKL_Socket *_server_receive(m_string *buffer)
             socket_lock(z);
 
             /* store the client socket for later retrieval */
-            htable_insert(
+            map_insert(
                 _UDP,
                 (const char *) socket_get_sockaddr(z),
                 socket_get_socklen(z),
@@ -668,7 +668,7 @@ static int _server_respond(ASKL_Socket *s)
 _release:
     #ifdef _ENABLE_UDP
     if (socket_option_isset(s, SOCKET_UDP)) {
-        htable_insert(
+        map_insert(
             _UDP,
             (const char *) socket_get_sockaddr(s),
             socket_get_socklen(s),
@@ -894,9 +894,9 @@ static int _server_closed_cb(ASKL_Socket *s)
     _frag[SOCKET_ID(s)] = string_free(_frag[SOCKET_ID(s)]);
 
     #ifdef _ENABLE_UDP
-    /* if it is an UDP socket, remove it from the hashtable */
+    /* if it is an UDP socket, remove it from the hashmap */
     if (socket_option_isset(s, SOCKET_UDP)) {
-        htable_remove(
+        map_remove(
             _UDP,
             (const char *) socket_get_sockaddr(s),
             socket_get_socklen(s)
@@ -955,7 +955,7 @@ public int server_init(void)
 
     #ifdef _ENABLE_UDP
     /* create the UDP sockets registry */
-    if (! (_UDP = htable_alloc(NULL)) ) {
+    if (! (_UDP = map_alloc(NULL)) ) {
         fprintf(stderr, "server_init(): failed to allocate the UDP registry.\n");
         goto _err_udp;
     }
@@ -1038,7 +1038,7 @@ _err_rdq:
     _blocking = socket_queue_free(_blocking);
 _err_hook:
 #ifdef _ENABLE_UDP
-    _UDP = htable_free(_UDP);
+    _UDP = map_free(_UDP);
 _err_udp:
 #endif
     pthread_attr_destroy(& attr);
@@ -1896,7 +1896,7 @@ public void server_exit(void)
     _incoming = socket_queue_free(_incoming);
 
     #ifdef _ENABLE_UDP
-    _UDP = htable_free(_UDP);
+    _UDP = map_free(_UDP);
     #endif
 
     #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
