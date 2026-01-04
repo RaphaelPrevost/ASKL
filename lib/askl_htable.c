@@ -990,8 +990,11 @@ public variant map_remove_at(ASKL_MapIterator *iterator)
     variant ret = { 0 };
 
     if (lock_upgrade(iterator->map->_lock) == -1) return ret;
-        ret = iterator->_current->item.val;
-        iterator->_current->item.key.len = 0;
+        /* XXX another thread may have deleted the entry during upgrade */
+        if (likely(iterator->_current->item.key.len)) {
+            iterator->_current->item.key.len = 0;
+            ret = iterator->_current->item.val;
+        }
     lock_restore(iterator->map->_lock);
 
     return ret;

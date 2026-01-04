@@ -152,14 +152,13 @@ private int lock_upgrade(ASKL_RWLock *lock);
  * to an exclusive write lock, without allowing an intervening writer to
  * slip in.
  *
- * Only one upgrader at a time may claim the upgrade "slot". If multiple
- * readers attempt to upgrade concurrently, unsuccessful claimants
- * temporarily cooperate by dropping and later re-acquiring their read
- * share so the current upgrader can become the sole owner and transition
- * the lock to write mode.
+ * Only one upgrader at a time may claim the lock. If multiple readers attempt
+ * to upgrade concurrently, unsuccessful claimants temporarily cooperate by
+ * dropping and later re-acquiring their read share so the current upgrader
+ * can become the sole owner and transition the lock to write mode.
  *
- * On success, the caller no longer holds a read lock; it now owns the
- * lock in write mode and must eventually downgrade it with @ref lock_restore().
+ * On success, the caller no longer holds a read lock; it now owns the lock in
+ * a special write mode and must eventually release it with @ref lock_restore().
  *
  * On failure (return value -1), the caller must assume that it no longer
  * owns a valid lock, neither for reading nor for writing. This usually
@@ -192,7 +191,7 @@ private void CALLBACK lock_restore(ASKL_RWLock *lock);
  * This function restores a lock that was previously upgraded to write mode
  * via @ref lock_upgrade() back to a regular read-lock owned by the
  * upgrading thread, and releases the upgrade claim so that other upgraders
- * may proceed in the future.
+ * may proceed.
  *
  * After @ref lock_restore() returns, the caller holds the lock in read
  * mode and must still eventually release it with @ref lock_unlock().

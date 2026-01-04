@@ -189,6 +189,126 @@ static variant _merge(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Test: Concurrent write stress - Tests unlock fast path with real workload  */
+/* -------------------------------------------------------------------------- */
+
+#define WRITE_STRESS_THREADS 8
+#define WRITE_STRESS_OPS_PER_THREAD 5000
+
+typedef struct {
+    ASKL_LinkedMap *map;
+    int thread_id;
+    int ops_completed;
+    int errors;
+} write_stress_args;
+
+static void* write_stress_thread(void* arg)
+{
+    write_stress_args *args = (write_stress_args*)arg;
+    variant val;
+    char keybuf[32];
+
+    printf("(-) Write stress thread %d: Starting...\n", args->thread_id);
+
+    for (int op = 0; op < WRITE_STRESS_OPS_PER_THREAD; op++) {
+        /* Generate key with thread_id + op to ensure variety */
+        snprintf(keybuf, sizeof(keybuf), "key_%d_%d", args->thread_id, op);
+
+        /* Create a value tied to this thread */
+        val = variant_from_integer((uint64_t)(args->thread_id * 1000000 + op));
+
+        /* Write to map (acquires write lock internally) */
+        map_set(args->map, keybuf, strlen(keybuf), val);
+        args->ops_completed++;
+
+        /* Occasionally yield to increase lock contention */
+        if (op % 500 == 0)
+            sched_yield();
+    }
+
+    printf("(-) Write stress thread %d: Completed %d operations\n",
+           args->thread_id, args->ops_completed);
+
+    return NULL;
+}
+
+static int test_write_stress_concurrent(void)
+{
+    ASKL_LinkedMap *map = NULL;
+    pthread_t threads[WRITE_STRESS_THREADS];
+    write_stress_args args[WRITE_STRESS_THREADS] = {{0}};
+    int total_ops = 0;
+
+    printf("(-) Testing concurrent write stress on hashmap.\n");
+
+    /* Create map */
+    map = map_alloc(NULL);
+    if (map == NULL) {
+        printf("(!) Failed to allocate map\n");
+        return -1;
+    }
+
+    printf("(*) Spawning %d concurrent writer threads.\n", WRITE_STRESS_THREADS);
+    printf("(*) Each thread will perform %d write operations.\n", WRITE_STRESS_OPS_PER_THREAD);
+    printf("(*) This heavily stresses the unlock() fast path.\n");
+
+    /* Spawn threads */
+    for (int i = 0; i < WRITE_STRESS_THREADS; i ++) {
+        args[i].map = map;
+        args[i].thread_id = i;
+        args[i].ops_completed = 0;
+        args[i].errors = 0;
+
+        if (pthread_create(&threads[i], NULL, write_stress_thread, & args[i]) != 0) {
+            printf("(!) Failed to create thread %d\n", i);
+            map_free(map);
+            return -1;
+        }
+    }
+
+    /* Wait for all threads */
+    printf("(*) Waiting for all threads to complete...\n");
+    for (int i = 0; i < WRITE_STRESS_THREADS; i ++) {
+        pthread_join(threads[i], NULL);
+        total_ops += args[i].ops_completed;
+
+        if (args[i].errors > 0) {
+            printf("(!) Thread %d had %d errors\n", i, args[i].errors);
+        }
+    }
+
+    printf("(-) Total operations completed: %d\n", total_ops);
+
+    /* Verify: count items in map */
+    int final_count = 0;
+    for (ASKL_MapIterator *it = map_each(map); it; it = map_next(it)) {
+        final_count ++;
+    }
+
+    int expected_count = WRITE_STRESS_THREADS * WRITE_STRESS_OPS_PER_THREAD;
+    printf("(-) Final map size: %d (expected %d)\n", final_count, expected_count);
+
+    /* Verify all operations succeeded */
+    if (total_ops != expected_count) {
+        printf("(!) Operations mismatch! Expected %d, got %d\n", expected_count, total_ops);
+        map_free(map);
+        return -1;
+    }
+
+    if (final_count != expected_count) {
+        printf("(!) Item count mismatch! Expected %d, got %d\n", expected_count, final_count);
+        map_free(map);
+        return -1;
+    }
+
+    /* Cleanup */
+    map_free(map);
+
+    printf("(*) Write stress test PASSED!\n");
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Iterator Concurrent Test (No External Writers)                            */
 /* -------------------------------------------------------------------------- */
 
@@ -431,9 +551,7 @@ static void* removal_thread(void* arg)
     printf("(-) Removal thread %d: Starting...\n", args->thread_id);
 
     /* Iterate over map entries */
-    it = map_each(args->map);
-
-    while ((it = map_next(it)) != NULL) {
+    for (it = map_each(args->map); it; it = map_next(it)) {
         args->iterations ++;
 
         /* Remove every 3rd item seen by this iterator */
@@ -445,7 +563,7 @@ static void* removal_thread(void* arg)
                 args->removed_count ++;
             }
         }
-        count++;
+        count ++;
     }
 
     printf("(-) Removal thread %d: Iterated %d times, removed %d items\n",
@@ -774,6 +892,10 @@ int test_hashtable(void)
     }
 
     if (test_map_remove_at_concurrent() == -1) {
+        return -1;
+    }
+
+    if (test_write_stress_concurrent() == -1) {
         return -1;
     }
 

@@ -37,25 +37,16 @@
 #include "arcane/bitops.c"
 
 struct _ASKL_RWLock {
+    _ATOMIC int state;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
-    #ifndef HAS_ATOMICS
-    pthread_mutex_t claim_mutex;
-    pthread_cond_t claim_cond;
-    #endif
-    _ATOMIC int state;
-    _ATOMIC int claim;
 };
 
 /**
  * @ingroup rwlock
  * @struct ASKL_RWLock
  *
- * Internal read/write lock.
- *
- * The lock combines a small atomic state variable with mutexes and a condition
- * variables. It provides:
- *
+ * An internal read/write lock which provides:
  * - A fast uncontended path via atomic operations on @ref state.
  * - Blocking/wakeup for contended paths via @ref mutex and @ref cond.
  * - Support for upgrading a read lock to a write lock via @ref lock_upgrade()
@@ -64,53 +55,78 @@ struct _ASKL_RWLock {
  *   blocked in map operations wake up and fail cleanly instead of deadlocking
  *   on freed memory.
  *
- * The @ref state field encodes ownership as follows:
- * - @c -1 : broken; further calls to _map_rdlock() / _map_wrlock() must fail
- *           and return -1.
- * - @c  0 : write-locked; exactly one writer holds the lock.
- * - @c  1 : unlocked; no active readers or writer.
- * - @c >1 : read-locked; (@c state - 1) readers hold the lock.
+ * The lock uses a single integer @ref state plus a mutex/condition pair.
+ * The low bit of @ref state (0x1) is used as an "upgrade in progress" flag,
+ * while the higher bits encode the base lock state and the number of readers.
  *
- * The @ref claim field coordinates upgrades:
- * - @c 0 : no thread is currently attempting to upgrade.
- * - @c 1 : a single thread has successfully claimed the lock and is waiting to
- *          become the only reader so it can transition the lock to write mode.
+ * The following symbolic values are used:
  *
- * The @ref mutex and @ref cond fields are used only on the slow path:
- * - Readers and writers first attempt to acquire the lock by changing
- *   @ref state atomically.
- * - If that fails, they sleep on @ref cond while holding @ref mutex.
- * - Unlock operations and lock_break() broadcast on @ref cond to wake
- *   sleeping waiters.
+ * - @c -1        : broken; further calls to lock_rdlock(), lock_wrlock()
+ *                  or lock_upgrade() will fail and return -1.
+ * - @c WRLOCKED  (0) : write-locked; exactly one writer holds the lock.
+ * - @c UPGRADED  (1) : upgraded; a single thread holds what was previously
+ *                      a read lock but has transitioned to exclusive mode.
+ * - @c UNLOCKED  (2) : no active readers or writers.
+ * - @c RDLOCKED  (4) : base value for the "one reader, no claimant" state.
  *
- * In non-atomic builds, @ref claim_mutex and @ref claim_cond are used to
- * wait for the current upgrader to finish while temporarily releasing the
- * main state mutex.
+ * For @ref state >= RDLOCKED the value is interpreted as:
+ *
+ * - Even (@c state & 0x1 == 0):
+ *     the lock is held in read mode with no upgrade claim. The number of
+ *     readers is (@c state - @c RDLOCKED) / @c LOCKSTEP + 1.
+ *
+ * - Odd (@c state & 0x1 == 1):
+ *     an upgrade claim is in progress. One of the readers has set the
+ *     claim flag and is attempting to become a writer.
+ *
+ * The special value @c CLAIMANT (5) denotes "exactly one reader remains and
+ * it is the thread that has claimed the upgrade". At that point the upgrader
+ * can atomically transition the lock from @c CLAIMANT to @c UPGRADED.
+ *
+ * On the fast path, readers and writers adjust @ref state atomically:
+ *
+ * - Readers increment @ref state by @c LOCKSTEP (2) as long as it is
+ *   positive and even (no writer and no upgrade claim).
+ * - Writers transition @ref state from @c UNLOCKED to @c WRLOCKED when no
+ *   readers or claimers are present.
+ * - Upgraders transition from @c RDLOCKED to @c UPGRADED when they are the
+ *   only reader, or set the claim bit (by adding 1) when other readers are
+ *   present and rely on them to cooperate.
+ *
+ * Cooperative readers that observe a claimed state with multiple readers
+ * temporarily drop their read share (decrement @ref state by @c LOCKSTEP)
+ * so that the upgrader can eventually become the sole remaining reader.
+ *
+ * On the slow path, @ref mutex and @ref cond are used to:
+ *
+ * - put readers and writers to sleep when they cannot adjust @ref state
+ *   immediately, and
+ * - wake them when the lock is released or broken.
+ *
+ * In builds without atomics, the same invariants are preserved, but all
+ * updates to @ref state are performed under @ref mutex instead of using
+ * atomic operations.
  */
 
-#if (defined(HAS_ATOMICS) && (defined(__STDC_VERSION__) && \
-     (__STDC_VERSION__ >= 201112L)))
-#define _LOCKSTATE_GET(lk) \
-    atomic_load_explicit(& (lk)->state, memory_order_relaxed)
-#define _LOCKSTATE_INC(lk) \
-    atomic_fetch_add_explicit(& (lk)->state, 1, memory_order_relaxed)
-#define _LOCKSTATE_DEC(lk) \
-    atomic_fetch_sub_explicit(& (lk)->state, 1, memory_order_release)
-#define _LOCKCLAIM_GET(lk) \
-    atomic_load_explicit(& (lk)->claim, memory_order_relaxed)
-#else
-#define _LOCKSTATE_GET(lk) ((lk)->state)
-#define _LOCKSTATE_INC(lk) do { (lk)->state ++; } while (0)
-#define _LOCKSTATE_DEC(lk) do { (lk)->state --; } while (0)
-#define _LOCKCLAIM_GET(lk) ((lk)->claim)
-#endif
+#define WRLOCKED 0
+#define UPGRADED 1
+#define UNLOCKED 2
+#define RDLOCKED 4
+#define CLAIMANT 5
+
+#define LOCKSTEP 2
 
 #ifdef HAS_ATOMICS
-#define _LOCKSTATE_SET(lk, v) _atomic_str(& (lk)->state, (v))
-#define _LOCKCLAIM_SET(lk, v) _atomic_str(& (lk)->claim, (v))
+#define _LOCKSTATE_GET(lk)       _atomic_ldr(& (lk)->state)
+#define _LOCKSTATE_SET(lk, v)    _atomic_str(& (lk)->state, (v))
+#define _LOCKSTATE_CAS(lk, a, b) _atomic_cas(& (lk)->state, (a), (b))
+#define _LOCKSTATE_INC(lk)       _atomic_add(& (lk)->state, LOCKSTEP)
+#define _LOCKSTATE_DEC(lk)       _atomic_sub(& (lk)->state, LOCKSTEP)
 #else
+#define _LOCKSTATE_GET(lk)    ((lk)->state)
 #define _LOCKSTATE_SET(lk, v) do { (lk)->state = (v); } while (0)
-#define _LOCKCLAIM_SET(lk, v) do { (lk)->claim = (v); } while (0)
+#define _LOCKSTATE_INC(lk)    do { (lk)->state += LOCKSTEP; } while (0)
+#define _LOCKSTATE_DEC(lk)    do { (lk)->state -= LOCKSTEP; } while (0)
 #endif
 
 /* -------------------------------------------------------------------------- */
@@ -139,29 +155,10 @@ private int lock_init(ASKL_RWLock *lock)
         goto _err_cond;
     }
 
-    #ifndef HAS_ATOMICS
-    if (pthread_mutex_init(& lock->claim_mutex, NULL) == -1) {
-        perror(ERR(lock_init, pthread_mutex_init));
-        goto _err_clmx;
-    }
-
-    if (pthread_cond_init(& lock->claim_cond, NULL) == -1) {
-        perror(ERR(lock_init, pthread_cond_init));
-        goto _err_clcd;
-    }
-    #endif
-
-    lock->state = 1; /* unlocked */
-    lock->claim = 0;
+    lock->state = UNLOCKED;
 
     return 0;
 
-#ifndef HAS_ATOMICS
-_err_clcd:
-    pthread_mutex_destroy(& lock->claim_mutex);
-_err_clmx:
-    pthread_cond_destroy(& lock->cond);
-#endif
 _err_cond:
     pthread_mutex_destroy(& lock->mutex);
     return -1;
@@ -174,21 +171,38 @@ private int CALLBACK lock_rdlock(ASKL_RWLock *lock)
     int ret = 0, x = 0;
 
     #ifdef HAS_ATOMICS
-    for (x = _atomic_ldr(& lock->state); x > 0; x = _atomic_ldr(& lock->state))
-        if (_atomic_cas(& lock->state, x, x + 1)) return 0;
+    for (x = _LOCKSTATE_GET(lock); x && ! (x & 0x1); x = _LOCKSTATE_GET(lock)) {
+        if (_LOCKSTATE_CAS(lock, x, x + LOCKSTEP))
+            return 0;
+    }
+
     if (unlikely(x == -1)) return -1;
     #endif
 
     pthread_mutex_lock(& lock->mutex);
 
+    #ifdef HAS_ATOMICS
+    while (1) {
+    #endif
         /* wait while write-locked (lockstate == 0) */
-        while (! (x = _LOCKSTATE_GET(lock)) )
+        while (! (x = _LOCKSTATE_GET(lock)) || x & 0x1) {
+            if (unlikely(x == -1)) {
+                ret = -1; goto _err_lock;
+            }
             pthread_cond_wait(& lock->cond, & lock->mutex);
+        }
 
-        if (likely(x > 0))
-            _LOCKSTATE_INC(lock);
-        else ret = -1;
+        #ifdef HAS_ATOMICS
+        /* XXX handle slippery claimants */
+        if (_LOCKSTATE_CAS(lock, x, x + LOCKSTEP)) break;
+        #else
+        _LOCKSTATE_INC(lock);
+        #endif
+    #ifdef HAS_ATOMICS
+    }
+    #endif
 
+_err_lock:
     pthread_mutex_unlock(& lock->mutex);
 
     return ret;
@@ -196,31 +210,35 @@ private int CALLBACK lock_rdlock(ASKL_RWLock *lock)
 
 /* -------------------------------------------------------------------------- */
 
-static int _lock(ASKL_RWLock *lock, int state)
+private int CALLBACK lock_wrlock(ASKL_RWLock *lock)
 {
     int ret = 0, x = 0;
+
+    #ifdef HAS_ATOMICS
+    if (likely(_LOCKSTATE_CAS(lock, UNLOCKED, WRLOCKED))) return 0;
+    #endif
 
     pthread_mutex_lock(& lock->mutex);
 
         #ifdef HAS_ATOMICS
         while (1) {
         #endif
-            /* wait for unlock (lockstate == 1) */
-            while (! (x = _LOCKSTATE_GET(lock)) || x > state)
+            /* wait for unlock */
+            while ( (x = _LOCKSTATE_GET(lock)) != UNLOCKED) {
+                if (unlikely(x == -1)) {
+                    ret = -1; goto _err_lock;
+                }
                 pthread_cond_wait(& lock->cond, & lock->mutex);
+            }
 
             #ifdef HAS_ATOMICS
             /* XXX handle slippery readers */
-            if (_atomic_cas(& lock->state, state, 0)) break;
+            if (_LOCKSTATE_CAS(lock, UNLOCKED, WRLOCKED)) break;
+            #else
+            _LOCKSTATE_SET(lock, 0);
             #endif
-
-            if (unlikely(x == -1)) {
-                ret = -1; goto _err_lock;
-            }
         #ifdef HAS_ATOMICS
         }
-        #else
-        lock->state = 0;
         #endif
 
 _err_lock:
@@ -231,78 +249,46 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-private inline int lock_wrlock(ASKL_RWLock *lock)
-{
-    #ifdef HAS_ATOMICS
-    if (unlikely(_atomic_cas(& lock->state, 1, 0))) return 0;
-    #endif
-    return _lock(lock, 1);
-}
-
-/* -------------------------------------------------------------------------- */
-
 static int _cooperate(ASKL_RWLock *lock)
 {
     int cooperative = 0;
     int state = _LOCKSTATE_GET(lock);
 
-    if (state > 2) {
+    if ( (state & 0x1) && state > CLAIMANT) {
         /* there is multiple readers, help the claimant by releasing our lock */
         #ifdef HAS_ATOMICS
-        if (! _atomic_cas(& lock->state, state, state - 1))
-            return 0;
+        if (! _LOCKSTATE_CAS(lock, state, state - LOCKSTEP)) return 0;
         #else
         _LOCKSTATE_DEC(lock);
-        pthread_cond_broadcast(& lock->cond);
         #endif
+        pthread_cond_broadcast(& lock->cond);
         cooperative = 1;
     } else if (state == -1) return -1;
 
     #ifndef HAS_ATOMICS
-    pthread_mutex_unlock(& lock->mutex);
-
-    pthread_mutex_lock(& lock->claim_mutex);
-    #endif
-
     /* wait for the claim to be relinquished */
-    while (_LOCKCLAIM_GET(lock) != 0) {
-        if (_LOCKSTATE_GET(lock) == -1)
-            return -1;
-        #ifdef HAS_ATOMICS
-        usleep(1);
-        #else
-        pthread_cond_wait(& lock->claim_cond, & lock->claim_mutex);
-        #endif
+    while ( (state = _LOCKSTATE_GET(lock)) & 0x1) {
+        if (unlikely(state == -1)) return -1;
+        pthread_cond_wait(& lock->cond, & lock->mutex);
     }
-
-    #ifndef HAS_ATOMICS
-    pthread_mutex_unlock(& lock->claim_mutex);
-
-    pthread_mutex_lock(& lock->mutex);
     #endif
 
     if (cooperative) {
         /* re-take our lock */
+        #ifdef HAS_ATOMICS
         while (1) {
             state = _LOCKSTATE_GET(lock);
-            if (state > 0) {
-                #ifdef HAS_ATOMICS
-                if (_atomic_cas(& lock->state, state, state + 1))
-                #else
-                _LOCKSTATE_INC(lock);
-                pthread_cond_broadcast(& lock->cond);
-                #endif
+            if (! (state & 0x1)) {
+                if (_LOCKSTATE_CAS(lock, state, state + LOCKSTEP))
                     return 0;
-            } else if (state == -1) return -1;
-
-            #ifdef HAS_ATOMICS
+            } else if (unlikely(state == -1)) return -1;
             usleep(1);
-            #else
-            pthread_cond_wait(& lock->cond, & lock->mutex);
-            #endif
         }
+        #else
+        _LOCKSTATE_INC(lock);
+        #endif
     }
-    
+
     return 0;
 }
 
@@ -312,21 +298,26 @@ private inline int lock_upgrade(ASKL_RWLock *lock)
 {
     #ifdef HAS_ATOMICS
     /* fast path: only reader */
-    if (unlikely(_atomic_cas(& lock->state, 2, 0)))
+    if (_LOCKSTATE_CAS(lock, RDLOCKED, UPGRADED)) {
+        pthread_cond_broadcast(& lock->cond);
         return 0;
+    }
     
     /* claim the lock */
     while (1) {
-        if (_atomic_cas(& lock->claim, 0, 1)) {
-            /* only I will remain */
-            while (! _atomic_cas(& lock->state, 2, 0)) {
-                if (_LOCKSTATE_GET(lock) == -1)
-                    return -1;
-                usleep(1);
-            }
+        int state = _LOCKSTATE_GET(lock);
 
-            return 0;
-        }
+        if (! (state & 0x1)) {
+            if (_LOCKSTATE_CAS(lock, state, state + 1)) {
+                /* only I will remain */
+                while (! _LOCKSTATE_CAS(lock, CLAIMANT, UPGRADED)) {
+                    if (unlikely(_LOCKSTATE_GET(lock) == -1))
+                        return -1;
+                    usleep(1);
+                }
+                return 0;
+            }
+        } else if (state == -1) return -1;
 
         if (_cooperate(lock) == -1) return -1;
     }
@@ -336,31 +327,19 @@ private inline int lock_upgrade(ASKL_RWLock *lock)
 
         pthread_mutex_lock(& lock->mutex);
 
-        if ( (state = _LOCKSTATE_GET(lock)) == -1) goto _failure;
-
-        pthread_mutex_lock(& lock->claim_mutex);
-        if (_LOCKCLAIM_GET(lock) == 0) {
-            if (state == 2) {
-                /* fast path: only reader */
-                _LOCKSTATE_SET(lock, 0);
-                pthread_mutex_unlock(& lock->claim_mutex);
-                goto _success;
-            }
-
-            _LOCKCLAIM_SET(lock, 1);
-
-            pthread_mutex_unlock(& lock->claim_mutex);
+        if (! ((state = _LOCKSTATE_GET(lock)) & 0x1) ) {
+            _LOCKSTATE_SET(lock, state + 1);
 
             /* wait for the other readers to go away */
-            while ( (state = _LOCKSTATE_GET(lock)) != 2)
+            while ( (state = _LOCKSTATE_GET(lock)) != CLAIMANT) {
+                if (unlikely(state == -1)) goto _failure;
                 pthread_cond_wait(& lock->cond, & lock->mutex);
-            if (state == -1) goto _failure;
+            }
 
             /* take the lock */
-            _LOCKSTATE_SET(lock, 0);
+            _LOCKSTATE_SET(lock, 1);
             goto _success;
-        }
-        pthread_mutex_unlock(& lock->claim_mutex);
+        } else if (state == -1) goto _failure;
 
         /* call cooperate while holding the state mutex */
         if (_cooperate(lock) == -1) goto _failure;
@@ -380,23 +359,17 @@ _success:
 
 private void CALLBACK lock_restore(ASKL_RWLock *lock)
 {
-    #ifndef HAS_ATOMICS
+    #ifdef HAS_ATOMICS
+    _LOCKSTATE_CAS(lock, UPGRADED, RDLOCKED);
+    #else
     pthread_mutex_lock(& lock->mutex);
-    pthread_mutex_lock(& lock->claim_mutex);
-    #endif
 
-        _LOCKSTATE_SET(lock, 2);
-        _LOCKCLAIM_SET(lock, 0);
+        _LOCKSTATE_SET(lock, RDLOCKED);
 
-    #ifndef HAS_ATOMICS
-    pthread_mutex_unlock(& lock->claim_mutex);
     pthread_mutex_unlock(& lock->mutex);
     #endif
 
     pthread_cond_broadcast(& lock->cond);
-    #ifndef HAS_ATOMICS
-    pthread_cond_broadcast(& lock->claim_cond);
-    #endif
 }
 
 /* -------------------------------------------------------------------------- */
@@ -414,32 +387,24 @@ private void CALLBACK lock_break(ASKL_RWLock *lock)
 
 /* -------------------------------------------------------------------------- */
 
-static void _unlock(ASKL_RWLock *lock)
+private void lock_unlock(ASKL_RWLock *lock)
 {
     int x;
 
+    #ifndef HAS_ATOMICS
     pthread_mutex_lock(& lock->mutex);
+    #endif
 
         if ( (x = _LOCKSTATE_GET(lock)) == 0)
-            _LOCKSTATE_SET(lock, 1);
-        else if (x > 1)
+            _LOCKSTATE_SET(lock, UNLOCKED);
+        else if (x > UNLOCKED)
             _LOCKSTATE_DEC(lock);
+
         pthread_cond_broadcast(& lock->cond);
 
+    #ifndef HAS_ATOMICS
     pthread_mutex_unlock(& lock->mutex);
-}
-
-/* -------------------------------------------------------------------------- */
-
-private inline void lock_unlock(ASKL_RWLock *lock)
-{
-    #ifdef HAS_ATOMICS
-    int x;
-    for (x = _atomic_ldr(& lock->state); x > 1; x = _atomic_ldr(& lock->state))
-        if (_atomic_cas(& lock->state, x, x - 1)) return;
-    if (likely(x != -1))
     #endif
-        _unlock(lock);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -448,10 +413,6 @@ private void lock_destroy(ASKL_RWLock *lock)
 {
     pthread_cond_destroy(& lock->cond);
     pthread_mutex_destroy(& lock->mutex);
-    #ifndef HAS_ATOMICS
-    pthread_cond_destroy(& lock->claim_cond);
-    pthread_mutex_destroy(& lock->claim_mutex);
-    #endif
 }
 
 /* -------------------------------------------------------------------------- */

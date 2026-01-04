@@ -580,8 +580,11 @@ static inline uint8_t _crc7(const char *string, size_t len)
 #if ((defined(_MSC_VER)) && (_MSC_VER == 1300))
     extern long __cdecl _InterlockedCompareExchange(
         long volatile *Destination, long Exchange, long Comparand);
+    extern long __cdecl _InterlockedExchangeAdd(
+        long volatile *Addend, long Value);
     void _ReadWriteBarrier(void);
     #pragma intrinsic(_InterlockedCompareExchange)
+    #pragma intrinsic(_InterlockedExchangeAdd)
     #pragma intrinsic(_ReadWriteBarrier)
 #endif
 
@@ -653,10 +656,10 @@ static inline int _atomic_ldr(_ATOMIC int *ptr)
         #endif
         return ret;
     #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
-        return atomic_load_explicit(ptr, memory_order_acquire);
+        return atomic_load_explicit(ptr, memory_order_relaxed);
     #elif (defined(__GNUC__))
         #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
-        return __atomic_load_n(ptr, __ATOMIC_ACQUIRE);
+        return __atomic_load_n(ptr, __ATOMIC_RELAXED);
         #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
         return __sync_fetch_and_add(ptr, 0);
         #elif defined(__i386__) || defined(__x86_64__)
@@ -699,6 +702,82 @@ static inline void _atomic_str(_ATOMIC int *ptr, int value)
     #endif
 }
 
-#endif
+/* -------------------------------------------------------------------------- */
+
+static inline int _atomic_add(_ATOMIC int *ptr, int val)
+{
+    #if (defined(_MSC_VER))
+        #if _MSC_VER >= 1300
+        return _InterlockedExchangeAdd((long volatile *) ptr, (long) val);
+        #elif (defined(_M_IX86))
+        long result;
+        __asm {
+            mov ecx, ptr
+            mov eax, val
+            lock xadd [ecx], eax
+            mov result, eax
+        }
+        return result;
+        #endif
+    #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+        return atomic_fetch_add_explicit(ptr, val, memory_order_acq_rel);
+    #elif (defined(__GNUC__))
+        #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
+        return __atomic_fetch_add(ptr, val, __ATOMIC_ACQ_REL);
+        #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
+        return __sync_fetch_and_add(ptr, val);
+        #elif defined(__i386__) || defined(__x86_64__)
+        int result;
+        __asm__ __volatile__(
+            "lock; xaddl %0, %1"
+            : "=r"(result), "+m"(*ptr)
+            : "0"(val)
+            : "memory"
+        );
+        return result;
+        #endif
+    #endif
+}
 
 /* -------------------------------------------------------------------------- */
+
+static inline int _atomic_sub(_ATOMIC int *ptr, int val)
+{
+    #if (defined(_MSC_VER))
+        #if _MSC_VER >= 1300
+        return _InterlockedExchangeAdd((long volatile *) ptr, - (long) val);
+        #elif (defined(_M_IX86))
+        long result;
+        long neg_val = -val;
+        __asm {
+            mov ecx, ptr
+            mov eax, neg_val
+            lock xadd [ecx], eax
+            mov result, eax
+        }
+        return result;
+        #endif
+    #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+        return atomic_fetch_sub_explicit(ptr, val, memory_order_release);
+    #elif (defined(__GNUC__))
+        #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
+        return __atomic_fetch_sub(ptr, val, __ATOMIC_RELEASE);
+        #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
+        return __sync_fetch_and_sub(ptr, val);
+        #elif defined(__i386__) || defined(__x86_64__)
+        int result;
+        int neg_val = -val;
+        __asm__ __volatile__(
+            "lock; xaddl %0, %1"
+            : "=r"(result), "+m"(*ptr)
+            : "0"(neg_val)
+            : "memory"
+        );
+        return result;
+        #endif
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+#endif
