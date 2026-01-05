@@ -38,6 +38,7 @@
 
 struct _ASKL_RWLock {
     _ATOMIC int state;
+    _ATOMIC int wflag;
     pthread_mutex_t mutex;
     pthread_cond_t cond;
 };
@@ -122,11 +123,15 @@ struct _ASKL_RWLock {
 #define _LOCKSTATE_CAS(lk, a, b) _atomic_cas(& (lk)->state, (a), (b))
 #define _LOCKSTATE_INC(lk)       _atomic_add(& (lk)->state, LOCKSTEP)
 #define _LOCKSTATE_DEC(lk)       _atomic_sub(& (lk)->state, LOCKSTEP)
+#define _LOCKWFLAG_GET(lk)       _atomic_ldr(& (lk)->wflag)
+#define _LOCKWFLAG_SET(lk, v)    _atomic_str(& (lk)->wflag, (v))
 #else
 #define _LOCKSTATE_GET(lk)    ((lk)->state)
 #define _LOCKSTATE_SET(lk, v) do { (lk)->state = (v); } while (0)
 #define _LOCKSTATE_INC(lk)    do { (lk)->state += LOCKSTEP; } while (0)
 #define _LOCKSTATE_DEC(lk)    do { (lk)->state -= LOCKSTEP; } while (0)
+#define _LOCKWFLAG_GET(lk)    ((lk)->wflag)
+#define _LOCKWFLAG_SET(lk, v) do { (lk)->wflag = (v); } while (0)
 #endif
 
 /* -------------------------------------------------------------------------- */
@@ -155,7 +160,8 @@ private int lock_init(ASKL_RWLock *lock)
         goto _err_cond;
     }
 
-    lock->state = UNLOCKED;
+    _LOCKSTATE_SET(lock, UNLOCKED);
+    _LOCKWFLAG_SET(lock, 0);
 
     return 0;
 
@@ -169,6 +175,8 @@ _err_cond:
 private int CALLBACK lock_rdlock(ASKL_RWLock *lock)
 {
     int ret = 0, x = 0;
+
+    if (unlikely(_LOCKWFLAG_GET(lock))) sched_yield();
 
     #ifdef HAS_ATOMICS
     for (x = _LOCKSTATE_GET(lock); x && ! (x & 0x1); x = _LOCKSTATE_GET(lock)) {
@@ -225,6 +233,7 @@ private int CALLBACK lock_wrlock(ASKL_RWLock *lock)
         #endif
             /* wait for unlock */
             while ( (x = _LOCKSTATE_GET(lock)) != UNLOCKED) {
+                _LOCKWFLAG_SET(lock, 1);
                 if (unlikely(x == -1)) {
                     ret = -1; goto _err_lock;
                 }
@@ -237,6 +246,7 @@ private int CALLBACK lock_wrlock(ASKL_RWLock *lock)
             #else
             _LOCKSTATE_SET(lock, 0);
             #endif
+            _LOCKWFLAG_SET(lock, 0);
         #ifdef HAS_ATOMICS
         }
         #endif

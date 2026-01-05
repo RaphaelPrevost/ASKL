@@ -1425,7 +1425,10 @@ static void CALLBACK _string_update_size(m_string *s, ssize_t diff)
 {
     while (s) {
         s->_len += diff;
-        if (s->parent) s->_alloc = s->_len; else s->_data[SIZE(s)] = '\0';
+        if (s->parent)
+            s->_alloc = s->_len;
+        else if (s->_alloc > s->_len)
+            s->_data[SIZE(s)] = '\0';
         s = s->parent;
     }
 }

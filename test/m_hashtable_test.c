@@ -672,6 +672,243 @@ static int test_map_remove_at_concurrent(void)
 }
 
 /* -------------------------------------------------------------------------- */
+/* Test: Writer Starvation Detection                                          */
+/* -------------------------------------------------------------------------- */
+
+#define STARVATION_TEST_DURATION_SEC 5
+#define STARVATION_READER_THREADS 16
+#define STARVATION_WRITER_THREADS 2
+
+typedef struct {
+    ASKL_LinkedMap *map;
+    int thread_id;
+    volatile int stop;
+
+    /* Statistics */
+    uint64_t operations;
+    uint64_t total_latency_ns;
+    uint64_t max_latency_ns;
+    uint64_t timeouts;  // Latencies > 100ms
+} starvation_test_args;
+
+/* Helper: Get time in nanoseconds */
+static uint64_t get_time_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t) ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+}
+
+/* Reader thread: Continuously read from map */
+static void* starvation_reader_thread(void* arg) {
+    starvation_test_args *args = (starvation_test_args*)arg;
+    char keybuf[32];
+
+    while (! args->stop) {
+        /* Pick a random key */
+        unsigned int key_id = rand() % 10000;
+        snprintf(keybuf, sizeof(keybuf), "key_%04u", key_id);
+
+        /* Read operation (acquires read lock) */
+        uint64_t start = get_time_ns();
+        variant val = map_get(args->map, keybuf, strlen(keybuf));
+        uint64_t latency = get_time_ns() - start;
+
+        args->operations ++;
+        args->total_latency_ns += latency;
+
+        if (latency > args->max_latency_ns) {
+            args->max_latency_ns = latency;
+        }
+
+        /* Do a tiny bit of work */
+        if (is_integer(val)) {
+            volatile uint64_t x = variant_to_integer(val);
+            (void) x;
+        }
+
+        /* Yield occasionally to increase contention */
+        if (args->operations % 100 == 0) {
+            sched_yield();
+        }
+    }
+
+    return NULL;
+}
+
+/* Writer thread: Continuously write to map */
+static void *starvation_writer_thread(void *arg) {
+    starvation_test_args *args = (starvation_test_args *) arg;
+    char keybuf[32];
+    uint64_t write_count = 0;
+
+    while (! args->stop) {
+        /* Pick a random key */
+        unsigned int key_id = rand() % 10000;
+        snprintf(keybuf, sizeof(keybuf), "key_%04u", key_id);
+
+        /* Write operation (acquires write lock) */
+        uint64_t start = get_time_ns();
+        map_set(args->map, keybuf, strlen(keybuf),
+                variant_from_integer(write_count));
+        uint64_t latency = get_time_ns() - start;
+
+        args->operations ++;
+        args->total_latency_ns += latency;
+
+        if (latency > args->max_latency_ns) {
+            args->max_latency_ns = latency;
+        }
+
+        /* Count latencies > 100ms as "timeouts" (starvation indicator) */
+        if (latency > 100000000ULL) {  // 100ms
+            args->timeouts ++;
+            printf("(!) Writer %d: Experienced %.1f ms latency (possible starvation)\n",
+                   args->thread_id, latency / 1000000.0);
+        }
+
+        write_count ++;
+
+        /* Writers should write less frequently than readers read */
+        usleep(1000);  // 1ms delay between writes
+    }
+
+    return NULL;
+}
+
+static int test_writer_starvation(void) {
+    ASKL_LinkedMap *map = NULL;
+    pthread_t reader_threads[STARVATION_READER_THREADS];
+    pthread_t writer_threads[STARVATION_WRITER_THREADS];
+    starvation_test_args reader_args[STARVATION_READER_THREADS] = {{0}};
+    starvation_test_args writer_args[STARVATION_WRITER_THREADS] = {{0}};
+
+    printf("(-) Testing for writer starvation under heavy read load.\n");
+    printf("(*) Configuration:\n");
+    printf("    - %d reader threads (continuous)\n", STARVATION_READER_THREADS);
+    printf("    - %d writer threads (1 write/ms)\n", STARVATION_WRITER_THREADS);
+    printf("    - Test duration: %d seconds\n", STARVATION_TEST_DURATION_SEC);
+
+    /* Create and populate map */
+    map = map_alloc(NULL);
+    if (map == NULL) {
+        printf("(!) Failed to allocate map\n");
+        return -1;
+    }
+
+    printf("(*) Populating map with 10000 items...\n");
+    for (unsigned int i = 0; i < 10000; i ++) {
+        char keybuf[32];
+        snprintf(keybuf, sizeof(keybuf), "key_%04u", i);
+        map_set(map, keybuf, strlen(keybuf), variant_from_integer(i));
+    }
+
+    /* Spawn reader threads */
+    printf("(*) Spawning %d reader threads...\n", STARVATION_READER_THREADS);
+    for (int i = 0; i < STARVATION_READER_THREADS; i ++) {
+        reader_args[i].map = map;
+        reader_args[i].thread_id = i;
+        reader_args[i].stop = 0;
+        if (pthread_create(& reader_threads[i], NULL,
+                          starvation_reader_thread, & reader_args[i]) != 0) {
+            printf("(!) Failed to create reader thread %d\n", i);
+            return -1;
+        }
+    }
+
+    /* Spawn writer threads */
+    printf("(*) Spawning %d writer threads...\n", STARVATION_WRITER_THREADS);
+    for (int i = 0; i < STARVATION_WRITER_THREADS; i++) {
+        writer_args[i].map = map;
+        writer_args[i].thread_id = i;
+        writer_args[i].stop = 0;
+        if (pthread_create(&writer_threads[i], NULL,
+                          starvation_writer_thread, &writer_args[i]) != 0) {
+            printf("(!) Failed to create writer thread %d\n", i);
+            return -1;
+        }
+    }
+
+    printf("(*) Running test for %d seconds...\n", STARVATION_TEST_DURATION_SEC);
+    sleep(STARVATION_TEST_DURATION_SEC);
+
+    /* Stop all threads */
+    printf("(*) Stopping threads...\n");
+    for (int i = 0; i < STARVATION_READER_THREADS; i ++) {
+        reader_args[i].stop = 1;
+    }
+    for (int i = 0; i < STARVATION_WRITER_THREADS; i ++) {
+        writer_args[i].stop = 1;
+    }
+
+    /* Join all threads */
+    for (int i = 0; i < STARVATION_READER_THREADS; i ++) {
+        pthread_join(reader_threads[i], NULL);
+    }
+    for (int i = 0; i < STARVATION_WRITER_THREADS; i ++) {
+        pthread_join(writer_threads[i], NULL);
+    }
+
+    /* Analyze results */
+    printf("\n(*) Results:\n\n");
+
+    printf("Readers:\n");
+    uint64_t total_reader_ops = 0;
+    for (int i = 0; i < STARVATION_READER_THREADS; i ++) {
+        double avg_latency = (double) reader_args[i].total_latency_ns /
+                             reader_args[i].operations;
+        printf("  Reader %2d: %8llu ops, avg %.2f µs, max %.2f µs\n",
+               i,
+               (unsigned long long) reader_args[i].operations,
+               avg_latency / 1000.0,
+               reader_args[i].max_latency_ns / 1000.0);
+        total_reader_ops += reader_args[i].operations;
+    }
+    printf("  Total read ops: %llu\n\n", (unsigned long long) total_reader_ops);
+
+    printf("Writers:\n");
+    uint64_t total_writer_ops = 0;
+    uint64_t total_timeouts = 0;
+    for (int i = 0; i < STARVATION_WRITER_THREADS; i ++) {
+        double avg_latency = (double) writer_args[i].total_latency_ns /
+                             writer_args[i].operations;
+        printf("  Writer %2d: %8llu ops, avg %.2f µs, max %.2f ms, timeouts: %llu\n",
+               i,
+               (unsigned long long) writer_args[i].operations,
+               avg_latency / 1000.0,
+               writer_args[i].max_latency_ns / 1000000.0,
+               (unsigned long long) writer_args[i].timeouts);
+        total_writer_ops += writer_args[i].operations;
+        total_timeouts += writer_args[i].timeouts;
+    }
+    printf("  Total write ops: %llu\n", (unsigned long long) total_writer_ops);
+    printf("  Total starvation events (>100ms): %llu\n\n",
+           (unsigned long long) total_timeouts);
+
+    /* Verdict */
+    if (total_timeouts > 0) {
+        printf("(!) STARVATION DETECTED: Writers experienced %llu delays >100ms\n",
+               (unsigned long long) total_timeouts);
+        printf("(!) This indicates writers were starved by continuous reader load.\n");
+    } else {
+        printf("(*) No starvation detected. Writers acquired locks promptly.\n");
+    }
+
+    /* Check fairness: writers should complete at least some operations */
+    uint64_t expected_min_writes = STARVATION_TEST_DURATION_SEC * 250;
+    if (total_writer_ops < expected_min_writes) {
+        printf("(!) Writers completed only %llu ops (expected >%llu)\n",
+               (unsigned long long) total_writer_ops,
+               (unsigned long long) expected_min_writes);
+        printf("(!) This suggests writers were significantly delayed.\n");
+    }
+
+    /* Cleanup */
+    map_free(map);
+
+    return (total_timeouts > 0) ? -1 : 0;
+}
+
+/* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
 int test_hashtable(void)
@@ -896,6 +1133,10 @@ int test_hashtable(void)
     }
 
     if (test_write_stress_concurrent() == -1) {
+        return -1;
+    }
+
+    if (test_writer_starvation() == -1) {
         return -1;
     }
 

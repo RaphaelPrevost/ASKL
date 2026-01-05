@@ -560,7 +560,7 @@ static variant _exists(UNUSED variant v)
 public int map_has(ASKL_LinkedMap *h, const char *key, size_t len)
 {
     variant v = map_get_with(h, key, len, _exists);
-    return (is_boolean(v) && v.value.integer);
+    return (is_boolean(v) && variant_to_boolean(v));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -568,7 +568,7 @@ public int map_has(ASKL_LinkedMap *h, const char *key, size_t len)
 public int map_merge(
     ASKL_LinkedMap *dest,
     ASKL_LinkedMap *src,
-    variant merge(const char *key, size_t len, variant dest, variant src)
+    variant merge(const char *key, size_t len, variant destval, variant srcval)
 )
 {
     _bucket *b = NULL, *next = NULL;

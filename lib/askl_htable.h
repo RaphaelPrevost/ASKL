@@ -369,7 +369,7 @@ public int map_has(ASKL_LinkedMap *h, const char *key, size_t len);
 public int map_merge(
     ASKL_LinkedMap *dest,
     ASKL_LinkedMap *src,
-    variant merge(const char *key, size_t len, variant dest, variant src)
+    variant merge(const char *key, size_t len, variant destval, variant srcval)
 );
 
 /**
