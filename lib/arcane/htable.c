@@ -41,7 +41,7 @@
 
 #define HASH_COUNT         8    /* number of hash functions */
 #define HASH_RETRY         4    /* number of retries if the bucket is full */
-#define HASH_RATIO       1.2    /* threshold to grow the table (80%) */
+#define HASH_RATIO      1.23    /* threshold to grow the table (81.3%) */
 
 #define RESIZE_HMAP -1
 #define CREATE_ONLY  0

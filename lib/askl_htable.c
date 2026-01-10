@@ -194,6 +194,8 @@ _loop:  if (! h->_bucket[index]) {
                     goto _replace;
             }
         }
+
+        if (replace == MODIFY_ONLY) goto _failure;
     }
 
     /* no free slot found, try cuckoo eviction */
@@ -211,7 +213,6 @@ _loop:  if (! h->_bucket[index]) {
 
             if (! h->_bucket[index]) {
                 /* this slot is free, insert */
-                if (unlikely(replace == MODIFY_ONLY)) goto _failure;
                 if (on_insert) {
                     item->val = on_insert(
                         item->key.str,
@@ -228,8 +229,6 @@ _loop:  if (! h->_bucket[index]) {
         /* avoid evicting the original cuckoo */
         if (unlikely(loop)) break;
     }
-
-    if (unlikely(replace == MODIFY_ONLY)) goto _failure;
 
     /* store the key in the overflow basket */
     if (on_insert)
@@ -253,9 +252,14 @@ _replace:
             }
         }
 
-        if (replace == MODIFY_ONLY && lock_upgrade(h->_lock) == -1) return -1;
+        if (
+            replace == MODIFY_ONLY &&
+            lock_upgrade(h->_lock) == -1
+        ) goto _failure;
+
             *val = rejected;
             slot->val = new;
+
         if (replace == MODIFY_ONLY) lock_restore(h->_lock);
     } else *val = slot->val; /* return the existing value */
 
@@ -497,7 +501,7 @@ public variant map_get_with(
 )
 {
     unsigned int i = 0, j = 0;
-    uintptr_t hash = 0;
+    uintptr_t hash0 = 0;
     _item *ptr = NULL;
     variant res = { 0 };
     uint32_t mask = 0;
@@ -510,8 +514,8 @@ public variant map_get_with(
     if (lock_rdlock(h->_lock) == -1) return res;
 
     mask = h->_bucket_size - 1;
-    hash = _hash(key, len, h->_seed[i]);
-    j = hash & mask; goto _loop;
+    hash0 = _hash(key, len, h->_seed[0]);
+    j = hash0 & mask; goto _loop;
 
     for (i = 0; i < HASH_COUNT; i ++) {
         j = _hash(key, len, h->_seed[i]) & mask;
@@ -519,8 +523,8 @@ public variant map_get_with(
         /* if an empty slot is found, no need to look further */
 _loop:  if (! (ptr = h->_bucket[j]) ) break;
 
-        if (hash == (uintptr_t) ptr->ptr && likely(ptr->key.len == len)) {
-            if (likely(! memcmp(ptr->key.str, key, len))) {
+        if ((uintptr_t) ptr->ptr == hash0 && likely(ptr->key.len == len)) {
+            if (likely(memcmp(ptr->key.str, key, len) == 0)) {
                 res = ptr->val; if (function) res = function(res);
                 goto _result;
             }
@@ -826,7 +830,7 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
     if (lock_wrlock(h->_lock) == -1) return 0;
 
     if (h->_bucket_size) {
-        /* segment bucket size */
+        /* bucket size */
         ret += h->_bucket_size * sizeof(*h->_bucket);
         /* keys */
         for (bucket = h->_index; bucket; bucket = bucket->next) {

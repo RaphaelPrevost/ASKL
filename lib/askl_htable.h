@@ -577,7 +577,7 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead);
  *  - the bucket array,
  *  - all allocated items and their keys.
  *
- * If @p overhead is non-NULL, @c *overhead is set to the portion of @p h’s
+ * If @p overhead is non-NULL, @c *overhead is set to the portion of @p h
  * memory that is considered overhead (metadata, buckets, etc.) rather than
  * user payload (keys and the pointer to the value).
  */
