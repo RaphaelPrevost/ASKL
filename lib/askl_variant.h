@@ -50,14 +50,14 @@ typedef struct variant {
     } value;
     union {
         struct {
-            uint32_t dword;
-            uint16_t word;
-            uint8_t  byte;
             uint8_t  type;  /* reserved unless type & _VALUE_OBJECT */
+            uint8_t  byte;
+            uint16_t word;
+            uint32_t dword;
         } fields;
         struct {
-            uint8_t bytes[7];
             uint8_t type;
+            uint8_t bytes[7];
         } raw;
     } metadata;             /* 56 bits of reclaimed padding to store metadata */
 } variant;

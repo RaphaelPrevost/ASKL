@@ -43,11 +43,152 @@
 #define HASH_RETRY         4    /* number of retries if the bucket is full */
 #define HASH_RATIO      1.23    /* threshold to grow the table (81.3%) */
 
+/*
+ * HASH_RATIO: Resize threshold (inverse of load factor)
+ * Recommended values:
+ *   1.23 (81.3% load) - Optimal speed/memory balance (32/64 bits) [default]
+ *   1.10 (90.9% load) - 2% slower (64 bits only)
+ *   1.03 (97.1% load) - Maximum density, 18% slower (64 bits only)
+ */
+
 #define RESIZE_HMAP -1
 #define CREATE_ONLY  0
 #define STORE_VALUE  1
 #define MODIFY_ONLY  2
 
+/* -------------------------------------------------------------------------- */
+#if (UINTPTR_MAX == 0xffffffffffffffffULL) /* 64 bits */
+/* -------------------------------------------------------------------------- */
+/* rapidhashNano (author: Nicolas De Carli) */
+/* -------------------------------------------------------------------------- */
+
+/* rapidhash secret constants */
+static const uint64_t _rapid_secret[8] = {
+    0x2d358dccaa6c78a5ULL, 0x8bb84b93962eacc9ULL,
+    0x4b33a62ed433d4a3ULL, 0x4d5a2da51de1aa47ULL,
+    0xa0761d6478bd642fULL, 0xe7037ed1a0b428dbULL,
+    0x90ed1765281c388cULL, 0xaaaaaaaaaaaaaaaaULL
+};
+
+/* -------------------------------------------------------------------------- */
+
+static uint64_t _rapid_read64(const uint8_t *p)
+{
+    uint64_t result;
+    memcpy(& result, p, sizeof(result));
+    #if defined(BIG_ENDIAN_HOST)
+    return __bswap64(result);
+    #else
+    return result;
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static uint64_t _rapid_read32(const uint8_t *p)
+{
+    uint32_t result;
+    memcpy(& result, p, sizeof(result));
+    #if defined(BIG_ENDIAN_HOST)
+    return __bswap32(result);
+    #else
+    return result;
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void _rapid_mum(uint64_t *a, uint64_t *b)
+{
+    uint64_t high;
+    uint64_t low = umul128(*a, *b, & high);
+    *a = low;
+    *b = high;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static uint64_t _rapid_mix(uint64_t a, uint64_t b)
+{
+    _rapid_mum(& a, & b);
+    return a ^ b;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static uint64_t _hash(const char *key, size_t len, uint64_t seed)
+{
+    const uint8_t *p = (const uint8_t *) key;
+    uint64_t a = 0, b = 0;
+    size_t i = len;
+
+    seed ^= _rapid_mix(seed ^ _rapid_secret[2], _rapid_secret[1]);
+
+    if (likely(len <= 16)) {
+        if (len >= 4) {
+            seed ^= len;
+            if (len >= 8) {
+                const uint8_t *plast = p + len - 8;
+                a = _rapid_read64(p);
+                b = _rapid_read64(plast);
+            } else {
+                const uint8_t *plast = p + len - 4;
+                a = _rapid_read32(p);
+                b = _rapid_read32(plast);
+            }
+        } else if (len > 0) {
+            a = (((uint64_t) p[0]) << 45) | p[len - 1];
+            b = p[len >> 1];
+        } else {
+            a = b = 0;
+        }
+    } else {
+        if (i > 48) {
+            uint64_t see1 = seed, see2 = seed;
+            do {
+                seed = _rapid_mix(
+                    _rapid_read64(p) ^ _rapid_secret[0],
+                    _rapid_read64(p + 8) ^ seed
+                );
+                see1 = _rapid_mix(
+                    _rapid_read64(p + 16) ^ _rapid_secret[1],
+                    _rapid_read64(p + 24) ^ see1
+                );
+                see2 = _rapid_mix(
+                    _rapid_read64(p + 32) ^ _rapid_secret[2],
+                    _rapid_read64(p + 40) ^ see2
+                );
+                p += 48;
+                i -= 48;
+            } while (i > 48);
+            seed ^= see1;
+            seed ^= see2;
+        }
+        if (i > 16) {
+            seed = _rapid_mix(
+                _rapid_read64(p) ^ _rapid_secret[2],
+                _rapid_read64(p + 8) ^ seed
+            );
+            if (i > 32) {
+                seed = _rapid_mix(
+                    _rapid_read64(p + 16) ^ _rapid_secret[2],
+                    _rapid_read64(p + 24) ^ seed
+                );
+            }
+        }
+        a = _rapid_read64(p + i - 16) ^ i;
+        b = _rapid_read64(p + i - 8);
+    }
+
+    a ^= _rapid_secret[1];
+    b ^= seed;
+    _rapid_mum(& a, & b);
+
+    return _rapid_mix(a ^ _rapid_secret[7], b ^ _rapid_secret[1] ^ i);
+}
+
+/* -------------------------------------------------------------------------- */
+#elif (UINTPTR_MAX == 0xffffffffU) /* 32 bits */
 /* -------------------------------------------------------------------------- */
 /* wyhash32 (author: 王一 Wang Yi <godspeed_china@yeah.net>) */
 /* -------------------------------------------------------------------------- */
@@ -106,6 +247,8 @@ static uint32_t _hash(const char *key, uint16_t len, uint32_t seed)
     return seed ^ see1;
 }
 
+/* -------------------------------------------------------------------------- */
+#endif
 /* -------------------------------------------------------------------------- */
 
 #endif

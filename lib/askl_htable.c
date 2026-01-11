@@ -107,7 +107,7 @@ struct _ASKL_LinkedMap {
     size_t _bucket_size;
     size_t _bucket_count;
     void (*_freeval)(variant);
-    uint32_t _seed[HASH_COUNT];
+    uintptr_t _seed[HASH_COUNT];
 };
 
 /**
@@ -145,6 +145,43 @@ struct _ASKL_LinkedMap {
 
 /* -------------------------------------------------------------------------- */
 
+static int _probe(ASKL_LinkedMap *h, unsigned int i, _item *new, int replace)
+{
+    if (! h->_bucket[i]) {
+        if (unlikely(replace == MODIFY_ONLY)) return -1;
+        h->_bucket[i] = new;
+        h->_bucket_count ++;
+        /* insert */
+        return 0;
+    }
+
+    if (replace > 0 && new->ptr == h->_bucket[i]->ptr) {
+        unsigned int len = 0;
+
+        /* try to reclaim tombstones */
+        if (unlikely( (len = h->_bucket[i]->key.len) == 0))
+            len = h->_bucket[i]->val.metadata.fields.word;
+
+        if (likely(new->key.len == len)) {
+            if (likely(! memcmp(new->key.str, h->_bucket[i]->key.str, len))) {
+                if (unlikely(replace == MODIFY_ONLY)) return -1;
+                if (unlikely(! h->_bucket[i]->key.len)) {
+                    /* resurrect the key */
+                    h->_bucket[i]->key.len = len;
+                    h->_bucket[i]->val = variant_null();
+                }
+                /* replace */
+                return 1;
+            }
+        }
+    }
+
+    /* continue */
+    return INT_MAX;
+}
+
+/* -------------------------------------------------------------------------- */
+
 static int _set_item(
     ASKL_LinkedMap *h,
     _item *item,
@@ -156,34 +193,48 @@ static int _set_item(
 {
     unsigned int i = 0, index = 0, retry = 0;
     _item *slot = NULL;
-    uint32_t mask = h->_bucket_size - 1;
+    uintptr_t hash = 0, mask = h->_bucket_size - 1;
 
     /* avoid rehashing every key */
-    if (unlikely(! (index = (uintptr_t) item->ptr))) {
-        index = _hash(item->key.str, item->key.len, h->_seed[0]);
-        item->ptr = (void *) ((uintptr_t) index);
+    if (unlikely(! (hash = (uintptr_t) item->ptr))) {
+        hash = _hash(item->key.str, item->key.len, h->_seed[0]);
+        item->ptr = (void *) hash;
     }
-    index &= mask; goto _loop;
+
+    goto _loop;
 
     /* look for a free slot */
     for (i = 0; i < HASH_COUNT; i ++) {
-        index = _hash(item->key.str, item->key.len, h->_seed[i]) & mask;
+        int probe = 0;
 
-_loop:  if (! h->_bucket[index]) {
-            /* this slot is free, insert */
-            if (unlikely(replace == MODIFY_ONLY)) goto _failure;
+        hash = _hash(item->key.str, item->key.len, h->_seed[i]);
+
+_loop:  index = hash & mask;
+        if ( (probe = _probe(h, index, item, replace)) == 0) {
             if (on_insert)
                 item->val = on_insert(item->key.str, item->key.len, item->val);
-            h->_bucket[index] = item;
-            h->_bucket_count ++;
             return 0;
-        } else if (replace == RESIZE_HMAP) continue;
+        } else if (unlikely(probe == -1)) goto _failure;
 
-        slot = h->_bucket[index];
-        if (item->ptr == slot->ptr && item->key.len == slot->key.len) {
-            if (! memcmp(item->key.str, slot->key.str, item->key.len))
-                goto _replace;
+        if (probe == 1) {
+            slot = h->_bucket[index];
+            goto _replace;
         }
+
+        #if (UINTPTR_MAX == 0xffffffffffffffffULL)
+        /* second probe on 64 bits systems */
+        index = (hash >> 32) & mask;
+        if ( (probe = _probe(h, index, item, replace)) == 0) {
+            if (on_insert)
+                item->val = on_insert(item->key.str, item->key.len, item->val);
+            return 0;
+        } else if (unlikely(probe == -1)) goto _failure;
+
+        if (probe == 1) {
+            slot = h->_bucket[index];
+            goto _replace;
+        }
+        #endif
     }
 
     /* couldn't find it, look in the basket */
@@ -198,32 +249,32 @@ _loop:  if (! h->_bucket[index]) {
         if (replace == MODIFY_ONLY) goto _failure;
     }
 
-    /* no free slot found, try cuckoo eviction */
+    /* no free slot found, the new item will be forcefully inserted */
+    if (on_insert)
+        item->val = on_insert(item->key.str, item->key.len, item->val);
+
+    /* try cuckoo eviction */
     for (index = (uintptr_t) item->ptr & mask; retry < HASH_RETRY; retry ++) {
         _item *tmp = h->_bucket[index];
         int loop = (tmp->ptr == item->ptr);
+
         h->_bucket[index] = item; item = tmp;
 
         /* get rid of tombstones */
         if (unlikely(! item->key.len)) return 0;
 
-        /* skip the first seed as the slot is obviously taken */
-        for (i = 1; i < HASH_COUNT; i ++) {
-            index = _hash(item->key.str, item->key.len, h->_seed[i]) & mask;
-
-            if (! h->_bucket[index]) {
-                /* this slot is free, insert */
-                if (on_insert) {
-                    item->val = on_insert(
-                        item->key.str,
-                        item->key.len,
-                        item->val
-                    );
-                }
-                h->_bucket[index] = item;
-                h->_bucket_count ++;
+        for (i = 0; i < HASH_COUNT; i ++) {
+            int probe = 0;
+            hash = _hash(item->key.str, item->key.len, h->_seed[i]);
+            index = hash & mask;
+            if ( (probe = _probe(h, index, item, 0)) == 0)
                 return 0;
-            }
+            #if (UINTPTR_MAX == 0xffffffffffffffffULL)
+            /* second probe on 64 bits systems */
+            index = (hash >> 32) & mask;
+            if ( (probe = _probe(h, index, item, 0)) == 0)
+                return 0;
+            #endif
         }
 
         /* avoid evicting the original cuckoo */
@@ -231,8 +282,6 @@ _loop:  if (! h->_bucket[index]) {
     }
 
     /* store the key in the overflow basket */
-    if (on_insert)
-        item->val = on_insert(item->key.str, item->key.len, item->val);
     item->ptr = h->_basket; h->_basket = item; h->_bucket_count ++;
 
     return 0;
@@ -252,15 +301,14 @@ _replace:
             }
         }
 
-        if (
-            replace == MODIFY_ONLY &&
-            lock_upgrade(h->_lock) == -1
-        ) goto _failure;
+        if (replace == MODIFY_ONLY)
+            if (lock_upgrade(h->_lock) == -1) goto _failure;
 
             *val = rejected;
             slot->val = new;
 
-        if (replace == MODIFY_ONLY) lock_restore(h->_lock);
+        if (replace == MODIFY_ONLY)
+            lock_restore(h->_lock);
     } else *val = slot->val; /* return the existing value */
 
     return 1;
@@ -379,7 +427,6 @@ _err_lock:
 
 public ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
 {
-    unsigned int i = 0;
     ASKL_LinkedMap *h = NULL;
 
     if (! (h = malloc(sizeof(*h))) ) {
@@ -387,12 +434,12 @@ public ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
         return NULL;
     }
 
-    /* initialize the seeds */
-    if (random_seed(h->_seed, HASH_COUNT) == -1)
+    if (random_seed((uint32_t *) h->_seed, sizeof(h->_seed) / 4) == -1)
         goto _err_rand;
 
-    for (i = 0; i < HASH_COUNT; i ++) {
-        /* known bad seeds */
+    #if (UINTPTR_MAX == 0xffffffffU)
+    for (int i = 0; i < HASH_COUNT; i ++) {
+        /* wyhash32 known bad seeds */
         if ((h->_seed[i] == 0x429dacdd) ||
             (h->_seed[i] == 0x51a43a0f) ||
             (h->_seed[i] == 0x522235ae) ||
@@ -401,8 +448,8 @@ public ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
             (h->_seed[i] == 0xd637dbf3))
             h->_seed[i] ++;
     }
+    #endif
 
-    /* initialize the inner semaphore */
     if (! (h->_lock = lock_alloc()) ) goto _err_lock;
     if (lock_init(h->_lock) == -1) goto _err_init;
 
@@ -500,11 +547,10 @@ public variant map_get_with(
     variant (*function)(variant)
 )
 {
-    unsigned int i = 0, j = 0;
-    uintptr_t hash0 = 0;
+    unsigned int i = 0;
+    uintptr_t h0 = 0, hash = 0, mask = 0;
     _item *ptr = NULL;
     variant res = { 0 };
-    uint32_t mask = 0;
 
     if (unlikely(! h || ! key || ! len)) {
         debug("map_get_with(): bad parameters.\n");
@@ -514,32 +560,42 @@ public variant map_get_with(
     if (lock_rdlock(h->_lock) == -1) return res;
 
     mask = h->_bucket_size - 1;
-    hash0 = _hash(key, len, h->_seed[0]);
-    j = hash0 & mask; goto _loop;
+    h0 = hash = _hash(key, len, h->_seed[0]);
+    goto _loop;
 
     for (i = 0; i < HASH_COUNT; i ++) {
-        j = _hash(key, len, h->_seed[i]) & mask;
+        hash = _hash(key, len, h->_seed[i]);
 
-        /* if an empty slot is found, no need to look further */
-_loop:  if (! (ptr = h->_bucket[j]) ) break;
-
-        if ((uintptr_t) ptr->ptr == hash0 && likely(ptr->key.len == len)) {
-            if (likely(memcmp(ptr->key.str, key, len) == 0)) {
-                res = ptr->val; if (function) res = function(res);
-                goto _result;
-            }
+        #define _MAP_GET(index) \
+        /* if an empty slot is found, no need to look further */ \
+        if (! (ptr = h->_bucket[(index)]) ) break; \
+        if ((uintptr_t) ptr->ptr == h0 && likely(ptr->key.len == len)) { \
+            if (likely(memcmp(ptr->key.str, key, len) == 0)) { \
+                res = ptr->val; \
+                goto _result; \
+            } \
         }
+
+_loop:  _MAP_GET(hash & mask);
+
+        #if (UINTPTR_MAX == 0xffffffffffffffffULL)
+        /* second probe on 64 bits systems */
+        _MAP_GET((hash >> 32) & mask);
+        #endif
+
+        #undef _MAP_GET
     }
 
-    /* unlucky, scan the basket for orphan keys */
+    /* scan the overflow basket */
     for (ptr = h->_basket; ptr; ptr = ptr->ptr) {
         if (ptr->key.len == len && memcmp(ptr->key.str, key, len) == 0) {
-            res = ptr->val; if (function) res = function(res);
+            res = ptr->val;
             goto _result;
         }
     }
 
 _result:
+    if (function) res = function(res);
     lock_unlock(h->_lock);
 
     return res;
@@ -578,7 +634,7 @@ public int map_merge(
     _bucket *b = NULL, *next = NULL;
 
     if (! dest || ! src || ! merge) {
-        debug("map_union(): bad parameters.\n");
+        debug("map_merge(): bad parameters.\n");
         return -1;
     }
 
@@ -645,6 +701,7 @@ public void map_foreach(
             );
             if (ret == -1) {
                 /* delete the record */
+                bucket->item.val.metadata.fields.word = bucket->item.key.len;
                 bucket->item.key.len = 0;
             }
         }
@@ -687,7 +744,7 @@ public int map_sort(
 
         for (merge = 0; (l[1] = l[0]); merge ++, l[0] = l[1]) {
 
-            /* split the table in 2 sorted lists of up to `size` buckets */
+            /* split the table in 2 sorted lists */
             for (c[0] = 0; c[0] < size; c[0] ++) {
                 if (! (l[1] = l[1]->next) ) { c[0] ++; break; }
             }
@@ -749,10 +806,10 @@ public variant map_remove_if(
     int (*condition)(const char *key, size_t len, variant val)
 )
 {
-    unsigned int i = 0, j = 0;
+    unsigned int i = 0;
     _item *tmp = NULL, *prev = NULL;
     variant result = { 0 };
-    uint32_t mask = 0;
+    uintptr_t h0 = 0, hash = 0, mask = 0;
 
     if (! h || ! key || ! len) {
         debug("map_remove(): bad parameters.\n");
@@ -762,49 +819,65 @@ public variant map_remove_if(
     if (lock_wrlock(h->_lock) == -1) return result;
 
     mask = h->_bucket_size - 1;
+    h0 = hash = _hash(key, len, h->_seed[i]);
+    goto _loop;
 
     for (i = 0; i < HASH_COUNT; i ++) {
-        j = _hash(key, len, h->_seed[i]) & mask;
+        hash = _hash(key, len, h->_seed[i]);
 
-        if (! h->_bucket[j] || h->_bucket[j]->key.len != len) continue;
-
-        if (memcmp(h->_bucket[j]->key.str, key, len) == 0) {
-            if (! condition || condition(key, len, h->_bucket[j]->val)) {
-                /* remove from the bucket */
-                result = h->_bucket[j]->val;
-                /* a length of 0 indicates a tombstone */
-                h->_bucket[j]->key.len = 0;
-            }
-            lock_unlock(h->_lock);
-            return result;
+        #define _MAP_REMOVE(index) \
+        if ( (tmp = h->_bucket[(index)]) ) { \
+            if ((uintptr_t) tmp->ptr == h0 && likely(tmp->key.len == len)) { \
+                if (likely(memcmp(tmp->key.str, key, len) == 0)) { \
+                    if (! condition || condition(key, len, tmp->val)) { \
+                        /* remove from the bucket */ \
+                        result = tmp->val; \
+                        /* keep the original length in metadata */ \
+                        tmp->val.metadata.fields.word = tmp->key.len; \
+                        /* a length of 0 indicates a tombstone */ \
+                        tmp->key.len = 0; \
+                    } \
+                    goto _result; \
+                } \
+            } \
         }
+
+_loop:  _MAP_REMOVE(hash & mask);
+
+        #if (UINTPTR_MAX == 0xffffffffffffffffULL)
+        /* second probe on 64 bits systems */
+        _MAP_REMOVE((hash >> 32) & mask);
+        #endif
+
+        #undef _MAP_REMOVE
     }
 
-    /* unlucky, scan the basket for orphan keys */
+    /* scan the overflow basket */
     for (tmp = prev = h->_basket; tmp; prev = tmp, tmp = tmp->ptr) {
         if (tmp->key.len == len) {
             if (memcmp(tmp->key.str, key, len) == 0) {
                 if (! condition || condition(key, len, tmp->val)) {
-                    /* remove the orphan from the basket */
                     result = tmp->val;
+                    tmp->val.metadata.fields.word = tmp->key.len;
+
+                    /* remove from the basket */
                     if (tmp == h->_basket) h->_basket = tmp->ptr;
                     else prev->ptr = tmp->ptr;
 
-                    /* XXX tombstone for garbage collection */
+                    /* tombstone */
                     tmp->key.len = 0;
                 }
-                lock_unlock(h->_lock);
-                return result;
+                goto _result;
             }
         }
     }
 
+_result:
     /* garbage collection if necessary */
     _resize(h, (size_t) (h->_bucket_count * HASH_RATIO));
-
     lock_unlock(h->_lock);
 
-    return variant_null();
+    return result;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -964,12 +1037,14 @@ public variant map_set_at(ASKL_MapIterator *iterator, variant new)
 public variant map_remove_at(ASKL_MapIterator *iterator)
 {
     variant ret = { 0 };
+    unsigned int len = 0;
 
     if (lock_upgrade(iterator->map->_lock) == -1) return ret;
         /* XXX another thread may have deleted the entry during upgrade */
-        if (likely(iterator->_current->item.key.len)) {
-            iterator->_current->item.key.len = 0;
+        if (likely(len = iterator->_current->item.key.len)) {
             ret = iterator->_current->item.val;
+            iterator->_current->item.val.metadata.fields.word = len;
+            iterator->_current->item.key.len = 0;
         }
     lock_restore(iterator->map->_lock);
 
