@@ -628,12 +628,40 @@ public ASKL_MapIterator *map_each(ASKL_LinkedMap *h);
 
 /* -------------------------------------------------------------------------- */
 
+public ASKL_MapIterator *map_at(ASKL_LinkedMap *h, const char *key, size_t len);
+
+/**
+ * @ingroup hashtable
+ * @fn ASKL_MapIterator *map_at(ASKL_LinkedMap *h, const char *key, size_t len)
+ * @param h    a pointer to a linked hashmap
+ * @param key  a pointer to the key to look up
+ * @param len  the length in bytes of @p key
+ * @return a newly allocated iterator positioned on the entry matching @p key,
+ *         or @c NULL if the key is not found or an error occurred
+ *
+ * This function creates an iterator positioned on the entry associated with
+ * the specified @p key in the hashmap. It performs a lookup in @p h and, if
+ * the key exists, returns an iterator whose @c val, @c key and @c len fields
+ * are initialized to the corresponding entry.
+ *
+ * The returned iterator holds a read lock on @p h for the duration of its
+ * lifetime. As with iterators created by @ref map_each, the iterator must be
+ * advanced using @ref map_next and eventually destroyed using @ref map_break
+ * (or implicitly when @ref map_next reaches the end).
+ *
+ * @note If @p key is not present in the map or an internal error occurs,
+ *       this function returns @c NULL and does not leave a lock held on
+ *       @p h.
+ */
+
+/* -------------------------------------------------------------------------- */
+
 public ASKL_MapIterator * CALLBACK map_next(ASKL_MapIterator *iterator);
 
 /**
  * @ingroup hashtable
  * @fn ASKL_MapIterator *map_next(ASKL_MapIterator *iterator)
- * @param iterator  an iterator previously created with @ref map_each
+ * @param iterator  an iterator created with @ref map_each or @ref map_at
  * @return the same iterator positioned on the next entry, or @c NULL if the
  *         end of the traversal is reached or an error occurred
  *
@@ -669,8 +697,8 @@ public variant map_set_at(ASKL_MapIterator *iterator, variant new);
  * map operations and that the iterator remains valid after the call.
  *
  * @warning The iterator must currently point to a valid entry (i.e. it must
- *          be the result of a successful call to @ref map_each or
- *          @ref map_next). Calling this function on an exhausted or broken
+ *          be the result of a successful call to @ref map_each, @ref map_at
+ *          or @ref map_next). Calling this function on an exhausted or broken
  *          iterator results in undefined behaviour.
  */
 
@@ -706,8 +734,8 @@ public variant map_remove_at(ASKL_MapIterator *iterator);
  * up to the caller to free or recycle the removed value as appropriate.
  *
  * @warning The iterator must currently point to a valid entry (i.e. it must
- *          be the result of a successful call to @ref map_each or
- *          @ref map_next). Calling this function on an exhausted or broken
+ *          be the result of a successful call to @ref map_each, @ref map_at
+ *          or @ref map_next). Calling this function on an exhausted or broken
  *          iterator results in undefined behaviour.
  *
  * @see map_each()
@@ -722,7 +750,7 @@ public ASKL_MapIterator *map_break(ASKL_MapIterator *iterator);
 /**
  * @ingroup hashtable
  * @fn ASKL_MapIterator *map_break(ASKL_MapIterator *iterator)
- * @param iterator  an iterator obtained from @ref map_each
+ * @param iterator  an iterator obtained from @ref map_each or @ref map_at
  * @return always @c NULL
  *
  * This function explicitly destroys @p iterator and releases its read lock on

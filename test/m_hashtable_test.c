@@ -914,6 +914,7 @@ static int test_writer_starvation(void) {
 int test_hashtable(void)
 {
     ASKL_LinkedMap *h = NULL, *h2 = NULL;
+    ASKL_MapIterator *it = NULL;
     uintptr_t i = 0, j = 0;
     variant val = { 0 };
     int missing = 0;
@@ -935,15 +936,13 @@ int test_hashtable(void)
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        map_set(h, key, len, variant_from_integer(i));
+        map_insert(h, key, len, variant_from_integer(i));
     }
     stop = clock();
     printf("(-) Time elapsed = ");
     printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
     printf(" s\n");
 
-    //printf("(-) Size of the hashtable: %zu items/%zu buckets\n",
-    //        h->_bucket_count, h->_bucket_size);
     printf("(-) Memory footprint: %zu bytes.\n", map_footprint(h, & len));
     printf("(-) Overhead: %zu bytes (%zu KiB).\n", len, len / 1024);
 
@@ -1121,6 +1120,17 @@ int test_hashtable(void)
 
     map_merge(h, h2, _merge);
     map_foreach(h, _print_key_intval);
+
+    /* map_at test */
+    printf("(*) Iterating from H\n");
+    for (it = map_at(h, "H", 1); it; it = map_next(it)) {
+        printf(
+            "Key: %.*s Value: %llu\n",
+            (int) it->len,
+            it->key,
+            variant_to_integer(it->val)
+        );
+    }
 
     h = map_free(h);
 

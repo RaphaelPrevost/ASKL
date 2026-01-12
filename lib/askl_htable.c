@@ -393,12 +393,13 @@ static inline variant _insert(
     }
 
     /* replace the key by a dynamically allocated one */
-    if (! (bucket = malloc(sizeof(*bucket) + len)) ) {
+    if (! (bucket = malloc(sizeof(*bucket) + len + 1)) ) {
         perror(ERR(_insert, malloc));
         return val;
     }
 
     memcpy(bucket->item.key.str, key, len);
+    bucket->item.key.str[len] = '\0';
     bucket->item.key.len = len;
     bucket->item.val = val;
     bucket->item.ptr = NULL;
@@ -540,39 +541,27 @@ public variant map_update(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_get_with(
-    ASKL_LinkedMap *h,
-    const char *key,
-    size_t len,
-    variant (*function)(variant)
-)
+static _item *_get_item(ASKL_LinkedMap *h, const char *k, size_t l, variant *v)
 {
     unsigned int i = 0;
-    uintptr_t h0 = 0, hash = 0, mask = 0;
+    uintptr_t h0, hash, mask = h->_bucket_size - 1;
     _item *ptr = NULL;
-    variant res = { 0 };
 
-    if (unlikely(! h || ! key || ! len)) {
-        debug("map_get_with(): bad parameters.\n");
-        return res;
-    }
-
-    if (lock_rdlock(h->_lock) == -1) return res;
-
-    mask = h->_bucket_size - 1;
-    h0 = hash = _hash(key, len, h->_seed[0]);
+    h0 = hash = _hash(k, l, h->_seed[0]);
+    PREFETCH(& h->_bucket[(hash >> 32) & mask], 0, L1_CACHE);
     goto _loop;
 
     for (i = 0; i < HASH_COUNT; i ++) {
-        hash = _hash(key, len, h->_seed[i]);
+        hash = _hash(k, l, h->_seed[i]);
+        PREFETCH(& h->_bucket[(hash >> 32) & mask], 0, L2_CACHE);
 
         #define _MAP_GET(index) \
         /* if an empty slot is found, no need to look further */ \
         if (! (ptr = h->_bucket[(index)]) ) break; \
-        if ((uintptr_t) ptr->ptr == h0 && likely(ptr->key.len == len)) { \
-            if (likely(memcmp(ptr->key.str, key, len) == 0)) { \
-                res = ptr->val; \
-                goto _result; \
+        if ((uintptr_t) ptr->ptr == h0 && likely(ptr->key.len == l)) { \
+            if (likely(memcmp(ptr->key.str, k, l) == 0)) { \
+                *v = ptr->val; \
+                return ptr; \
             } \
         }
 
@@ -588,14 +577,36 @@ _loop:  _MAP_GET(hash & mask);
 
     /* scan the overflow basket */
     for (ptr = h->_basket; ptr; ptr = ptr->ptr) {
-        if (ptr->key.len == len && memcmp(ptr->key.str, key, len) == 0) {
-            res = ptr->val;
-            goto _result;
+        if (ptr->key.len == l && memcmp(ptr->key.str, k, l) == 0) {
+            *v = ptr->val;
+            return ptr;
         }
     }
 
-_result:
-    if (function) res = function(res);
+    return NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public variant map_get_with(
+    ASKL_LinkedMap *h,
+    const char *key,
+    size_t len,
+    variant (*function)(variant)
+)
+{
+    variant res = { 0 };
+
+    if (unlikely(! h || ! key || ! len)) {
+        debug("map_get_with(): bad parameters.\n");
+        return res;
+    }
+
+    if (lock_rdlock(h->_lock) == -1) return res;
+
+        if (_get_item(h, key, len, & res) && function)
+            res = function(res);
+
     lock_unlock(h->_lock);
 
     return res;
@@ -605,7 +616,20 @@ _result:
 
 public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len)
 {
-    return map_get_with(h, key, len, NULL);
+    variant res = { 0 };
+
+    if (unlikely(! h || ! key || ! len)) {
+        debug("map_get(): bad parameters.\n");
+        return res;
+    }
+
+    if (lock_rdlock(h->_lock) == -1) return res;
+
+        _get_item(h, key, len, & res);
+
+    lock_unlock(h->_lock);
+
+    return res;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -995,6 +1019,46 @@ public ASKL_MapIterator *map_each(ASKL_LinkedMap *h)
 _err_init:
     lock_unlock(h->_lock);
 _err_lock:
+    return NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+
+public ASKL_MapIterator *map_at(ASKL_LinkedMap *h, const char *key, size_t len)
+{
+    ASKL_MapIterator *iterator = NULL;
+    uint8_t *ptr = NULL;
+
+    if (! h) {
+        debug("map_at(): bad parameters.\n");
+        return NULL;
+    }
+
+    if (! (iterator = malloc(sizeof(*iterator)))) {
+        perror(ERR(map_at, malloc));
+        return NULL;
+    }
+
+    iterator->map = h;
+
+    if (lock_rdlock(h->_lock) == -1) goto _err_lock;
+
+    if (! (ptr = (uint8_t *) _get_item(h, key, len, & iterator->val))) {
+        debug("map_at(): key not found.\n");
+        goto _err_item;
+    }
+
+    /* find the bucket from the item address */
+    iterator->_current = (_bucket *) (ptr - offsetof(_bucket, item));
+    iterator->key = iterator->_current->item.key.str;
+    iterator->len = iterator->_current->item.key.len;
+
+    return iterator;
+
+_err_item:
+    lock_unlock(h->_lock);
+_err_lock:
+    free(iterator);
     return NULL;
 }
 
