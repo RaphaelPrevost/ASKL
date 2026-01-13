@@ -548,12 +548,16 @@ static _item *_get_item(ASKL_LinkedMap *h, const char *k, size_t l, variant *v)
     _item *ptr = NULL;
 
     h0 = hash = _hash(k, l, h->_seed[0]);
+    #if (UINTPTR_MAX == 0xffffffffffffffffULL)
     PREFETCH(& h->_bucket[(hash >> 32) & mask], 0, L1_CACHE);
+    #endif
     goto _loop;
 
     for (i = 0; i < HASH_COUNT; i ++) {
         hash = _hash(k, l, h->_seed[i]);
+        #if (UINTPTR_MAX == 0xffffffffffffffffULL)
         PREFETCH(& h->_bucket[(hash >> 32) & mask], 0, L2_CACHE);
+        #endif
 
         #define _MAP_GET(index) \
         /* if an empty slot is found, no need to look further */ \
