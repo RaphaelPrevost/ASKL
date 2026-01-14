@@ -156,23 +156,18 @@ static int _probe(ASKL_LinkedMap *h, unsigned int i, _item *new, int replace)
     }
 
     if (replace > 0 && new->ptr == h->_bucket[i]->ptr) {
-        unsigned int len = 0;
-
-        /* try to reclaim tombstones */
-        if (unlikely( (len = h->_bucket[i]->key.len) == 0))
-            len = h->_bucket[i]->val.metadata.fields.word;
-
-        if (likely(new->key.len == len)) {
-            if (likely(! memcmp(new->key.str, h->_bucket[i]->key.str, len))) {
+        _item *slot = h->_bucket[i];
+        /* XXX tombstones have a zero length but we can rely on the
+           NUL terminator of the key to inspect them */
+        if (likely(! memcmp(new->key.str, slot->key.str, new->key.len + 1))) {
+            if (unlikely(! slot->key.len)) {
                 if (unlikely(replace == MODIFY_ONLY)) return -1;
-                if (unlikely(! h->_bucket[i]->key.len)) {
-                    /* resurrect the key */
-                    h->_bucket[i]->key.len = len;
-                    h->_bucket[i]->val = variant_null();
-                }
-                /* replace */
-                return 1;
+                /* resurrect the key */
+                slot->key.len = new->key.len;
+                slot->val = variant_null();
             }
+            /* replace */
+            return 1;
         }
     }
 
@@ -729,7 +724,8 @@ public void map_foreach(
             );
             if (ret == -1) {
                 /* delete the record */
-                bucket->item.val.metadata.fields.word = bucket->item.key.len;
+                if (h->_freeval)
+                    h->_freeval(bucket->item.val);
                 bucket->item.key.len = 0;
             }
         }
@@ -860,8 +856,6 @@ public variant map_remove_if(
                     if (! condition || condition(key, len, tmp->val)) { \
                         /* remove from the bucket */ \
                         result = tmp->val; \
-                        /* keep the original length in metadata */ \
-                        tmp->val.metadata.fields.word = tmp->key.len; \
                         /* a length of 0 indicates a tombstone */ \
                         tmp->key.len = 0; \
                     } \
@@ -885,10 +879,8 @@ _loop:  _MAP_REMOVE(hash & mask);
         if (tmp->key.len == len) {
             if (memcmp(tmp->key.str, key, len) == 0) {
                 if (! condition || condition(key, len, tmp->val)) {
-                    result = tmp->val;
-                    tmp->val.metadata.fields.word = tmp->key.len;
-
                     /* remove from the basket */
+                    result = tmp->val;
                     if (tmp == h->_basket) h->_basket = tmp->ptr;
                     else prev->ptr = tmp->ptr;
 
@@ -1111,7 +1103,6 @@ public variant map_remove_at(ASKL_MapIterator *iterator)
         /* XXX another thread may have deleted the entry during upgrade */
         if (likely(len = iterator->_current->item.key.len)) {
             ret = iterator->_current->item.val;
-            iterator->_current->item.val.metadata.fields.word = len;
             iterator->_current->item.key.len = 0;
         }
     lock_restore(iterator->map->_lock);
