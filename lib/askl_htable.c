@@ -55,24 +55,19 @@ typedef struct _item {
  * @ingroup hashtable
  * @struct _item
  *
- * This structure represents one key/value entry stored in a @ref ASKL_LinkedMap
- * and is actually never used alone, but always as part of a @ref _bucket.
- * 
- * The entry stores:
- * - a key (variable-length string, embedded at the end of the object),
- * - a value (as a @ref variant),
- * - a pointer field used by the map internals.
+ * Internal representation of a single key/value entry stored in an
+ * @ref ASKL_LinkedMap. An @ref _item is never allocated on its own;
+ * it is always embedded inside a @ref _bucket.
  *
- * The key is stored inline to minimize allocations: the @ref key.str field
- * is a flexible array member and holds a NUL-terminated byte string of
- * length @ref key.len (not counting the trailing NUL).
- *
- * @b private @ref ptr is an internal pointer used to link or reference entries
- *            depending on the operation (e.g. index bucket ownership, ordering,
- *            or temporary traversal state). It must not be accessed directly.
- * @b private @ref val is the value stored in the map, as a @ref variant.
  * @b private @ref key.len is the key length in bytes (excluding the NUL byte).
- * @b private @ref key.str is the inline key storage (flexible array).
+ * @b private @ref key.str is the inline key storage (flexible array), always
+ *                         terminated with a NUL character.
+ * @b private @ref val is the value stored in the map, as a @ref variant.
+ * @b private @ref ptr has two roles depending on where the item is stored:
+ *   - in the main hash table (@ref _ASKL_LinkedMap::_bucket), it caches the
+ *     primary hash value (hash0) as a uintptr_t
+ *   - in the overflow basket (@ref _ASKL_LinkedMap::_basket), @ref ptr is
+ *     used as the "next" link in the basket's singly linked list.
  *
  * This type is internal and may change at any time.
  */
@@ -86,15 +81,21 @@ typedef struct _bucket {
  * @ingroup hashtable
  * @struct _bucket
  *
- * The map maintains an array of bucket heads (the hash index). Each element in
- * that array points to a linked list of @ref _bucket nodes that share the same
- * hash slot.
+ * Internal node used to maintain the map's traversal order.
  *
- * @b private @ref next links buckets that collide in the same hash slot.
- * @b private @ref item is the embedded entry stored in this bucket.
+ * While the hash index is stored separately as an array of @ref _item pointers
+ * (@ref _ASKL_LinkedMap::_bucket), the map also keeps a singly linked list of
+ * all entries to support stable iteration and sorting. Each node of that list
+ * is a @ref _bucket that embeds an @ref _item.
  *
- * The @ref item member is embedded (not a pointer) so that each bucket holds
- * both the chaining node and the entry payload in one allocation.
+ * The head of this list is stored in @ref _ASKL_LinkedMap::_index, and
+ * functions such as @ref map_each(), @ref map_next() and @ref map_sort()
+ * operate on this list rather than on the main hash table.
+ *
+ * @b private @ref next links nodes in the traversal list.
+ * @b private @ref item is the embedded entry payload for this position in the
+ *                      list. The same @ref _item is also referenced from the
+ *                      hash table and/or the overflow basket.
  *
  * This type is internal and may change at any time.
  */

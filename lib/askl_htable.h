@@ -37,6 +37,8 @@
 
 #define ASKL_HASHTABLE_H
 
+#ifdef _ENABLE_HASHTABLE
+
 #include "askl.h"
 #include "askl_rwlock.h"
 #include "askl_variant.h"
@@ -52,10 +54,22 @@ typedef struct _ASKL_LinkedMap ASKL_LinkedMap;
  * @ingroup hashtable
  * @struct ASKL_LinkedMap
  *
- * This structure supports the implementation of a thread safe hash table.
+ * Opaque handle to a concurrent linked hash map.
  *
- * Each key/value pair is stored in this structure with an overhead of
- * sizeof(uint16_t) + sizeof(char *) bytes.
+ * An ASKL_LinkedMap is a hash-indexed associative container mapping arbitrary
+ * byte-string keys to @ref variant values. In addition to O(1) expected-time
+ * lookups, it maintains a stable internal index so that entries can be visited
+ * in a well-defined order (e.g. insertion order or user-specified sort order).
+ *
+ * The map is safe for concurrent access: readers and writers are synchronized
+ * internally using a read–write lock. Simple operations such as @ref map_get(),
+ * @ref map_set() or @ref map_remove() may be used directly from multiple
+ * threads without additional external locking.
+ *
+ * Instances of this type are created with @ref map_alloc() and must be
+ * destroyed with @ref map_free() when no longer needed. All interaction with
+ * the map should go through the functions declared in this header; the
+ * structure layout is intentionally hidden and may change between releases.
  */
 
 typedef struct ASKL_MapIterator {
@@ -66,7 +80,41 @@ typedef struct ASKL_MapIterator {
     variant val;
 } ASKL_MapIterator;
 
-typedef struct _ASKL_HashTable ASKL_HashTable;
+/**
+ * @ingroup hashtable
+ * @struct ASKL_MapIterator
+ *
+ * This structure represents an iterator over the entries of an
+ * @ref ASKL_LinkedMap.
+ *
+ * Iterators are created by @ref map_each() or @ref map_at().
+ * They carry a reference to the underlying map and expose the current
+ * key/value pair through their public fields.
+ *
+ * The iterator maintains a read lock on @ref map for the duration of its
+ * lifetime. The lock is acquired when the iterator is created and is released
+ * when the iterator is exhausted (via @ref map_next()) or explicitly
+ * destroyed with @ref map_break().
+ *
+ * @b public @ref map      points to the map being traversed.
+ * @b public @ref key      points to the current key bytes (NUL-terminated).
+ * @b public @ref len      is the length of the current key in bytes
+ *                         (excluding the terminating NUL).
+ * @b public @ref val      is the current value associated with @ref key.
+ *
+ * @b private @ref _current is the internal cursor used to walk the map’s
+ *                          index list. It must not be accessed directly by
+ *                          user code.
+ *
+ * Iteration is performed by repeatedly calling @ref map_next() until it
+ * returns NULL. The current entry may be updated or removed in-place using
+ * @ref map_set_at() and @ref map_remove_at(), which perform the necessary
+ * lock upgrades internally.
+ *
+ * @note The iterator itself is heap-allocated and is freed automatically when
+ *       @ref map_next() reaches the end of the traversal, or manually by
+ *       calling @ref map_break().
+ */
 
 /* -------------------------------------------------------------------------- */
 
@@ -482,6 +530,10 @@ public int map_sort(
  * The @p order argument controls whether the resulting order is ascending
  * (MAP_ASC) or descending (MAP_DESC) with respect to @p cmp.
  *
+ * @warning The @p len argument may be zero for internal tombstone entries;
+ *          comparison functions must tolerate this. Tombstones are not
+ *          visible through @ref map_foreach() or iterators.
+ *
  * @note Sorting only affects the order in which @ref map_foreach() visits
  *       entries. It does not change lookup semantics.
  */
@@ -767,4 +819,6 @@ public ASKL_MapIterator *map_break(ASKL_MapIterator *iterator);
  */
 
 /* _ENABLE_HASHTABLE */
+#endif
+
 #endif
