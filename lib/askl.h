@@ -117,7 +117,7 @@
     #endif
 #endif
 
-#ifndef restrict
+#if (! defined(__STDC_VERSION__) || (__STDC_VERSION__ < 199901L))
     #ifdef _MSC_VER
         #if (_MSC_VER >= 1400)
             #if (_MSC_VER < 1900)
@@ -126,6 +126,8 @@
         #else
             #define restrict
         #endif
+    #elif (defined(__GNUC__))
+        #define restrict __restrict__
     #else
         #define restrict
     #endif

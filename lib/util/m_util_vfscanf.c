@@ -248,7 +248,7 @@ literal:
                 c = CT_INT;
                 /* time_t may be 32 or 64 bits, so we
                     use u_quad_t to avoid partial reads */
-                ccfn = (u_quad_t (*)()) strtoll;
+                ccfn = (u_quad_t (*)(const char *, char **, int)) strtoll;
                 base = 0;
                 break;
             }
@@ -284,13 +284,13 @@ literal:
             /* FALLTHROUGH */
         case 'd':
             c = CT_INT;
-            ccfn = (u_quad_t (*)()) strtoll;
+            ccfn = (u_quad_t (*)(const char *, char **, int)) strtoll;
             base = 10;
             break;
 
         case 'i':
             c = CT_INT;
-            ccfn = (u_quad_t (*)()) strtoll;
+            ccfn = (u_quad_t (*)(const char *, char **, int)) strtoll;
             base = 0;
             break;
 
@@ -299,13 +299,13 @@ literal:
             /* FALLTHROUGH */
         case 'o':
             c = CT_INT;
-            ccfn = (u_quad_t (*)()) strtoull;
+            ccfn = (u_quad_t (*)(const char *, char **, int)) strtoull;
             base = 8;
             break;
 
         case 'u':
             c = CT_INT;
-            ccfn = (u_quad_t (*)()) strtoull;
+            ccfn = (u_quad_t (*)(const char *, char **, int)) strtoull;
             base = 10;
             break;
 
@@ -313,7 +313,7 @@ literal:
         case 'x':
             flags |= PFXOK; /* enable 0x prefixing */
             c = CT_INT;
-            ccfn = (u_quad_t (*)()) strtoull;
+            ccfn = (u_quad_t (*)(const char *, char **, int)) strtoull;
             base = 16;
             break;
 
@@ -343,7 +343,7 @@ literal:
         case 'p': /* pointer format is like hex */
             flags |= POINTER | PFXOK;
             c = CT_INT;
-            ccfn = (u_quad_t (*)()) strtoull;
+            ccfn = (u_quad_t (*)(const char *, char **, int)) strtoull;
             base = 16;
             break;
         /*
@@ -356,7 +356,7 @@ literal:
             if (isupper(c))
                 flags |= LONG;
             c = CT_INT;
-            ccfn = (u_quad_t (*)()) strtoll;
+            ccfn = (u_quad_t (*)(const char *, char **, int)) strtoll;
             base = 10;
             break;
         }

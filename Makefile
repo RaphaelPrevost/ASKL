@@ -120,7 +120,7 @@ BUILD    =
 FINAL    = -O2 -pipe
 DEBUG    = -O0 -g -DDEBUG -DDEBUG_SQL
 TRACE    = -O0 -g -pg -fprofile-generate
-FLAGS    = -std=c11 -W -Wall $(BUILD) -Wpointer-arith
+FLAGS    = -std=c11 -pedantic -W -Wall $(BUILD) -Wpointer-arith
 
 SHARED   =
 LIBFLAGS =
@@ -150,6 +150,7 @@ HAS_ICONV    =
 # GCC options
 ifeq ($(CC),gcc)
 GCC_ALIASED  = $(shell gcc --version | head -1 | cut -d\  -f1)
+GCC_CLANG    = $(shell gcc --version | grep -q clang; echo $$?)
 GCC_MAJ      = $(shell gcc --version | head -1 | cut -d\  -f3 | cut -d. -f1)
 GCC_MIN      = $(shell gcc --version | head -1 | cut -d\  -f3 | cut -d. -f2)
 GCC_INC      = gcc -o /dev/null -E -xc - 2> /dev/null
@@ -178,6 +179,10 @@ endif
 endif
 endif
 endif
+endif
+
+ifeq ($(GCC_CLANG),0)
+FLAGS += -Wno-flexible-array-extensions
 endif
 
 ifneq ($(PREFIX), )

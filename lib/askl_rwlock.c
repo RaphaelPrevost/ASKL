@@ -304,7 +304,7 @@ static int _cooperate(ASKL_RWLock *lock)
 
 /* -------------------------------------------------------------------------- */
 
-private inline int lock_upgrade(ASKL_RWLock *lock)
+private int lock_upgrade(ASKL_RWLock *lock)
 {
     #ifdef HAS_ATOMICS
     /* fast path: only reader */

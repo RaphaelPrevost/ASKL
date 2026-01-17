@@ -829,7 +829,7 @@ public int fs_remap(m_view *v, const char *p, size_t l, m_string *s)
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_onevent(m_view *v, unsigned int event, void (*function)())
+public int fs_onevent(m_view *v, unsigned int event, void (*function)(void))
 {
     return 0;
 }
