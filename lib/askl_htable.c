@@ -150,25 +150,27 @@ static int _probe(ASKL_LinkedMap *h, unsigned int i, _item *new, int replace)
 {
     if (! h->_bucket[i]) {
         if (unlikely(replace == MODIFY_ONLY)) return -1;
-        h->_bucket[i] = new;
+        h->_bucket[i] = TAG_PTR(new, new->ptr);
         h->_bucket_count ++;
         /* insert */
         return 0;
     }
 
-    if (replace > 0 && new->ptr == h->_bucket[i]->ptr) {
-        _item *slot = h->_bucket[i];
-        /* XXX tombstones have a zero length but we can rely on the
-           NUL terminator of the key to inspect them */
-        if (likely(! memcmp(new->key.str, slot->key.str, new->key.len + 1))) {
-            if (unlikely(! slot->key.len)) {
-                if (unlikely(replace == MODIFY_ONLY)) return -1;
-                /* resurrect the key */
-                slot->key.len = new->key.len;
-                slot->val = variant_null();
+    if (replace >= 0 && unlikely(GET_TAG(h->_bucket[i]) == HASHTAG(new->ptr))) {
+        _item *slot = GET_PTR(h->_bucket[i]);
+        if (new->ptr == slot->ptr) {
+            /* XXX tombstones have a zero length but we can rely on the
+               NUL terminator of the key to inspect them */
+            if (! memcmp(new->key.str, slot->key.str, new->key.len + 1)) {
+                if (unlikely(! slot->key.len)) {
+                    if (unlikely(replace == MODIFY_ONLY)) return -1;
+                    /* resurrect the key */
+                    slot->key.len = new->key.len;
+                    slot->val = variant_null();
+                }
+                /* replace */
+                return 1;
             }
-            /* replace */
-            return 1;
         }
     }
 
@@ -213,7 +215,7 @@ _loop:  index = hash & mask;
         } else if (unlikely(probe == -1)) goto _failure;
 
         if (probe == 1) {
-            slot = h->_bucket[index];
+            slot = GET_PTR(h->_bucket[index]);
             goto _replace;
         }
 
@@ -227,7 +229,7 @@ _loop:  index = hash & mask;
         } else if (unlikely(probe == -1)) goto _failure;
 
         if (probe == 1) {
-            slot = h->_bucket[index];
+            slot = GET_PTR(h->_bucket[index]);
             goto _replace;
         }
         #endif
@@ -251,24 +253,29 @@ _loop:  index = hash & mask;
 
     /* try cuckoo eviction */
     for (index = (uintptr_t) item->ptr & mask; retry < HASH_RETRY; retry ++) {
-        _item *tmp = h->_bucket[index];
+        _item *tmp = GET_PTR(h->_bucket[index]);
         int loop = (tmp->ptr == item->ptr);
 
-        h->_bucket[index] = item; item = tmp;
+        h->_bucket[index] = TAG_PTR(item, item->ptr); item = tmp;
 
         /* get rid of tombstones */
         if (unlikely(! item->key.len)) return 0;
 
-        for (i = 0; i < HASH_COUNT; i ++) {
-            int probe = 0;
+        #if (UINTPTR_MAX == 0xffffffffffffffffULL)
+        index = (((uintptr_t) item->ptr) >> 32) & mask;
+        if (_probe(h, index, item, 0) == 0)
+            return 0;
+        #endif
+
+        for (i = 1; i < HASH_COUNT; i ++) {
             hash = _hash(item->key.str, item->key.len, h->_seed[i]);
             index = hash & mask;
-            if ( (probe = _probe(h, index, item, 0)) == 0)
+            if (_probe(h, index, item, -1) == 0)
                 return 0;
             #if (UINTPTR_MAX == 0xffffffffffffffffULL)
             /* second probe on 64 bits systems */
             index = (hash >> 32) & mask;
-            if ( (probe = _probe(h, index, item, 0)) == 0)
+            if (_probe(h, index, item, -1) == 0)
                 return 0;
             #endif
         }
@@ -558,10 +565,13 @@ static _item *_get_item(ASKL_LinkedMap *h, const char *k, size_t l, variant *v)
         #define _MAP_GET(index) \
         /* if an empty slot is found, no need to look further */ \
         if (! (ptr = h->_bucket[(index)]) ) break; \
-        if ((uintptr_t) ptr->ptr == h0 && likely(ptr->key.len == l)) { \
-            if (likely(memcmp(ptr->key.str, k, l) == 0)) { \
-                *v = ptr->val; \
-                return ptr; \
+        if (GET_TAG(ptr) == HASHTAG(h0)) { \
+            ptr = GET_PTR(ptr); \
+            if ((uintptr_t) ptr->ptr == h0 && likely(ptr->key.len == l)) { \
+                if (likely(memcmp(ptr->key.str, k, l) == 0)) { \
+                    *v = ptr->val; \
+                    return ptr; \
+                } \
             } \
         }
 
@@ -851,7 +861,8 @@ public variant map_remove_if(
         hash = _hash(key, len, h->_seed[i]);
 
         #define _MAP_REMOVE(index) \
-        if ( (tmp = h->_bucket[(index)]) ) { \
+        if ( (tmp = h->_bucket[(index)]) && GET_TAG(tmp) == HASHTAG(h0)) { \
+            tmp = GET_PTR(tmp); \
             if ((uintptr_t) tmp->ptr == h0 && likely(tmp->key.len == len)) { \
                 if (likely(memcmp(tmp->key.str, key, len) == 0)) { \
                     if (! condition || condition(key, len, tmp->val)) { \

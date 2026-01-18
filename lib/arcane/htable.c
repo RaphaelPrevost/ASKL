@@ -56,6 +56,26 @@
 #define STORE_VALUE  1
 #define MODIFY_ONLY  2
 
+#if (UINTPTR_MAX == 0xffffffffffffffffULL)
+    #define TAG_SHIFT 61
+    #define TAG_MASK 0x7ULL
+#else
+    #define TAG_SHIFT 30
+    #define TAG_MASK 0x3UL
+#endif
+
+/* Extract tag from hash (high bits) */
+#define HASHTAG(hash) ((((uintptr_t) (hash)) >> TAG_SHIFT) & TAG_MASK)
+
+/* Tag pointer */
+#define TAG_PTR(ptr, hash) ((_item *) (((uintptr_t) (ptr)) | HASHTAG(hash)))
+
+/* Clean pointer */
+#define GET_PTR(ptr) ((_item *) (((uintptr_t) (ptr)) & ~TAG_MASK))
+
+/* Extract tag from pointer */
+#define GET_TAG(ptr) (((uintptr_t) (ptr)) & TAG_MASK)
+
 /* -------------------------------------------------------------------------- */
 #if (UINTPTR_MAX == 0xffffffffffffffffULL) /* 64 bits */
 /* -------------------------------------------------------------------------- */
