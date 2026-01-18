@@ -77,6 +77,11 @@ typedef struct _bucket {
     _item item; 
 } _bucket;
 
+STATIC_ASSERT(
+    ((ALIGNOF(_bucket) | offsetof(_bucket, item)) & TAG_MASK) == 0,
+    pointer_alignment_unsuitable_for_tagging
+);
+
 /**
  * @ingroup hashtable
  * @struct _bucket
@@ -236,7 +241,7 @@ _loop:  index = hash & mask;
     }
 
     /* couldn't find it, look in the basket */
-    if (replace != RESIZE_HMAP) {
+    if (replace != REHASH_ONLY) {
         for (slot = h->_basket; slot; slot = slot->ptr) {
             if (likely(item->key.len == slot->key.len)) {
                 if (! memcmp(item->key.str, slot->key.str, item->key.len))
@@ -263,19 +268,19 @@ _loop:  index = hash & mask;
 
         #if (UINTPTR_MAX == 0xffffffffffffffffULL)
         index = (((uintptr_t) item->ptr) >> 32) & mask;
-        if (_probe(h, index, item, 0) == 0)
+        if (_probe(h, index, item, REHASH_ONLY) == 0)
             return 0;
         #endif
 
         for (i = 1; i < HASH_COUNT; i ++) {
             hash = _hash(item->key.str, item->key.len, h->_seed[i]);
             index = hash & mask;
-            if (_probe(h, index, item, -1) == 0)
+            if (_probe(h, index, item, REHASH_ONLY) == 0)
                 return 0;
             #if (UINTPTR_MAX == 0xffffffffffffffffULL)
             /* second probe on 64 bits systems */
             index = (hash >> 32) & mask;
-            if (_probe(h, index, item, -1) == 0)
+            if (_probe(h, index, item, REHASH_ONLY) == 0)
                 return 0;
             #endif
         }
@@ -365,7 +370,7 @@ static int _resize(ASKL_LinkedMap *h, size_t size)
 
         if (! b->item.key.len) { free(b); continue; }
 
-        _set_item(h, & b->item, RESIZE_HMAP, NULL, NULL, NULL);
+        _set_item(h, & b->item, REHASH_ONLY, NULL, NULL, NULL);
 
         b->next = h->_index; h->_index = b;
     }

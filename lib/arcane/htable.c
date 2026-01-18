@@ -51,7 +51,7 @@
  *   1.03 (97.1% load) - Maximum density, 18% slower (64 bits only)
  */
 
-#define RESIZE_HMAP -1
+#define REHASH_ONLY -1
 #define CREATE_ONLY  0
 #define STORE_VALUE  1
 #define MODIFY_ONLY  2
@@ -59,7 +59,7 @@
 #if (UINTPTR_MAX == 0xffffffffffffffffULL)
     #define TAG_SHIFT 61
     #define TAG_MASK 0x7ULL
-#else
+#elif (UINTPTR_MAX == 0xffffffffU)
     #define TAG_SHIFT 30
     #define TAG_MASK 0x3UL
 #endif

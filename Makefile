@@ -183,6 +183,7 @@ endif
 
 ifeq ($(GCC_CLANG),0)
 FLAGS += -Wno-flexible-array-extensions
+FINAL += -flto=auto
 endif
 
 ifneq ($(PREFIX), )

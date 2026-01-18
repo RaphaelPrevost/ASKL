@@ -133,6 +133,14 @@
     #endif
 #endif
 
+#if (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112))
+    #define ALIGNOF(type) _Alignof(type)
+#elif (defined(__GNUC__) || defined(__clang__))
+    #define ALIGNOF(type) __alignof__(type)
+#elif defined(_MSC_VER)
+    #define ALIGNOF(type) __alignof(type)
+#endif
+
 #ifdef __GNUC__
     /* specific macros */
     #define format(f, v) __attribute__ ((format(printf, (f), (v))))
