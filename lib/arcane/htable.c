@@ -47,8 +47,8 @@
  * HASH_RATIO: Resize threshold (inverse of load factor)
  * Recommended values:
  *   1.23 (81.3% load) - Optimal speed/memory balance (32/64 bits) [default]
- *   1.10 (90.9% load) - 2% slower (64 bits only)
- *   1.03 (97.1% load) - Maximum density, 18% slower (64 bits only)
+ *   1.10 (90.9% load) - 3% slower (64 bits only)
+ *   1.03 (97.1% load) - Maximum density (64 bits only)
  */
 
 #define REHASH_ONLY -1
@@ -57,8 +57,27 @@
 #define MODIFY_ONLY  2
 
 #if (UINTPTR_MAX == 0xffffffffffffffffULL)
-    #define TAG_SHIFT 61
-    #define TAG_MASK 0x7ULL
+    #if (defined(__x86_64__) || defined(_M_X64))
+        #define TAG_SHIFT 0
+        #if (defined(__LA57__))
+            /* 5-level paging enabled */
+            #define TAG_MASK 0xfe00000000000000ULL
+        #else
+            #define TAG_MASK 0xffff000000000000ULL
+        #endif
+    #elif (defined(__aarch64__) || defined(_M_ARM64))
+        #if (defined(__ARM_FEATURE_PAC_DEFAULT))
+            /* PAC enabled - can't use high bits */
+            #define TAG_SHIFT 61
+            #define TAG_MASK 0x7ULL
+        #else
+            #define TAG_SHIFT 0
+            #define TAG_MASK 0xffff000000000000ULL
+        #endif
+    #else
+        #define TAG_SHIFT 61
+        #define TAG_MASK 0x7ULL
+    #endif
 #elif (UINTPTR_MAX == 0xffffffffU)
     #define TAG_SHIFT 30
     #define TAG_MASK 0x3UL
@@ -243,7 +262,7 @@ static void _wymix32(uint32_t *a, uint32_t *b)
 
 /* -------------------------------------------------------------------------- */
 
-static uint32_t _hash(const char *key, uint16_t len, uint32_t seed)
+static uint32_t _hash(const char *key, size_t len, uint32_t seed)
 {
     const uint8_t *p = (const uint8_t *) key;
     uint32_t i, see1 = len;

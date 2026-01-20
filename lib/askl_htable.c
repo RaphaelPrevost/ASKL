@@ -77,10 +77,12 @@ typedef struct _bucket {
     _item item; 
 } _bucket;
 
+#if (TAG_SHIFT > 0)
 STATIC_ASSERT(
     ((ALIGNOF(_bucket) | offsetof(_bucket, item)) & TAG_MASK) == 0,
     pointer_alignment_unsuitable_for_tagging
 );
+#endif
 
 /**
  * @ingroup hashtable
@@ -204,6 +206,10 @@ static int _set_item(
         item->ptr = (void *) hash;
     }
 
+    #if (UINTPTR_MAX == 0xffffffffffffffffULL)
+    PREFETCH(& h->_bucket[(hash >> 32) & mask], 1, L1_CACHE);
+    #endif
+
     goto _loop;
 
     /* look for a free slot */
@@ -211,6 +217,9 @@ static int _set_item(
         int probe = 0;
 
         hash = _hash(item->key.str, item->key.len, h->_seed[i]);
+        #if (UINTPTR_MAX == 0xffffffffffffffffULL)
+        PREFETCH(& h->_bucket[(hash >> 32) & mask], 1, L2_CACHE);
+        #endif
 
 _loop:  index = hash & mask;
         if ( (probe = _probe(h, index, item, replace)) == 0) {
@@ -331,13 +340,9 @@ _failure:
 static int _resize(ASKL_LinkedMap *h, size_t size)
 {
     _bucket *b = NULL, *next = NULL;
+    _bucket **prev = NULL;
     _item *item = NULL, *tmp = NULL;
     _item **new = NULL;
-
-    if (! h) {
-        debug("_resize(): bad parameters.\n");
-        return -1;
-    }
 
     if (h->_bucket_count * HASH_RATIO < h->_bucket_size) return 0;
 
@@ -365,14 +370,18 @@ static int _resize(ASKL_LinkedMap *h, size_t size)
     h->_bucket_size = size; h->_bucket_count = 0;
 
     /* rehash old buckets */
-    for (b = h->_index, h->_index = NULL; b; b = next) {
+    for (prev = & h->_index, b = h->_index; b; b = next) {
         next = b->next;
 
-        if (! b->item.key.len) { free(b); continue; }
+        if (unlikely(! b->item.key.len)) {
+            *prev = next;
+            free(b);
+            continue;
+        }
+
+        prev = & b->next;
 
         _set_item(h, & b->item, REHASH_ONLY, NULL, NULL, NULL);
-
-        b->next = h->_index; h->_index = b;
     }
 
     return 0;
@@ -394,11 +403,6 @@ static inline variant _insert(
     int (*lockfn[3])(ASKL_RWLock *) = {
         lock_wrlock, lock_wrlock, lock_rdlock
     };
-
-    if (! h || ! key || ! len) {
-        debug("_insert(): bad parameters.\n");
-        return val;
-    }
 
     /* replace the key by a dynamically allocated one */
     if (! (bucket = malloc(sizeof(*bucket) + len + 1)) ) {
@@ -497,6 +501,11 @@ public variant map_set_with(
     variant (*function)(const char *k, size_t l, variant old, variant new)
 )
 {
+    if (unlikely(! h || ! k || ! l)) {
+        debug("map_set_with(): bad parameters.\n");
+        return v;
+    }
+
     return _insert(h, k, l, v, STORE_VALUE, NULL, function);
 }
 
@@ -504,6 +513,11 @@ public variant map_set_with(
 
 public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 {
+    if (unlikely(! h || ! k || ! l)) {
+        debug("map_set(): bad parameters.\n");
+        return v;
+    }
+
     return _insert(h, k, l, v, STORE_VALUE, NULL, NULL);
 }
 
@@ -517,6 +531,11 @@ public variant map_insert_with(
     variant (*function)(const char *k, size_t l, variant new)
 )
 {
+    if (unlikely(! h || ! k || ! l)) {
+        debug("map_insert_with(): bad parameters.\n");
+        return v;
+    }
+
     return _insert(h, k, l, v, CREATE_ONLY, function, NULL);
 }
 
@@ -524,6 +543,11 @@ public variant map_insert_with(
 
 public variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 {
+    if (unlikely(! h || ! k || ! l)) {
+        debug("map_insert(): bad parameters.\n");
+        return v;
+    }
+
     return _insert(h, k, l, v, CREATE_ONLY, NULL, NULL);
 }
 
@@ -537,6 +561,11 @@ public variant map_update_with(
     variant (*function)(const char *k, size_t l, variant old, variant new)
 )
 {
+    if (unlikely(! h || ! k || ! l)) {
+        debug("map_update_with(): bad parameters.\n");
+        return v;
+    }
+
     return _insert(h, k, l, v, MODIFY_ONLY, NULL, function);
 }
 
@@ -544,6 +573,11 @@ public variant map_update_with(
 
 public variant map_update(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 {
+    if (unlikely(! h || ! k || ! l)) {
+        debug("map_update(): bad parameters.\n");
+        return v;
+    }
+
     return _insert(h, k, l, v, MODIFY_ONLY, NULL, NULL);
 }
 
