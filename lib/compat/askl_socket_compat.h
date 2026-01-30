@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -52,17 +52,6 @@
 #include <io.h>
 #if defined(_MSC_VER) && (_MSC_VER < 1300)
 #include <process.h>
-#endif
-
-#ifndef public
-    #ifdef BUILDING_DLL
-        #define public __declspec(dllexport)
-    #else
-        #define public __declspec(dllimport)
-    #endif
-#endif
-#ifndef private
-    #define private
 #endif
 
 #ifndef off_t
@@ -138,7 +127,7 @@
 
 /* -------------------------------------------------------------------------- */
 
-public int socketpair(UNUSED int d, UNUSED int t, UNUSED int p, int sv[2]);
+ASKL_API int socketpair(UNUSED int d, UNUSED int t, UNUSED int p, int sv[2]);
 
 /**
  * @ingroup socket
@@ -161,7 +150,7 @@ public int socketpair(UNUSED int d, UNUSED int t, UNUSED int p, int sv[2]);
 
 /* -------------------------------------------------------------------------- */
 
-public SOCKET dupsocket(SOCKET s);
+ASKL_API SOCKET dupsocket(SOCKET s);
 
 /**
  * @ingroup socket
@@ -246,7 +235,7 @@ private const char *_socket_win32_strerror(void);
 #endif
 /* -------------------------------------------------------------------------- */
 
-private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len);
+INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len);
 
 /**
  * @ingroup socket
@@ -320,14 +309,14 @@ struct addrinfo {
 
 /* -------------------------------------------------------------------------- */
 
-public int getaddrinfo(
+ASKL_API int getaddrinfo(
     const char *node,
     const char *service,
     const struct addrinfo *hints,
     struct addrinfo **res
 );
 
-public int getnameinfo(
+ASKL_API int getnameinfo(
     const struct sockaddr *s,
     int salen,
     char *host,
@@ -337,7 +326,7 @@ public int getnameinfo(
     int flags
 );
 
-public void freeaddrinfo(struct addrinfo *res);
+ASKL_API void freeaddrinfo(struct addrinfo *res);
 
 /* -------------------------------------------------------------------------- */
 #endif
@@ -346,7 +335,7 @@ public void freeaddrinfo(struct addrinfo *res);
 /* a small private macro for easily printing errors */
 #define _gai_perror(s, i) (fprintf(stderr, "%s: %s\n", (s), gai_strerror((i))))
 
-public int socket_sendfd(int sock, int fd);
+ASKL_API int socket_sendfd(int sock, int fd);
 
 /**
  * @ingroup socket
@@ -361,7 +350,7 @@ public int socket_sendfd(int sock, int fd);
  * SCM_RIGHTS on POSIX systems or WSADuplicateSocket() on Windows.
  */
 
-public int socket_recvfd(int sock);
+ASKL_API int socket_recvfd(int sock);
 
 /**
  * @ingroup socket

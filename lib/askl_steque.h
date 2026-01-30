@@ -41,17 +41,17 @@
 
 /** @defgroup queue ASKL::queue */
 
-typedef struct _ASKL_Queue ASKL_Queue;
+typedef struct _Queue Queue;
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Queue *queue_alloc(void);
+ASKL_API Queue *queue_alloc(void);
 
 /**
  * @ingroup queue
- * @fn ASKL_Queue *queue_alloc(void)
+ * @fn Queue *queue_alloc(void)
  * @param void
- * @return a pointer to a new ASKL_Queue, or NULL.
+ * @return a pointer to a new Queue, or NULL.
  *
  * This function allocates and fully initializes a new concurrent queue.
  *
@@ -62,11 +62,11 @@ public ASKL_Queue *queue_alloc(void);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Queue *queue_free(ASKL_Queue *queue);
+ASKL_API Queue *queue_free(Queue *queue);
 
 /**
  * @ingroup queue
- * @fn ASKL_Queue *queue_free(ASKL_Queue *queue)
+ * @fn Queue *queue_free(ASKL_Queue *queue)
  * @param queue a pointer to a queue
  * @return always NULL
  *
@@ -84,11 +84,11 @@ public ASKL_Queue *queue_free(ASKL_Queue *queue);
 
 /* -------------------------------------------------------------------------- */
 
-public void queue_free_nodes(ASKL_Queue *queue, void *(*free_data)(void *));
+ASKL_API void queue_free_nodes(Queue *queue, void *(*free_data)(void *));
 
 /**
  * @ingroup queue
- * @fn void queue_free_nodes(ASKL_Queue *queue, void *(*free_data)(void *))
+ * @fn void queue_free_nodes(Queue *queue, void *(*free_data)(void *))
  * @param queue a pointer to a queue
  * @param free_data a callback used to destroy the data stored in the queue
  * @return void
@@ -102,11 +102,11 @@ public void queue_free_nodes(ASKL_Queue *queue, void *(*free_data)(void *));
 
 /* -------------------------------------------------------------------------- */
 
-public int queue_enqueue(ASKL_Queue *queue, void *ptr);
+ASKL_API int queue_enqueue(Queue *queue, void *ptr);
 
 /**
  * @ingroup queue
- * @fn int queue_enqueue(ASKL_Queue *queue, void *ptr)
+ * @fn int queue_enqueue(Queue *queue, void *ptr)
  * @param queue a pointer to a queue
  * @param ptr a non-NULL pointer to data to enqueue
  * @return -1 if an error occurs, 0 otherwise
@@ -120,11 +120,11 @@ public int queue_enqueue(ASKL_Queue *queue, void *ptr);
 
 /* -------------------------------------------------------------------------- */
 
-public int queue_empty(ASKL_Queue *queue);
+ASKL_API int queue_empty(Queue *queue);
 
 /**
  * @ingroup queue
- * @fn int queue_empty(ASKL_Queue *queue)
+ * @fn int queue_empty(Queue *queue)
  * @param queue a pointer to a queue
  * @return 1 if the queue is empty, 0 otherwise
  *
@@ -133,11 +133,11 @@ public int queue_empty(ASKL_Queue *queue);
 
 /* -------------------------------------------------------------------------- */
 
-public void queue_wait(ASKL_Queue *queue, unsigned int duration);
+ASKL_API void queue_wait(Queue *queue, unsigned int duration);
 
 /**
  * @ingroup queue
- * @fn void queue_wait(ASKL_Queue *queue, unsigned int microseconds)
+ * @fn void queue_wait(Queue *queue, unsigned int microseconds)
  * @param queue a pointer to a queue
  * @param microseconds the maximum time to wait for an item to be enqueued
  * @return void
@@ -153,11 +153,11 @@ public void queue_wait(ASKL_Queue *queue, unsigned int duration);
 
 /* -------------------------------------------------------------------------- */
 
-public void *queue_pop(ASKL_Queue *queue);
+ASKL_API void *queue_pop(Queue *queue);
 
 /**
  * @ingroup queue
- * @fn void *queue_pop(ASKL_Queue *queue)
+ * @fn void *queue_pop(Queue *queue)
  * @param queue a pointer to a queue
  * @return a pointer to the head item, or NULL if the queue is empty
  *
@@ -170,11 +170,11 @@ public void *queue_pop(ASKL_Queue *queue);
 
 /* -------------------------------------------------------------------------- */
 
-public int queue_push(ASKL_Queue *queue, void *ptr);
+ASKL_API int queue_push(Queue *queue, void *ptr);
 
 /**
  * @ingroup queue
- * @fn int queue_push(ASKL_Queue *queue, void *ptr)
+ * @fn int queue_push(Queue *queue, void *ptr)
  * @param queue a pointer to a queue
  * @param ptr a non-NULL pointer to data to push onto the queue
  * @return -1 if an error occurs, 0 otherwise

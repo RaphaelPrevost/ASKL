@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -65,11 +65,11 @@ MODIFIED:
 
 /** @defgroup random module::random */
 
-typedef struct _ASKL_Random ASKL_Random;
+typedef struct _Random Random;
 
 /**
  * @ingroup random
- * @struct m_random
+ * @struct Random
  *
  * This structure stores the internal state of the ISAAC random number
  * generator.
@@ -88,11 +88,11 @@ typedef struct _ASKL_Random ASKL_Random;
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Random *random_init(void);
+ASKL_API Random *random_init(void);
 
 /**
  * @ingroup random
- * @fn ASKL_Random *random_init(void)
+ * @fn Random *random_init(void)
  * @param void
  * @return an opaque structure holding the random number generator state
  *
@@ -102,11 +102,11 @@ public ASKL_Random *random_init(void);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Random *random_arrayinit(const uint32_t *seed, size_t len);
+ASKL_API Random *random_arrayinit(const uint32_t *seed, size_t len);
 
 /**
  * @ingroup random
- * @fn ASKL_Random *random_arrayinit(const ub4 *seed, size_t len)
+ * @fn Random *random_arrayinit(const ub4 *seed, size_t len)
  * @param init_key the key
  * @param key_length the length of the key
  * @return an opaque structure holding the random number generator state
@@ -117,11 +117,11 @@ public ASKL_Random *random_arrayinit(const uint32_t *seed, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public uint32_t random_uint32(ASKL_Random *ctx);
+ASKL_API uint32_t random_uint32(Random *ctx);
 
 /**
  * @ingroup random
- * @fn uint32_t random_uint32(ASKL_Random *ctx)
+ * @fn uint32_t random_uint32(Random *ctx)
  * @param ctx the random number generator state obtained from random_*init()
  * @return an unsigned 32 bits integer
  *
@@ -134,11 +134,11 @@ public uint32_t random_uint32(ASKL_Random *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-public int32_t random_int32(ASKL_Random *ctx);
+ASKL_API int32_t random_int32(Random *ctx);
 
 /**
  * @ingroup random
- * @fn int32_t random_int32(ASKL_Random *ctx)
+ * @fn int32_t random_int32(Random *ctx)
  * @param ctx the random number generator state obtained from random_*init()
  * @return a signed, positive 32 bits integer
  *
@@ -151,11 +151,11 @@ public int32_t random_int32(ASKL_Random *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-public double random_real1(ASKL_Random *ctx);
+ASKL_API double random_real1(Random *ctx);
 
 /**
  * @ingroup random
- * @fn double random_real1(ASKL_Random *ctx)
+ * @fn double random_real1(Random *ctx)
  * @param ctx the random number generator state obtained from random_*init()
  * @return a real
  *
@@ -168,11 +168,11 @@ public double random_real1(ASKL_Random *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-public double random_real2(ASKL_Random *ctx);
+ASKL_API double random_real2(Random *ctx);
 
 /**
  * @ingroup random
- * @fn double random_real2(ASKL_Random *ctx)
+ * @fn double random_real2(Random *ctx)
  * @param ctx the random number generator state obtained from random_*init()
  * @return a real
  *
@@ -185,11 +185,11 @@ public double random_real2(ASKL_Random *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-public double random_real3(ASKL_Random *ctx);
+ASKL_API double random_real3(Random *ctx);
 
 /**
  * @ingroup random
- * @fn double random_real3(ASKL_Random *ctx)
+ * @fn double random_real3(Random *ctx)
  * @param ctx the random number generator state obtained from random_*init()
  * @return a real
  *
@@ -202,11 +202,11 @@ public double random_real3(ASKL_Random *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-public double random_res53(ASKL_Random *ctx);
+ASKL_API double random_res53(Random *ctx);
 
 /**
  * @ingroup random
- * @fn double random_res53(ASKL_Random *ctx)
+ * @fn double random_res53(Random *ctx)
  * @param ctx the random number generator state obtained from random_*init()
  * @return a real
  *
@@ -219,11 +219,11 @@ public double random_res53(ASKL_Random *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Random *random_free(ASKL_Random *ctx);
+ASKL_API Random *random_free(Random *ctx);
 
 /**
  * @ingroup random
- * @fn ASKL_Random *random_free(ASKL_Random *ctx)
+ * @fn Random *random_free(Random *ctx)
  * @param the random number generator state obtained from random*_init()
  * @return NULL
  *

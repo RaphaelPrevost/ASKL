@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -58,7 +58,7 @@ MODIFIED:
 #define RANDSIZ    (1 << RANDSIZL)
 
 /* context of random number generator */
-struct _ASKL_Random {
+struct _Random {
   uint32_t _cnt;
   uint32_t _rsl[RANDSIZ];
   uint32_t _mem[RANDSIZ];
@@ -92,7 +92,7 @@ struct _ASKL_Random {
 
 /* -------------------------------------------------------------------------- */
 
-static int _isaac(ASKL_Random *ctx)
+static int _isaac(Random *ctx)
 {
     uint32_t a, b, x, y, *m, *mm, *m2, *r, *mend;
     mm = ctx->_mem; r = ctx->_rsl;
@@ -119,12 +119,12 @@ static int _isaac(ASKL_Random *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Random *random_arrayinit(const uint32_t *seed, size_t len)
+ASKL_API Random *random_arrayinit(const uint32_t *seed, size_t len)
 {
     int i;
     uint32_t a, b, c, d, e, f, g, h;
     uint32_t *m, *r;
-    ASKL_Random *ctx = NULL;
+    Random *ctx = NULL;
 
     if (! (ctx = malloc(sizeof(*ctx))) ) {
         perror(ERR(random_arrayinit, malloc));
@@ -179,14 +179,14 @@ public ASKL_Random *random_arrayinit(const uint32_t *seed, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Random *random_init(void)
+ASKL_API Random *random_init(void)
 {
     return random_arrayinit(NULL, 0);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public uint32_t random_uint32(ASKL_Random *ctx)
+ASKL_API uint32_t random_uint32(Random *ctx)
 {
     /** @brief generates a random number on [0,0xffffffff]-interval */
 
@@ -199,7 +199,7 @@ public uint32_t random_uint32(ASKL_Random *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-public int32_t random_int32(ASKL_Random *ctx)
+ASKL_API int32_t random_int32(Random *ctx)
 {
     /** @brief generates a random number on [0,0x7fffffff]-interval */
 
@@ -208,7 +208,7 @@ public int32_t random_int32(ASKL_Random *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-public double random_real1(ASKL_Random *ctx)
+ASKL_API double random_real1(Random *ctx)
 {
     /** @brief generates a random number on [0,1]-real-interval */
 
@@ -218,7 +218,7 @@ public double random_real1(ASKL_Random *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-public double random_real2(ASKL_Random *ctx)
+ASKL_API double random_real2(Random *ctx)
 {
     /** @brief generates a random number on [0,1)-real-interval */
 
@@ -228,7 +228,7 @@ public double random_real2(ASKL_Random *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-public double random_real3(ASKL_Random *ctx)
+ASKL_API double random_real3(Random *ctx)
 {
     /** @brief generates a random number on (0,1)-real-interval */
 
@@ -238,7 +238,7 @@ public double random_real3(ASKL_Random *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-public double random_res53(ASKL_Random *ctx)
+ASKL_API double random_res53(Random *ctx)
 {
     /** @brief generates a random number on [0,1) with 53-bit resolution */
 
@@ -249,7 +249,7 @@ public double random_res53(ASKL_Random *ctx)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Random *random_free(ASKL_Random *ctx)
+ASKL_API Random *random_free(Random *ctx)
 {
     free(ctx);
 

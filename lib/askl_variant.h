@@ -38,11 +38,11 @@
 #define ASKL_VARIANT_H
 
 #include "askl.h"
-#include "m_string.h"
+#include "askl_string.h"
 
 /** @defgroup variant ASKL::variant */
 
-typedef struct variant {
+typedef struct Variant {
     union {
         void *pointer;
         uint64_t integer;
@@ -60,24 +60,24 @@ typedef struct variant {
             uint8_t bytes[7];
         } raw;
     } metadata;             /* 56 bits of reclaimed padding to store metadata */
-} variant;
+} Variant;
 
 /**
  * @ingroup variant
- * @struct variant
+ * @struct Variant
  * 
- * The variant struct provides a small tagged value type used by ASKL containers
- * (e.g. hashtables and tries) to store and retrieve values with lightweight
- * runtime type identification.
+ * The Variant struct provides a small tagged value type used by ASKL containers
+ * (e.g. Map and Trie) to store and retrieve values with lightweight runtime
+ * type identification.
  *
- * A @ref variant is passed by value. The value is stored either as:
+ * A @ref Variant is passed by value. The value is stored either as:
  *  - a pointer
  *  - a 64-bit integer
  *  - a 64-bit IEEE754 double
  *
  * A 1-byte type tag is stored in the metadata area.
  *
- * @note pointer variants are opaque: the API does not manage the pointed memory
+ * @note pointer Variants are opaque: the API does not manage the pointed memory
  *
  */
 
@@ -98,22 +98,13 @@ typedef struct variant {
 #define is_pointer(v) ((v).metadata.fields.type == VALUE_POINTER)
 #define _is_object(v) ((v).metadata.fields.type & _VALUE_OBJECT)
 
-/**
- * @ingroup variant
- * @struct variant
- *
- * This structure allows some level of type-checking within the included data
- * structures such as @ref m_trie or m_hashtable.
- * 
- */
-
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK variant_from_pointer(void *ptr);
+ASKL_API Variant variant_from_pointer(void *ptr);
 
 /**
  * @ingroup variant
- * @fn variant variant_from_pointer(void *ptr)
+ * @fn Variant variant_from_pointer(void *ptr)
  * @param ptr pointer value to store
  * @return a pointer-typed variant
  *
@@ -125,11 +116,11 @@ public variant CALLBACK variant_from_pointer(void *ptr);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK variant_from_integer(uint64_t i);
+ASKL_API Variant variant_from_integer(uint64_t i);
 
 /**
  * @ingroup variant
- * @fn variant variant_from_integer(uint64_t i)
+ * @fn Variant variant_from_integer(uint64_t i)
  * @param i integer value to store
  * @return an integer-typed variant
  *
@@ -139,11 +130,11 @@ public variant CALLBACK variant_from_integer(uint64_t i);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK variant_from_decimal(double d);
+ASKL_API Variant variant_from_decimal(double d);
 
 /**
  * @ingroup variant
- * @fn variant variant_from_decimal(double d)
+ * @fn Variant variant_from_decimal(double d)
  * @param d double value to store
  * @return a decimal-typed variant
  *
@@ -153,11 +144,11 @@ public variant CALLBACK variant_from_decimal(double d);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK variant_from_boolean(int b);
+ASKL_API Variant variant_from_boolean(int b);
 
 /**
  * @ingroup variant
- * @fn variant variant_from_boolean(int b)
+ * @fn Variant variant_from_boolean(int b)
  * @param b boolean value (0 is false, non-zero is true)
  * @return a boolean-typed variant
  *
@@ -169,11 +160,11 @@ public variant CALLBACK variant_from_boolean(int b);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK variant_from_string(m_string *s);
+ASKL_API Variant variant_from_string(String *s);
 
 /**
  * @ingroup variant
- * @fn variant variant_from_string(m_string *s)
+ * @fn Variant variant_from_string(m_string *s)
  * @param s pointer to an @ref m_string
  * @return a string-typed variant
  *
@@ -187,11 +178,11 @@ public variant CALLBACK variant_from_string(m_string *s);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK variant_null(void);
+ASKL_API Variant variant_null(void);
 
 /**
  * @ingroup variant
- * @fn variant variant_null(void)
+ * @fn Variant variant_null(void)
  * @return a null variant
  *
  * Return the canonical null value variant (@ref VALUE_NULL).
@@ -200,11 +191,11 @@ public variant CALLBACK variant_null(void);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK variant_true(void);
+ASKL_API Variant variant_true(void);
 
 /**
  * @ingroup variant
- * @fn variant variant_true(void)
+ * @fn Variant variant_true(void)
  * @return a TRUE boolean variant
  *
  * Return the canonical TRUE value variant.
@@ -213,11 +204,11 @@ public variant CALLBACK variant_true(void);
 
 /* -------------------------------------------------------------------------- */
 
-public variant CALLBACK variant_false(void);
+ASKL_API Variant variant_false(void);
 
 /**
  * @ingroup variant
- * @fn variant variant_false(void)
+ * @fn Variant variant_false(void)
  * @return a FALSE boolean variant
  *
  * Return the canonical FALSE value variant.
@@ -226,11 +217,11 @@ public variant CALLBACK variant_false(void);
 
 /* -------------------------------------------------------------------------- */
 
-public void * CALLBACK variant_to_pointer(variant v);
+ASKL_API void *variant_to_pointer(Variant v);
 
 /**
  * @ingroup variant
- * @fn void *variant_to_pointer(variant v)
+ * @fn void *variant_to_pointer(Variant v)
  * @param v a variant
  * @return the contained pointer
  *
@@ -245,11 +236,11 @@ public void * CALLBACK variant_to_pointer(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public uint64_t CALLBACK variant_to_integer(variant v);
+ASKL_API uint64_t variant_to_integer(Variant v);
 
 /**
  * @ingroup variant
- * @fn uint64_t variant_to_integer(variant v)
+ * @fn uint64_t variant_to_integer(Variant v)
  * @param v a variant
  * @return the contained integer value
  *
@@ -262,7 +253,7 @@ public uint64_t CALLBACK variant_to_integer(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public double CALLBACK variant_to_decimal(variant v);
+ASKL_API double variant_to_decimal(Variant v);
 
 /**
  * @ingroup variant
@@ -279,7 +270,7 @@ public double CALLBACK variant_to_decimal(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public int CALLBACK variant_to_boolean(variant v);
+ASKL_API int variant_to_boolean(Variant v);
 
 /**
  * @ingroup variant
@@ -296,11 +287,11 @@ public int CALLBACK variant_to_boolean(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public m_string * CALLBACK variant_to_string(variant v);
+ASKL_API String *variant_to_string(Variant v);
 
 /**
  * @ingroup variant
- * @fn m_string *variant_to_string(variant v)
+ * @fn String *variant_to_string(Variant v)
  * @param v a variant
  * @return the contained @ref m_string pointer
  *
@@ -315,7 +306,7 @@ public m_string * CALLBACK variant_to_string(variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public int variant_equal(variant a, variant b);
+ASKL_API int variant_equal(Variant a, Variant b);
 
 /**
  * @ingroup variant

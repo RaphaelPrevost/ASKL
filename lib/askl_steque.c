@@ -35,23 +35,23 @@
 
 #include "askl_steque.h"
 
-typedef struct _node {
-    struct _node *next;
+typedef struct _Node {
+    struct _Node *next;
     void *data;
-} _node;
+} _Node;
 
-struct _ASKL_Queue {
+struct _Queue {
     pthread_mutex_t _head_lock;
     pthread_mutex_t _tail_lock;
     pthread_cond_t _empty;
 
-    _node *_head;
-    _node *_tail;
+    _Node *_head;
+    _Node *_tail;
 };
 
 /**
  * @ingroup queue
- * @struct ASKL_Queue
+ * @struct Queue
  *
  * This structure implements a two-lock concurrent stack-ended queue (steque).
  * Its fields are private and should not be directly accessed.
@@ -64,13 +64,13 @@ struct _ASKL_Queue {
  * Internally, this implementation uses two locks to reduce contention:
  * one protects the head, and one protects the tail.
  *
- * The head and tail are _node structures.
- * The _node structure holds the data enqueued or pushed onto the queue:
+ * The head and tail are _Node structures.
+ * The _Node structure holds the data enqueued or pushed onto the queue:
  *
- * typedef struct _node {
- *   struct _node *_next;
+ * typedef struct _Node {
+ *   struct _Node *_next;
  *   void *_data;
- * } _node;
+ * } _Node;
  *
  * @b private _data is used to carry a non-NULL pointer, or any integer type
  *            that fits within uintptr_t.
@@ -79,10 +79,10 @@ struct _ASKL_Queue {
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Queue *queue_alloc(void)
+ASKL_API Queue *queue_alloc(void)
 {
     pthread_condattr_t attr;
-    ASKL_Queue *ret = malloc(sizeof(*ret));
+    Queue *ret = malloc(sizeof(*ret));
 
     if (! ret) {
         perror(ERR(queue_alloc, malloc));
@@ -101,7 +101,7 @@ public ASKL_Queue *queue_alloc(void)
 
     pthread_condattr_init(& attr);
 
-    #if ! defined(WIN32) && ! defined(__APPLE__)
+    #if (! defined(WIN32) && ! defined(__APPLE__))
     /* use the monotonic clock on POSIX compliant systems */
     pthread_condattr_setclock(& attr, CLOCK_MONOTONIC);
     #endif
@@ -137,7 +137,7 @@ _err_head_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Queue *queue_free(ASKL_Queue *queue)
+ASKL_API Queue *queue_free(Queue *queue)
 {
     if (! queue) return NULL;
 
@@ -151,7 +151,7 @@ public ASKL_Queue *queue_free(ASKL_Queue *queue)
 
 /* -------------------------------------------------------------------------- */
 
-public void queue_free_nodes(ASKL_Queue *queue, void *(*free_data)(void *))
+ASKL_API void queue_free_nodes(Queue *queue, void *(*free_data)(void *))
 {
     void *ptr = NULL;
 
@@ -161,9 +161,9 @@ public void queue_free_nodes(ASKL_Queue *queue, void *(*free_data)(void *))
 
 /* -------------------------------------------------------------------------- */
 
-public int queue_enqueue(ASKL_Queue *queue, void *ptr)
+ASKL_API int queue_enqueue(Queue *queue, void *ptr)
 {
-    _node *node = NULL;
+    _Node *node = NULL;
 
     if (! queue || ! ptr) {
         debug("queue_enqueue(): bad parameters.\n");
@@ -193,7 +193,7 @@ public int queue_enqueue(ASKL_Queue *queue, void *ptr)
 
 /* -------------------------------------------------------------------------- */
 
-public int queue_empty(ASKL_Queue *queue)
+ASKL_API int queue_empty(Queue *queue)
 {
     int ret = 0;
 
@@ -210,7 +210,7 @@ public int queue_empty(ASKL_Queue *queue)
 
 /* -------------------------------------------------------------------------- */
 
-public void queue_wait(ASKL_Queue *q, unsigned int duration)
+ASKL_API void queue_wait(Queue *q, unsigned int duration)
 {
     struct timespec ts = { 0, 0 };
 
@@ -265,9 +265,9 @@ public void queue_wait(ASKL_Queue *q, unsigned int duration)
 
 /* -------------------------------------------------------------------------- */
 
-public void *queue_pop(ASKL_Queue *queue)
+ASKL_API void *queue_pop(Queue *queue)
 {
-    _node *node = NULL, *next = NULL;
+    _Node *node = NULL, *next = NULL;
     void *ret = NULL;
 
     if (! queue) {
@@ -294,9 +294,9 @@ public void *queue_pop(ASKL_Queue *queue)
 
 /* -------------------------------------------------------------------------- */
 
-public int queue_push(ASKL_Queue *queue, void *ptr)
+ASKL_API int queue_push(Queue *queue, void *ptr)
 {
-    _node *node = NULL;
+    _Node *node = NULL;
 
     if (! queue || ! ptr) {
         debug("queue_push(): bad parameters.\n");

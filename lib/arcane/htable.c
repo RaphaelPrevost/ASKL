@@ -33,7 +33,7 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifdef ASKL_HASHTABLE_H
+#ifdef ASKL_MAP_H
 
 /* -------------------------------------------------------------------------- */
 /* Hashtable internals */
@@ -87,10 +87,10 @@
 #define HASHTAG(hash) ((((uintptr_t) (hash)) >> TAG_SHIFT) & TAG_MASK)
 
 /* Tag pointer */
-#define TAG_PTR(ptr, hash) ((_item *) (((uintptr_t) (ptr)) | HASHTAG(hash)))
+#define TAG_PTR(ptr, hash) ((_Item *) (((uintptr_t) (ptr)) | HASHTAG(hash)))
 
 /* Clean pointer */
-#define GET_PTR(ptr) ((_item *) (((uintptr_t) (ptr)) & ~TAG_MASK))
+#define GET_PTR(ptr) ((_Item *) (((uintptr_t) (ptr)) & ~TAG_MASK))
 
 /* Extract tag from pointer */
 #define GET_TAG(ptr) (((uintptr_t) (ptr)) & TAG_MASK)

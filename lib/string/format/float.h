@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,30 +33,93 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef ASKL_PARSER_H
+#ifndef M_FLOAT_H
 
-#define ASKL_PARSER_H
+#define M_FLOAT_H
 
-#if defined(_ENABLE_PARSER) && defined(_ENABLE_JSON) && defined(_ENABLE_TRIE)
+#include "../../askl.h"
 
-#include "askl.h"
-#include "askl_cbtrie.h"
-#include "m_string.h"
+/** @defgroup float util::float */
 
-/* -------------------------------------------------------------------------- */
-
-public int jsonpath_init(m_json_parser *ctx);
-
-public int jsonpath_print(m_json_parser *ctx);
+/** Read or write a big endian floating point value */
+#define FLOAT_BIG    0x08
+/** Read or write a little endian floating point value */
+#define FLOAT_LITTLE 0x10
 
 /* -------------------------------------------------------------------------- */
 
-public int jsonpath_free(m_json_parser *ctx);
+ASKL_API float float_read_single(const char *buffer, int flags);
+
+/**
+ * @ingroup float
+ * @fn float float_read_single(const char *buffer, int flags)
+ * @param buffer the buffer to read the float from.
+ * @param flags apply a specific treatment to the data read.
+ * @return NAN if an error occurs, the float read otherwise.
+ *
+ * This function reads a binary single precision float from a buffer, using
+ * the IEEE754 standard. The flags FLOAT_BIG or FLOAT_LITTLE indicate the
+ * endianness of the binary data to the function.
+ *
+ * The function returns a float in the system endianness.
+ *
+ */
 
 /* -------------------------------------------------------------------------- */
 
-/* _ENABLE_JSON && _ENABLE_TRIE */
+ASKL_API double float_read_double(const char *buffer, int flags);
+
+/**
+ * @ingroup float
+ * @fn double float_read_double(const char *buffer, int flags)
+ * @param buffer the buffer to read the float from.
+ * @param flags apply a specific treatment to the data read.
+ * @return NAN if an error occurs, the double read otherwise.
+ *
+ * This function reads a binary double precision float from a buffer, using
+ * the IEEE754 standard. The flags FLOAT_BIG or FLOAT_LITTLE indicate the
+ * endianness of the binary data to the function.
+ *
+ * The function returns a double in the system endianness.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API int float_write_single(char *buffer, const void *f, int flags);
+
+/**
+ * @ingroup float
+ * @fn int float_write_single(const char *buffer, float f, int flags)
+ * @param buffer the buffer write the float to.
+ * @param f the float to write.
+ * @param flags apply a specific treatment to the data written.
+ * @return -1 if an error occurs, 0 otherwise.
+ *
+ * This function writes a binary single precision float to the given buffer,
+ * using the IEEE754 standard. The flags FLOAT_BIG or FLOAT_LITTLE indicate
+ * the endianness with which the data should be written.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API int float_write_double(char *buffer, const void *f, int flags);
+
+/**
+ * @ingroup float
+ * @fn int float_write_double(const char *buffer, double f, int flags)
+ * @param buffer the buffer write the double to.
+ * @param f the double to write.
+ * @param flags apply a specific treatment to the data written.
+ * @return -1 if an error occurs, 0 otherwise.
+ *
+ * This function writes a binary double precision float to the given buffer,
+ * using the IEEE754 standard. The flags FLOAT_BIG or FLOAT_LITTLE indicate
+ * the endianness with which the data should be written.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
 #endif
-
-#endif
-

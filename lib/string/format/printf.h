@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,48 +33,52 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef M_VFSCANF_H
+#ifndef ASKL_PRINTF_H
 
-#define M_VFSCANF_H
+#define ASKL_PRINTF_H
 
-#include "m_util_def.h"
-#include "m_util_float.h"
+#include "../../askl.h"
+#include "../../askl_string.h"
+#include "float.h"
 
-/** @defgroup scanf util::scanf */
+#define FLOATING_POINT
+
+/** @defgroup printf util::printf */
 
 /* -------------------------------------------------------------------------- */
 
-public int m_vsnscanf(const char *buffer, size_t bufsize, const char *fmt0, va_list ap);
+ASKL_API int m_vsnprintf(
+    char *buffer,
+    size_t bufsize,
+    const char *fmt0,
+    va_list ap
+);
 
 /**
- * @ingroup scanf
- * @fn int m_vsnscanf(const char *buffer, size_t bufsize, const char *fmt0, va_list ap)
- * @param buffer the buffer to read data from
- * @param bufsize size of the buffer
+ * @ingroup printf
+ * @fn int m_vsnprintf(char *buffer, size_t bufsize, const char *fmt0, va_list ap)
+ * @param buffer the buffer to output data into
+ * @param size size of the buffer
  * @param fmt0 format
  * @param ap variable argument list
+ * @return the size in bytes of the resulting formatted string
  *
- * This modified scanf function is based upon the original
- * scanf of the OpenBSD libc.
+ * This modified printf function is based upon the original
+ * printf of the OpenBSD libc.
  *
- * The first thing which was modified is the return value of
- * scanf. This function returns the number of bytes which were
- * read, not the number of fields filled.
+ * The printf behaviour has been slightly modified to suits
+ * the needs of this software. Now, passing a NULL output
+ * buffer is allowed; in this case, @ref m_vsnprintf()
+ * will simply return the number of bytes which would have
+ * been written. Some extensions to write binary data have
+ * also been added to the original formatting convention.
  *
- * The scanf behaviour has slightly changed too; now, if an
- * input or match failure occurs, it returns -1. Some fields
- * may have however be altered before failure.
+ * Additionnally, the %url flag allows to print an urlencoded
+ * string.
  *
- * If an input failure occurs, the function returns -1 and
- * EAGAIN. If a match failure happens, it will return -1 and
- * set errno to ENOMEM.
+ * The number of bytes written does not include the terminal NUL.
  *
- * But most of the changes are introduced by a couple flags,
- * b and t.
- *
- * These new flags allow to read binary values from a buffer.
- *
- * To read binary data, it is required to add the 'b' flag to the
+ * To write binary data, it is required to add the 'b' flag to the
  * format string. Using the 'b' flag alone implies using the
  * system endianness.
  *
@@ -84,76 +88,93 @@ public int m_vsnscanf(const char *buffer, size_t bufsize, const char *fmt0, va_l
  * nothing special will be done, but otherwise the data will
  * be swapped.
  *
- * e.g: you want to read a big endian integer, on a
+ * e.g: you want to write a big endian integer, on a
  * little endian machine:
  *
- * snscanf(buf, sizeof(buf), "%bBi", & i);
- * original raw data in 'buf' (big endian seen by little endian):
+ * snprintf(buf, sizeof(buf), "%bBi", i);
+ * raw data written in 'buf' (big endian seen by little endian):
  * 0xEFBEADDE
- * data stored in 'i' (little endian):
+ * data originally stored in 'i' (little endian):
  * 0xDEADBEEF
  *
  * It is also possible to force the binary data size, using the
- * classical field width syntax, or the Concrete Server variable
- * length extension '$'.[1]
+ * classical field width syntax '*'.
  *
  * This said, forcing the type width only works 'as expected'
  * with *complete* binary types of the forced length. It will
- * indeed return the n lower or higher bytes of a wider type
+ * indeed write the n lower or higher bytes of a wider type
  * depending on the system endianness (swapped if another endianness
  * was enforced).
  * So, if you want to truncate a wider data type, you should use the
- * t/T (or tL/tH) flags to reliably get its lower/higher bytes.
+ * t/T (or tL/tH) flags to reliably write its lower/higher bytes.
  *
  * NB: The binary data type is still mandatory (dioux).
  *
  * So, it is correct to use the formats :
- * %3bBti to read the 24 lower bits of a big endian integer
- * %3bBi reads a 24 bits big endian integer just fine
- * %4bbTlli returns the higher 32 bits of a little endian long long
- * %bi reads an integer of system width and endianness
+ * %3bBti to write the 24 lower bits of a big endian integer
+ * %3bBi writes a 24 bits big endian integer just fine
+ * %4bbTlli writes the higher 32 bits of a little endian long long
+ * %bi writes an integer of system width and endianness
  * but the next are not valid or dangerous formats :
  * %3bBt invalid (missing type)
- * %2bi (it will return the lower/higher two bytes of data depending
+ * %2bi (it will write the lower/higher two bytes of data depending
  *      on the system endianness, and the data are assumed to use
  *      the system endianness -- it may be perfectly fine, if that
  *      was the intented purpose)
- *
- *
- * [1] About the variable field width extension
- *
- * It works just like '*' in the printf family, except it uses the
- * '$' flag ('*' has another meaning with scanf, see the manual for
- * further details), and that it works for strings, too.
- *
- * So, '$' define the field width, but unlike the printf '*' it
- * does not imply padding. In this implementation, it is designed
- * to limit the number of bytes which can be stored in the output
- * variable (useful to avoid a buffer overflow with %s).
- *
- * E.g:
- *
- * snscanf(buffer, sizeof(buffer), "%$s", sizeof(outbuf), outbuf);
- * will read a string from 'buffer' until a space is encountered, or
- * sizeof(outbuf) - 1 bytes were written in 'outbuf', whichever occurs
- * first. If the field width is reached, a trailing NUL is appended
- * and the function returns -1, ENOMEM.
  *
  */
 
 /* -------------------------------------------------------------------------- */
 
-public int m_snscanf(const char *buffer, size_t size, const char *fmt, ...);
+#ifdef _ENABLE_DB
+public int m_vsnprintf_db(void *con, char *buffer, size_t bufsize,
+                          const char *fmt0, va_list ap);
+/**
+ * @ingroup printf
+ * @fn int m_vsnprintf_db(void *con, char *buffer, size_t bufsize,
+ *                        const char *fmt0, va_list ap)
+ * @param buffer the buffer to output data into
+ * @param size size of the buffer
+ * @param fmt0 format
+ * @param ap variable argument list
+ * @return the size in bytes of the resulting formatted string
+ *
+ * This modified printf() automatically quote and escape string literals
+ * in order to generate secure SQL queries.
+ *
+ */
+#endif
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API int m_snprintf(char *buffer, size_t size, const char *fmt, ...);
 
 /**
- * @ingroup scanf
- * @fn int m_vsnscanf(const char *buffer, size_t bufsize, const char *fmt0, va_list ap)
- * @param buffer the buffer to read data from
+ * @ingroup printf
+ * @fn int m_snprintf(char *buffer, size_t size, const char *fmt, ...)
+ * @param buffer the buffer to output data into
  * @param size size of the buffer
  * @param fmt format
  * @param ... variable argument list
  *
- * @see m_vsnscanf
+ * @see m_vsnprintf
+ *
+ */
+ 
+/* -------------------------------------------------------------------------- */
+
+ASKL_API int m_snprintf_db(void *con, char *buffer, size_t size,
+                         const char *fmt, ...);
+
+/**
+ * @ingroup printf
+ * @fn int m_snprintf(char *buffer, size_t size, const char *fmt, ...)
+ * @param buffer the buffer to output data into
+ * @param size size of the buffer
+ * @param fmt format
+ * @param ... variable argument list
+ *
+ * @see m_vsnprintf_db
  *
  */
 

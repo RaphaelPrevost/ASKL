@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -39,7 +39,7 @@
 #ifdef WIN32 /* WIN32 compatibility */
 /* -------------------------------------------------------------------------- */
 
-public int random_seed(uint32_t *out, size_t words)
+ASKL_API int random_seed(uint32_t *out, size_t words)
 {
     HCRYPTPROV prov;
     BOOL ret;
@@ -83,7 +83,7 @@ public int random_seed(uint32_t *out, size_t words)
 #else /* POSIX compatibility */
 /* -------------------------------------------------------------------------- */
 
-public int random_seed(uint32_t *out, size_t words)
+ASKL_API int random_seed(uint32_t *out, size_t words)
 {
     int fd;
     size_t i, bytes;

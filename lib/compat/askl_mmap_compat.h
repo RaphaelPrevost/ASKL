@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -45,17 +45,6 @@
 #include <windows.h>
 #include <errno.h>
 
-#ifndef public
-    #ifdef BUILDING_DLL
-        #define public __declspec(dllexport)
-    #else
-        #define public __declspec(dllimport)
-    #endif
-#endif
-#ifndef private
-    #define private
-#endif
-
 #ifndef off_t
     #ifdef _off_t
         #define off_t _off_t
@@ -88,11 +77,11 @@
     #define FILE_MAP_EXECUTE 0x0
 #endif
 
-public int posix_memalign(void **p, size_t alignment, size_t size);
+ASKL_API int posix_memalign(void **p, size_t alignment, size_t size);
 
-public void *mmap(void *start, size_t len, int prot, int flags, int fd,
+ASKL_API void *mmap(void *start, size_t len, int prot, int flags, int fd,
                   off_t offset                                         );
-public int munmap(void *start, UNUSED size_t _dummy);
+ASKL_API int munmap(void *start, UNUSED size_t _dummy);
 
 /* -------------------------------------------------------------------------- */
 
@@ -122,9 +111,9 @@ public int munmap(void *start, UNUSED size_t _dummy);
 #ifdef __APPLE__
 /* -------------------------------------------------------------------------- */
 
-#if ! defined(MAC_OS_X_VERSION_10_6) && ! defined(__MAC_10_6)
+#if (! defined(MAC_OS_X_VERSION_10_6) && ! defined(__MAC_10_6))
 /* OS X lacked posix_memalign() before Snow Leopard */
-public int posix_memalign(void **p, UNUSED size_t alignment, size_t size);
+ASKL_API int posix_memalign(void **p, UNUSED size_t alignment, size_t size);
 #endif
 
 /* -------------------------------------------------------------------------- */
@@ -136,7 +125,7 @@ public int posix_memalign(void **p, UNUSED size_t alignment, size_t size);
 /* -------------------------------------------------------------------------- */
 
 /* common definitions */
-public int get_page_size(void);
+ASKL_API int get_page_size(void);
 
 /**
  * @fn int get_page_size(void)
@@ -152,7 +141,7 @@ public int get_page_size(void);
 
 /* -------------------------------------------------------------------------- */
 
-public void posix_memfree(void *memblock);
+ASKL_API void posix_memfree(void *memblock);
 
 /**
  * @fn void posix_memfree(void *memblock)
@@ -169,7 +158,7 @@ public void posix_memfree(void *memblock);
 
 /* -------------------------------------------------------------------------- */
 
-public void *shm_alloc(const char *name, size_t size);
+ASKL_API void *shm_alloc(const char *name, size_t size);
 
 /**
  * @fn void *shm_alloc(const char *name, size_t size)
@@ -193,7 +182,7 @@ public void *shm_alloc(const char *name, size_t size);
 
 /* -------------------------------------------------------------------------- */
 
-public void *shm_attach(const char *name, size_t size);
+ASKL_API void *shm_attach(const char *name, size_t size);
 
 /**
  * @fn void *shm_attach(const char *name, size_t size)
@@ -211,7 +200,7 @@ public void *shm_attach(const char *name, size_t size);
 
 /* -------------------------------------------------------------------------- */
 
-public void shm_detach(void *start, size_t size);
+ASKL_API void shm_detach(void *start, size_t size);
 
 /**
  * @fn void shm_detach(void *start, size_t size)
@@ -227,7 +216,7 @@ public void shm_detach(void *start, size_t size);
 
 /* -------------------------------------------------------------------------- */
 
-public void shm_free(const char *name, void *start, size_t size);
+ASKL_API void shm_free(const char *name, void *start, size_t size);
 
 /**
  * @fn void shm_free(const char *name, void *start, size_t size)

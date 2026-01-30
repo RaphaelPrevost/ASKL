@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -34,21 +34,21 @@
  ******************************************************************************/
 
 #include "../../lib/askl.h"
-#include "../../lib/m_string.h"
-#include "../../lib/m_parser.h"
+#include "../../lib/askl_string.h"
+#include "../../lib/string/parser.h"
 
 /* -------------------------------------------------------------------------- */
 
-static void print_tokens(const m_string *s, unsigned int indent)
+static void print_tokens(const String *s, unsigned int indent)
 {
     unsigned int i = 0, j = 0, k = 0;
-    const m_string *cur = NULL, *parent = NULL;
+    const String *cur = NULL, *parent = NULL;
 
     if (! s) return;
 
     printf(
         "%.*s%s%.*s %s",
-        indent, "", (indent) ? " " : "+ ", (int) SIZE(s), DATA(s),
+        indent, "", (indent) ? " " : "+ ", s->len, s->data,
         (IS_OBJECT(s) ? "(object)" :
          IS_ARRAY(s) ? "(array)" :
          IS_STRING(s) ? "(string)" :
@@ -56,19 +56,19 @@ static void print_tokens(const m_string *s, unsigned int indent)
     );
     if (IS_ERROR(s)) printf(" (!) ");
     if (! IS_TYPE(s, JSON_TYPE))
-        printf("(size=%zu)", SIZE(s));
+        printf("(size=%u)", s->len);
     printf("\n");
 
-    if (s->token) {
-        for (i = 0; i < PARTS(s); i ++) {
+    if (s->tokens) {
+        for (i = 0; i < s->count; i ++) {
             for (j = 0; j < indent; j ++) {
                 for (parent = s, k = j; k < indent; k ++) {
                     cur = parent; parent = parent->parent;
                 }
-                printf("%c  ", (LAST_TOKEN(parent) != cur) ? '|' : ' ');
+                printf("%c  ", (last_token(parent) != cur) ? '|' : ' ');
             }
             printf("|-[%i]", i);
-            print_tokens(TOKEN(s, i), indent + 1);
+            print_tokens(& s->tokens[i], indent + 1);
         }
     }
 
@@ -81,11 +81,11 @@ int main(int argc, char **argv)
 {
     char *src = NULL;
     ssize_t len = 0;
-    m_string *json = NULL;
+    String *json = NULL;
     unsigned int i = 0;
     struct stat info;
     int fd = -1, ret = 0;
-    m_json_parser ctx;
+    JSON_Parser ctx;
 
     jsonpath_init(& ctx);
 
@@ -150,15 +150,15 @@ int main(int argc, char **argv)
             }
 
             /* flush parsed data */
-            if (PARTS(json) && PARTS(FIRST_TOKEN(json)) > 1) {
-                m_string *penultimate = & (
-                    FIRST_TOKEN(json)->token[FIRST_TOKEN(json)->parts - 2]
+            if (json->count && json->tokens[0].count > 1) {
+                String *penultimate = & (
+                    json->tokens(0, json->tokens[0].count - 2)
                 );
-                string_suppr(json, 0, DATA(penultimate) - DATA(json));
+                string_cut(json, 0, penultimate->data - json->data, NULL);
             }
 
             /* append the buffer */
-            string_cats(json, buffer, len);
+            string_append_buffer(json, buffer, len);
         }
     }
 
@@ -168,7 +168,8 @@ _failure:
     exit(EXIT_FAILURE);
 
 _success:
-    //jsonpath_free(& ctx);
+    jsonpath_print(& ctx);
+    jsonpath_free(& ctx);
     exit(EXIT_SUCCESS);
 }
 

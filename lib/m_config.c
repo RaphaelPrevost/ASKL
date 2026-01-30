@@ -106,7 +106,7 @@ static int _config_load(const char *fullpath)
 
 /* -------------------------------------------------------------------------- */
 
-public void config_force_profile(int profile)
+ASKL_API void config_force_profile(int profile)
 {
     if (server_conf.force) {
         debug("config_force_profile(): configuration profile "
@@ -128,7 +128,7 @@ public void config_force_profile(int profile)
 
 /* -------------------------------------------------------------------------- */
 
-private int configure(const char *path, const char *configfile)
+INTERNAL int configure(const char *path, const char *configfile)
 {
     char fullpath[PATH_MAX];
     size_t pathlen = 0;
@@ -177,7 +177,7 @@ private int configure(const char *path, const char *configfile)
 
 /* -------------------------------------------------------------------------- */
 
-private void configure_cleanup(void)
+INTERNAL void configure_cleanup(void)
 {
     #ifdef _ENABLE_SSL
     map_free(ssl_ctx);
@@ -192,7 +192,7 @@ private void configure_cleanup(void)
 
 /* -------------------------------------------------------------------------- */
 
-public unsigned int config_get_concurrency(void)
+ASKL_API unsigned int config_get_concurrency(void)
 {
     return server_conf.threads;
 }
@@ -200,7 +200,7 @@ public unsigned int config_get_concurrency(void)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_DB
-public m_dbpool *config_get_db(const char *id)
+ASKL_API m_dbpool *config_get_db(const char *id)
 {
     return map_get(db_pool, id, strlen(id));
 }
@@ -209,7 +209,7 @@ public m_dbpool *config_get_db(const char *id)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_SSL
-private SSL_CTX *config_get_ssl(unsigned int id)
+INTERNAL SSL_CTX *config_get_ssl(unsigned int id)
 {
     return map_get(ssl_ctx, (void *) & id, sizeof(id));
 }
@@ -750,7 +750,7 @@ static int _config_apply(xmlNode *root)
 
 /* -------------------------------------------------------------------------- */
 
-private int config_process(const char *config, size_t len)
+INTERNAL int config_process(const char *config, size_t len)
 {
     xmlDoc *xml = NULL;
     xmlDtd *dtd = NULL;

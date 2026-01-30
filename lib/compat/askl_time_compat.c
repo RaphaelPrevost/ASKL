@@ -41,14 +41,14 @@
 
 static LARGE_INTEGER freq;
 
-public void monotonic_timer_init(void)
+ASKL_API void monotonic_timer_init(void)
 {
     QueryPerformanceFrequency(& freq);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int monotonic_timer(struct timespec *ts)
+ASKL_API int monotonic_timer(struct timespec *ts)
 {
     LARGE_INTEGER t;
 
@@ -66,7 +66,7 @@ public int monotonic_timer(struct timespec *ts)
 
 /* This code was released to public domain by Wu Yongwei. */
 
-public int gettimeofday(struct timeval *tv, struct timezone *tz)
+ASKL_API int gettimeofday(struct timeval *tv, struct timezone *tz)
 {
     FILETIME ft;
     LARGE_INTEGER li;
@@ -96,19 +96,19 @@ public int gettimeofday(struct timeval *tv, struct timezone *tz)
 }
 
 /* -------------------------------------------------------------------------- */
-#elif defined(__APPLE__)
+#elif (defined(__APPLE__))
 /* -------------------------------------------------------------------------- */
 
 static mach_timebase_info_data_t tb;
 
-public void monotonic_timer_init(void)
+ASKL_API void monotonic_timer_init(void)
 {
     mach_timebase_info(& tb);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int monotonic_timer(struct timespec *ts)
+ASKL_API int monotonic_timer(struct timespec *ts)
 {
     uint64_t ns = 0;
 
@@ -125,14 +125,14 @@ public int monotonic_timer(struct timespec *ts)
 #else
 /* -------------------------------------------------------------------------- */
 
-public void monotonic_timer_init(void)
+ASKL_API void monotonic_timer_init(void)
 {
     ;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int monotonic_timer(struct timespec *ts)
+ASKL_API int monotonic_timer(struct timespec *ts)
 {
     if (! ts) {
         debug("monotonic_timer(): bad parameters.\n");

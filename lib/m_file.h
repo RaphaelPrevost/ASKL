@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -41,15 +41,15 @@
 
 #include "askl.h"
 #include "askl_cbtrie.h"
-#include "m_string.h"
+#include "askl_string.h"
 #include "m_security.h"
 
 typedef struct m_view {
     char *root;
     size_t rootlen;
     int flags;
-    ASKL_Trie *_cache;
-    ASKL_Trie *_handlers;
+    Trie *_cache;
+    Trie *_handlers;
 } m_view;
 
 typedef struct m_file {
@@ -57,7 +57,7 @@ typedef struct m_file {
     char *path;
     size_t pathlen;
     int fd;
-    m_string *data;
+    String *data;
     size_t len;
     time_t _last_modified;
     time_t _last_accessed;
@@ -90,77 +90,77 @@ typedef struct m_file {
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_api_setup(void);
+ASKL_API int fs_api_setup(void);
 
 /* -------------------------------------------------------------------------- */
 
-public m_view *fs_openview(const char *root, size_t rootlen);
+ASKL_API m_view *fs_openview(const char *root, size_t rootlen);
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_mkpath(m_view **v, const char *p, size_t l,
+ASKL_API int fs_mkpath(m_view **v, const char *p, size_t l,
                      char *out, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public m_file *fs_openfile(m_view *v, const char *p, size_t l, m_auth *a);
+ASKL_API m_file *fs_openfile(m_view *v, const char *p, size_t l, m_auth *a);
 
 /* -------------------------------------------------------------------------- */
 
-public m_file *fs_reopenfile(m_file *f);
+ASKL_API m_file *fs_reopenfile(m_file *f);
 
 /* -------------------------------------------------------------------------- */
 
-public m_file *fs_createfile(m_view *v, const char *p, size_t l);
+ASKL_API m_file *fs_createfile(m_view *v, const char *p, size_t l);
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_mkdir(m_view *v, const char *p, size_t l);
+ASKL_API int fs_mkdir(m_view *v, const char *p, size_t l);
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_isopened(m_view *v, const char *p, size_t l);
+ASKL_API int fs_isopened(m_view *v, const char *p, size_t l);
 
 /* -------------------------------------------------------------------------- */
 
-public void fs_getpath(const char *path, size_t len, char *out, size_t outlen);
+ASKL_API void fs_getpath(const char *path, size_t len, char *out, size_t outlen);
 
 /* -------------------------------------------------------------------------- */
 
-public void fs_getfilename(const char *path, size_t l, char *out, size_t outlen);
+ASKL_API void fs_getfilename(const char *path, size_t l, char *out, size_t outlen);
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_isrelativepath(const char *path, size_t len);
+ASKL_API int fs_isrelativepath(const char *path, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_map(m_view *v, const char *p, size_t l, m_string *s);
+ASKL_API int fs_map(m_view *v, const char *p, size_t l, String *s);
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_remap(m_view *v, const char *p, size_t l, m_string *s);
+ASKL_API int fs_remap(m_view *v, const char *p, size_t l, String *s);
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_rename(m_view *v, const char *old, size_t oldlen,
+ASKL_API int fs_rename(m_view *v, const char *old, size_t oldlen,
                      const char *new, size_t newlen);
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_delete(m_view *v, const char *p, size_t l);
+ASKL_API int fs_delete(m_view *v, const char *p, size_t l);
 
 /* -------------------------------------------------------------------------- */
 
-public m_file *fs_closefile(m_file *file);
+ASKL_API m_file *fs_closefile(m_file *file);
 
 /* -------------------------------------------------------------------------- */
 
-public m_view *fs_closeview(m_view *view);
+ASKL_API m_view *fs_closeview(m_view *view);
 
 /* -------------------------------------------------------------------------- */
 
-public void fs_api_cleanup(void);
+ASKL_API void fs_api_cleanup(void);
 
 /* -------------------------------------------------------------------------- */
 

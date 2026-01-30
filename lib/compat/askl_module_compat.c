@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -41,7 +41,7 @@
 
 static __declspec(thread) char _dlerror_buffer[1024];
 
-private const char *dlerror(void)
+INTERNAL const char *dlerror(void)
 {
     DWORD err = GetLastError();
 
@@ -61,10 +61,10 @@ private const char *dlerror(void)
 }
 
 /* -------------------------------------------------------------------------- */
-#elif defined(__APPLE__)
+#elif (defined(__APPLE__))
 /* -------------------------------------------------------------------------- */
 
-#if ! defined(MAC_OS_X_VERSION_10_3) && ! defined(__MAC_10_3)
+#if (! defined(MAC_OS_X_VERSION_10_3) && ! defined(__MAC_10_3))
 /* use dlcompat up to Mac OS 10.2.x */
 
 /*
@@ -144,7 +144,7 @@ static const char *error(int setget, const char *str, ...)
 /* -------------------------------------------------------------------------- */
 
 /* dlopen */
-private void *dlopen(const char *path, int mode)
+INTERNAL void *dlopen(const char *path, int mode)
 {
     void *module = 0;
     NSObjectFileImage ofi = 0;
@@ -249,14 +249,14 @@ static void *dlsymIntern(void *handle, const char *symbol)
 
 /* -------------------------------------------------------------------------- */
 
-private const char *dlerror(void)
+INTERNAL const char *dlerror(void)
 {
     return error(1, (char *) NULL);
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int dlclose(void *handle)
+INTERNAL int dlclose(void *handle)
 {
     if ( (((struct mach_header *) handle)->magic == MH_MAGIC) ||
          (((struct mach_header *) handle)->magic == MH_CIGAM) ) {
@@ -275,7 +275,7 @@ private int dlclose(void *handle)
 /* -------------------------------------------------------------------------- */
 
 /* dlsym, prepend the underscore and call dlsymIntern */
-private void *dlsym(void *handle, const char *symbol)
+INTERNAL void *dlsym(void *handle, const char *symbol)
 {
     static char undersym[257];  /* Saves calls to malloc(3) */
     int sym_len = strlen(symbol);
@@ -283,12 +283,9 @@ private void *dlsym(void *handle, const char *symbol)
     char *malloc_sym = NULL;
 
     if (sym_len < 256) {
-
         snprintf(undersym, 256, "_%s", symbol);
         value = dlsymIntern(handle, undersym);
-
     } else {
-
         if ( (malloc_sym = malloc(sym_len + 2)) ) {
             sprintf(malloc_sym, "_%s", symbol);
             value = dlsymIntern(handle, malloc_sym);

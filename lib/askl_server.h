@@ -40,13 +40,14 @@
 #ifdef _ENABLE_SERVER
 
 /* required build configuration */
-#ifndef _ENABLE_HASHTABLE
+#ifndef _ENABLE_HASHMAP
 #error "ASKL: the server module requires the builtin hashtable."
 #endif
 
 #include "askl.h"
 #include "askl_steque.h"
-#include "m_string.h"
+#include "askl_string.h"
+#include "string/format/format.h"
 #include "askl_socket.h"
 #include "askl_module.h"
 #include "askl_htable.h"
@@ -80,31 +81,11 @@
                  out of band. */
 #define SERVER_MSG_OOB     0x0004
 
-/* the reply stucture is used to store informations about packets to process
-   and queue them if they can not be sent immediately */
-
-typedef struct m_reply {
-    /* private */
-    long timer;
-    uint16_t delay;
-
-    uint16_t op;
-
-    uint32_t token;
-
-    m_string *header;
-    m_string *footer;
-
-    #ifdef _ENABLE_FILE
-    m_file *file;
-    off_t off;
-    size_t len;
-    #endif
-} m_reply;
+typedef struct _Response Response;
 
 /* -------------------------------------------------------------------------- */
 
-public int server_init(void);
+ASKL_API int server_init(void);
 
 /**
  * @ingroup server
@@ -125,7 +106,7 @@ public int server_init(void);
 #ifdef _ENABLE_PRIVILEGE_SEPARATION
 /* -------------------------------------------------------------------------- */
 
-public void __server_set_privileged_channel(int channel);
+ASKL_API void __server_set_privileged_channel(int channel);
 
 /**
  * @ingroup server
@@ -146,7 +127,7 @@ public void __server_set_privileged_channel(int channel);
 
 /* -------------------------------------------------------------------------- */
 
-public void __server_privileged_process(int channel);
+ASKL_API void __server_privileged_process(int channel);
 
 /**
  * @ingroup server
@@ -167,7 +148,7 @@ public void __server_privileged_process(int channel);
 #endif
 /* -------------------------------------------------------------------------- */
 
-public int server_privileged_call(int opcode, const void *cmd, size_t len);
+ASKL_API int server_privileged_call(int opcode, const void *cmd, size_t len);
 
 /**
  * @ingroup server
@@ -188,7 +169,7 @@ public int server_privileged_call(int opcode, const void *cmd, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public int server_open_managed_socket(
+ASKL_API int server_open_managed_socket(
     uint32_t token,
     const char *ip,
     const char *port,
@@ -236,54 +217,67 @@ public int server_open_managed_socket(
 
 /* -------------------------------------------------------------------------- */
 
-public void server_close_managed_socket(uint32_t token, uint16_t socket_id);
+ASKL_API void server_close_managed_socket(uint32_t token, uint16_t socket_id);
 
 /* -------------------------------------------------------------------------- */
 
-public int server_set_socket_callback(uint32_t token, uint16_t sockid,
-                                      void (*cb)(uint16_t, uint16_t, m_string *));
+ASKL_API int server_set_socket_callback(
+    uint32_t token,
+    uint16_t sockid,
+    void (*cb)(uint16_t, uint16_t, String *)
+);
 
 /* -------------------------------------------------------------------------- */
 
-public m_reply *server_reply_init(uint16_t flags, uint32_t token);
+ASKL_API Response *server_response_init(uint16_t flags, uint32_t token);
 
 /* -------------------------------------------------------------------------- */
 
-public int server_reply_setheader(m_reply *reply, m_string *data);
+ASKL_API int server_response_setheader(Response *response, String *data);
 
 /* -------------------------------------------------------------------------- */
 
-public int server_reply_setfooter(m_reply *reply, m_string *data);
+ASKL_API int server_response_setfooter(Response *response, String *data);
 
 /* -------------------------------------------------------------------------- */
 #ifdef _ENABLE_FILE
 /* -------------------------------------------------------------------------- */
 
-public int server_reply_setfile(m_reply *reply, m_file *f, off_t o, size_t len);
+ASKL_API int server_response_setfile(
+    Response *response,
+    m_file *f,
+    off_t o,
+    size_t len
+);
 
 /* -------------------------------------------------------------------------- */
 #endif
 /* -------------------------------------------------------------------------- */
 
-public int server_reply_setdelay(m_reply *reply, unsigned int nsec);
+ASKL_API int server_response_setdelay(Response *response, unsigned int seconds);
 
 /* -------------------------------------------------------------------------- */
 
-public m_reply *server_send_reply(uint16_t sockid, m_reply *r);
+ASKL_API Response *server_send_response(uint16_t sockid, Response *response);
 
 /* -------------------------------------------------------------------------- */
 
-public m_reply *server_reply_free(m_reply *r);
+ASKL_API Response *server_response_free(Response *response);
 
 /* -------------------------------------------------------------------------- */
 
-public int server_send_response(uint32_t token, uint16_t sockid, uint16_t flags,
-                                const char *format, ...);
+ASKL_API int server_send(
+    uint32_t token,
+    uint16_t sockid,
+    uint16_t flags,
+    const char *format,
+    ...
+);
 
 /**
  * @ingroup server
- * @fn int server_send_response(uint32_t token, uint16_t sockid, uint16_t flags,
- *                              const char *format, ...)
+ * @fn int server_send(uint32_t token, uint16_t sockid, uint16_t flags,
+ *                     const char *format, ...)
  * @param token the module token (@see @ref module_init())
  * @param sockid the 16 bit socket identifier for the output socket
  * @param flags specific commands to execute after sending the payload
@@ -302,17 +296,17 @@ public int server_send_response(uint32_t token, uint16_t sockid, uint16_t flags,
 
 /* -------------------------------------------------------------------------- */
 
-public int server_send_string(
+ASKL_API int server_send_string(
     uint32_t token,
     uint16_t sockid,
     uint16_t flags,
-    m_string *string
+    String *string
 );
 
 /**
  * @ingroup server
  * @fn int server_send_string(uint32_t token, uint16_t sockid, uint16_t flags,
- *                            m_string *string);
+ *                            String *string);
  * @param token the module token (@see @ref module_init())
  * @param sockid the 16 bit socket identifier for the output socket
  * @param flags specific commands to execute after sending the payload
@@ -342,7 +336,7 @@ public int server_send_string(
 
 /* -------------------------------------------------------------------------- */
 
-public int server_send_buffer(
+ASKL_API int server_send_buffer(
     uint32_t token,
     uint16_t sockid,
     uint16_t flags,
@@ -410,7 +404,7 @@ public int server_send_http(
 #endif
 /* -------------------------------------------------------------------------- */
 
-public void server_exit(void);
+ASKL_API void server_exit(void);
 
 /**
  * @ingroup server

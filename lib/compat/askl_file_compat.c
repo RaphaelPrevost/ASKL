@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -39,7 +39,7 @@
 #ifdef WIN32 /* make WIN32 open() more like its UNIX counterpart */
 /* -------------------------------------------------------------------------- */
 
-public int posix_open(const char *pathname, int flags, ...)
+ASKL_API int posix_open(const char *pathname, int flags, ...)
 {
     unsigned int mode = 0;
     va_list args;
@@ -146,8 +146,12 @@ static PFILE_FULL_EA_INFORMATION NTReadEARaw(HANDLE f, int *len)
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t file_getxattr(const char *file, const char *attrname,
-                             void *attrbuf, size_t len)
+ASKL_API ssize_t file_getxattr(
+    const char *file,
+    const char *attrname,
+    void *attrbuf,
+    size_t len
+)
 {
     HANDLE f;
     int eafound = 0;
@@ -198,8 +202,13 @@ public ssize_t file_getxattr(const char *file, const char *attrname,
 
 /* -------------------------------------------------------------------------- */
 
-public int file_setxattr(const char *file, const char *attrname,
-                         const void *buf, size_t len, int flags)
+ASKL_API int file_setxattr(
+    const char *file,
+    const char *attrname,
+    const void *buf,
+    size_t len,
+    int flags
+)
 {
     HANDLE f;
     WIN32_STREAM_ID sid;
@@ -261,8 +270,12 @@ _cleanup:
 #elif defined(__APPLE__)
 /* -------------------------------------------------------------------------- */
 
-public ssize_t file_getxattr(const char *file, const char *attrname,
-                             void *attrbuf, size_t len)
+ASKL_API ssize_t file_getxattr(
+    const char *file,
+    const char *attrname,
+    void *attrbuf,
+    size_t len
+)
 {
     #if defined(MAC_OS_X_VERSION_10_4) || defined(__MAC_10_4)
     /* XXX getxattr() first appeared in Mac OS X 10.4 */
@@ -275,8 +288,13 @@ public ssize_t file_getxattr(const char *file, const char *attrname,
 
 /* -------------------------------------------------------------------------- */
 
-public int file_setxattr(const char *file, const char *attrname,
-                         const void *buf, size_t len, int flags)
+ASKL_API int file_setxattr(
+    const char *file,
+    const char *attrname,
+    const void *buf,
+    size_t len,
+    int flags
+)
 {
     #if defined(MAC_OS_X_VERSION_10_4) || defined(__MAC_10_4)
     /* XXX setxattr() first appeared in Mac OS X 10.4 */

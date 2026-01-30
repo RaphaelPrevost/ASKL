@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -44,17 +44,6 @@
     #include <windows.h>
     #include <stdlib.h>
 
-    #ifndef public
-        #ifdef BUILDING_DLL
-            #define public __declspec(dllexport)
-        #else
-            #define public __declspec(dllimport)
-        #endif
-    #endif
-    #ifndef private
-        #define private
-    #endif
-
     #define handle_t HANDLE
 
     /* dlfcn.h compatibility can be achieved with simple macros */
@@ -66,7 +55,7 @@
     private const char *dlerror(void);
 
 /* Mac OS 10.2 does not come with the dlopen api */
-#elif defined(__APPLE__) && ! defined(MAC_OS_X_VERSION_10_3)
+#elif (defined(__APPLE__) && ! defined(MAC_OS_X_VERSION_10_3))
 
     #define handle_t void *
 

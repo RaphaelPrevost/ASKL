@@ -59,6 +59,7 @@
 #endif
 
 /* standard ISO C99/POSIX includes */
+#include <assert.h>
 #include <math.h>
 #include <wchar.h>
 #include <stdio.h>
@@ -104,8 +105,7 @@
 /* specific macros cleanup */
 #undef format
 #undef UNUSED
-#undef private
-#undef public
+#undef INTERNAL
 #undef likely
 #undef unlikely
 
@@ -145,7 +145,7 @@
     /* specific macros */
     #define format(f, v) __attribute__ ((format(printf, (f), (v))))
     #ifdef DEBUG
-        #define private
+        #define INTERNAL
         #ifndef __APPLE__
         #include <execinfo.h>
         #define backtrace()                                 \
@@ -171,15 +171,14 @@
         typedef uint32_t unaligned_uint32_t __attribute__((aligned(1)));
     #else
         #ifndef __APPLE__
-        #define private __attribute__((visibility("internal")))
+        #define INTERNAL __attribute__((visibility("internal")))
         #else
-        #define private __attribute__((visibility("hidden")))
+        #define INTERNAL __attribute__((visibility("hidden")))
         #endif
         #define backtrace()
         typedef uint32_t unaligned_uint32_t;
     #endif
-    #define public
-    #define export
+    #define ASKL_API
     #define likely(x)    __builtin_expect(!!(x), 1)
     #define unlikely(x)  __builtin_expect(!!(x), 0)
 
@@ -199,18 +198,13 @@
         #define off_t _off_t
     #endif
 
-    #undef public
     #if defined(BUILDING_DLL) || defined(_USRDLL) || defined(_WINDLL)
-        #define public __declspec(dllexport)
+        #define ASKL_API __declspec(dllexport)
     #else
-        #define public __declspec(dllimport)
+        #define ASKL_API __declspec(dllimport)
     #endif
 
-    #undef export
-    #define export __declspec(dllexport)
-
-    #undef private
-    #define private
+    #define INTERNAL
 
     #ifndef socklen_t
         #define socklen_t size_t
@@ -302,7 +296,7 @@
 #endif
 
 /* environment */
-public extern char *working_directory;
+ASKL_API extern char *working_directory;
 
 #ifndef PREFIX
     #define PREFIX (working_directory)

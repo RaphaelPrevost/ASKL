@@ -6,7 +6,7 @@
 #define enqueue(i) do { queue_enqueue(q, (void *) (uintptr_t) (i)); } while (0)
 #define dequeue() ((uintptr_t) queue_pop(q))
 
-static ASKL_Queue *q = NULL;
+static Queue *q = NULL;
 
 static void *_enqueue(UNUSED void *dummy)
 {

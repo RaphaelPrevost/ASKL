@@ -39,7 +39,7 @@
 
 #include "askl.h"
 #include "m_file.h"
-#include "m_string.h"
+#include "askl_string.h"
 
 #if defined(_ENABLE_SSL) && defined(_ENABLE_CONFIG)
 #include "m_config.h"
@@ -47,11 +47,11 @@
 
 /** @defgroup socket ASKL::socket */
 
-typedef struct ASKL_Socket {
-    void (*callback)(uint16_t, uint16_t, m_string *);
-} ASKL_Socket;
+typedef struct Socket {
+    void (*callback)(uint16_t, uint16_t, String *);
+} Socket;
 
-typedef struct _ASKL_SocketQueue ASKL_SocketQueue;
+typedef struct _Socket_Queue Socket_Queue;
 
 /* socket flags */
 #define SOCKET_UDP    0x01000000    /* UDP socket */
@@ -77,14 +77,14 @@ typedef struct _ASKL_SocketQueue ASKL_SocketQueue;
 #define SOCKET_LISTEN(i) (SOCKET_SERVER | INGRESS(i))
 
 /* hooks */
-typedef enum ASKL_SocketHook {
+typedef enum Socket_Hook {
     HOOK_LISTEN = 0x01,
     HOOK_ACCEPT = 0x02,
     HOOK_OPENED = 0x04,
     HOOK_REINIT = 0x08,
     HOOK_URGENT = 0x10,
     HOOK_CLOSED = 0x20
-} ASKL_SocketHook;
+} Socket_Hook;
 
 /* enable SOCKET_UDP only if _ENABLE_UDP is set */
 #ifndef _ENABLE_UDP
@@ -123,7 +123,7 @@ typedef enum ASKL_SocketHook {
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_api_init(void);
+ASKL_API int socket_api_init(void);
 
 /**
  * @ingroup socket
@@ -137,11 +137,11 @@ public int socket_api_init(void);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_open(const char *ip, const char *port, int type);
+ASKL_API Socket *socket_open(const char *ip, const char *port, int type);
 
 /**
  * @ingroup socket
- * @fn ASKL_Socket *socket_open(const char *ip, const char *port, int type)
+ * @fn Socket *socket_open(const char *ip, const char *port, int type)
  * @param ip the host ip address; remote for a client, local for a server
  * @param port the port to connect or listen to
  * @param type the socket type (TCP/UDP/SSL, client/server...)
@@ -169,8 +169,8 @@ public ASKL_Socket *socket_open(const char *ip, const char *port, int type);
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_remote_host(
-    ASKL_Socket *s,
+INTERNAL int socket_remote_host(
+    Socket *s,
     char *h,
     size_t hl,
     char *srv,
@@ -179,7 +179,7 @@ private int socket_remote_host(
 
 /**
  * @ingroup socket
- * @fn int socket_remote_host(ASKL_Socket *s, char *h, size_t hl, char *srv,
+ * @fn int socket_remote_host(Socket *s, char *h, size_t hl, char *srv,
  *                            size_t sl)
  * @param s an acquired socket
  * @param h the buffer where the socket remote IP address will be written
@@ -195,7 +195,7 @@ private int socket_remote_host(
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_ip(uint16_t id, char *host, size_t hostlen, uint16_t *port);
+ASKL_API int socket_ip(uint16_t id, char *host, size_t hostlen, uint16_t *port);
 
 /**
  * @ingroup socket
@@ -218,7 +218,7 @@ public int socket_ip(uint16_t id, char *host, size_t hostlen, uint16_t *port);
 
 /* -------------------------------------------------------------------------- */
 
-public uint64_t socket_sentbytes(uint16_t id);
+ASKL_API uint64_t socket_sentbytes(uint16_t id);
 
 /**
  * @fn uint64_t socket_sentbytes(int id)
@@ -231,7 +231,7 @@ public uint64_t socket_sentbytes(uint16_t id);
 
 /* -------------------------------------------------------------------------- */
 
-public uint64_t socket_recvbytes(uint16_t id);
+ASKL_API uint64_t socket_recvbytes(uint16_t id);
 
 /**
  * @fn uint64_t socket_recvbytes(int id)
@@ -244,7 +244,7 @@ public uint64_t socket_recvbytes(uint16_t id);
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_exists(uint16_t id);
+ASKL_API int socket_exists(uint16_t id);
 
 /**
  * @ingroup socket
@@ -258,11 +258,11 @@ public int socket_exists(uint16_t id);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_acquire(uint16_t id);
+ASKL_API Socket *socket_acquire(uint16_t id);
 
 /**
  * @ingroup socket
- * @fn ASKL_Socket *socket_acquire(int id)
+ * @fn Socket *socket_acquire(int id)
  * @param id socket identifier
  * @return a socket, or NULL if an error occured
  *
@@ -282,11 +282,11 @@ public ASKL_Socket *socket_acquire(uint16_t id);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_release(ASKL_Socket *s);
+ASKL_API Socket *socket_release(Socket *s);
 
 /**
  * @ingroup socket
- * @fn ASKL_Socket *socket_release(ASKL_Socket *s)
+ * @fn Socket *socket_release(Socket *s)
  * @param s an acquired socket
  * @return NULL
  *
@@ -296,11 +296,11 @@ public ASKL_Socket *socket_release(ASKL_Socket *s);
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_lock(ASKL_Socket *s);
+INTERNAL int socket_lock(Socket *s);
 
 /**
  * @ingroup socket
- * @fn int socket_lock(ASKL_Socket *s)
+ * @fn int socket_lock(Socket *s)
  * @param s the socket to lock
  * @return 0 if the socket was successfully locked, -1 otherwise
  *
@@ -327,11 +327,11 @@ private int socket_lock(ASKL_Socket *s);
 
 /* -------------------------------------------------------------------------- */
 
-private void socket_unlock(ASKL_Socket *s);
+INTERNAL void socket_unlock(Socket *s);
 
 /**
  * @ingroup socket
- * @fn void socket_unlock(ASKL_Socket *s)
+ * @fn void socket_unlock(Socket *s)
  * @param s the socket to unlock
  * @return void
  *
@@ -348,11 +348,11 @@ private void socket_unlock(ASKL_Socket *s);
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_connect(ASKL_Socket *s);
+ASKL_API int socket_connect(Socket *s);
 
 /**
  * @ingroup socket
- * @fn int socket_connect(ASKL_Socket *s)
+ * @fn int socket_connect(Socket *s)
  * @param s the socket to connect
  * @return 0 if the connection was successful, -1 otherwise
  *
@@ -372,11 +372,11 @@ public int socket_connect(ASKL_Socket *s);
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_listen(ASKL_Socket *s);
+ASKL_API int socket_listen(Socket *s);
 
 /**
  * @ingroup socket
- * @fn int socket_listen(ASKL_Socket *s)
+ * @fn int socket_listen(Socket *s)
  * @param s the socket which should listen
  * @return 0 if all went fine, -1 otherwise
  *
@@ -392,11 +392,11 @@ public int socket_listen(ASKL_Socket *s);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_accept(ASKL_Socket *s);
+ASKL_API Socket *socket_accept(Socket *s);
 
 /**
  * @ingroup socket
- * @fn ASKL_Socket *socket_accept(ASKL_Socket *s)
+ * @fn Socket *socket_accept(Socket *s)
  * @param s a listening socket
  * @return a new socket if there is an incoming connection, or NULL
  *
@@ -410,11 +410,11 @@ public ASKL_Socket *socket_accept(ASKL_Socket *s);
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_write(ASKL_Socket *s, const char *data, size_t len);
+ASKL_API ssize_t socket_write(Socket *s, const char *data, size_t len);
 
 /**
  * @ingroup socket
- * @fn ssize_t socket_write(ASKL_Socket *s, const char *data, size_t len)
+ * @fn ssize_t socket_write(Socket *s, const char *data, size_t len)
  * @param s the socket
  * @param data the data to send
  * @param len the length of the data
@@ -433,11 +433,11 @@ public ssize_t socket_write(ASKL_Socket *s, const char *data, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_oob_write(ASKL_Socket *s, const char *data, size_t len);
+ASKL_API ssize_t socket_oob_write(Socket *s, const char *data, size_t len);
 
 /**
  * @ingroup socket
- * @fn ssize_t socket_oob_write(ASKL_Socket *s, const char *data, size_t len)
+ * @fn ssize_t socket_oob_write(Socket *s, const char *data, size_t len)
  * @param s the socket
  * @param data the data to send
  * @param len the length of the data
@@ -455,8 +455,8 @@ public ssize_t socket_oob_write(ASKL_Socket *s, const char *data, size_t len);
 #ifdef _ENABLE_FILE
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_sendfile(
-    ASKL_Socket *out,
+ASKL_API ssize_t socket_sendfile(
+    Socket *out,
     m_file *in,
     off_t *off,
     size_t len
@@ -466,11 +466,11 @@ public ssize_t socket_sendfile(
 #endif
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_read(ASKL_Socket *s, char *out, size_t len);
+ASKL_API ssize_t socket_read(Socket *s, char *out, size_t len);
 
 /**
  * @ingroup socket
- * @fn ssize_t socket_read(ASKL_Socket *s, char *out, size_t len)
+ * @fn ssize_t socket_read(Socket *s, char *out, size_t len)
  * @param s the socket
  * @param out the buffer to copy the data read in
  * @param len the size of the buffer
@@ -492,11 +492,11 @@ public ssize_t socket_read(ASKL_Socket *s, char *out, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_peek(ASKL_Socket *s, char *out, size_t len);
+ASKL_API ssize_t socket_peek(Socket *s, char *out, size_t len);
 
 /**
  * @ingroup socket
- * @fn ssize_t socket_peek(ASKL_Socket *s, char *out, size_t len)
+ * @fn ssize_t socket_peek(Socket *s, char *out, size_t len)
  * @param s the socket
  * @param out the buffer to copy the data read in
  * @param len the size of the buffer
@@ -511,11 +511,11 @@ public ssize_t socket_peek(ASKL_Socket *s, char *out, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_oob_read(ASKL_Socket *s, char *out, size_t len);
+ASKL_API ssize_t socket_oob_read(Socket *s, char *out, size_t len);
 
 /**
  * @ingroup socket
- * @fn ssize_t socket_oob_read(ASKL_Socket *s, char *out, size_t len)
+ * @fn ssize_t socket_oob_read(Socket *s, char *out, size_t len)
  * @param s the socket
  * @param out the buffer to copy the data read in
  * @param len the size of the buffer
@@ -533,11 +533,11 @@ public ssize_t socket_oob_read(ASKL_Socket *s, char *out, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_persist(ASKL_Socket *s);
+INTERNAL int socket_persist(Socket *s);
 
 /**
  * @ingroup socket
- * @fn void socket_persist(ASKL_Socket *s)
+ * @fn void socket_persist(Socket *s)
  * @param s the socket to destroy
  * @return 0 if all went fine, -1 otherwise
  *
@@ -548,11 +548,11 @@ private int socket_persist(ASKL_Socket *s);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_close(ASKL_Socket *s);
+ASKL_API Socket *socket_close(Socket *s);
 
 /**
  * @ingroup socket
- * @fn ASKL_Socket *socket_close(ASKL_Socket *s)
+ * @fn Socket *socket_close(Socket *s)
  * @param s the socket to destroy
  * @return always NULL
  *
@@ -565,11 +565,11 @@ public ASKL_Socket *socket_close(ASKL_Socket *s);
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_hook(ASKL_SocketHook hook, int (*fn)(ASKL_Socket *s));
+INTERNAL int socket_hook(Socket_Hook hook, int (*fn)(Socket *s));
 
 /**
  * @ingroup socket
- * @fn int socket_hook(int hook, int (*fn)(ASKL_Socket *s))
+ * @fn int socket_hook(Socket_Hook hook, int (*fn)(Socket *s))
  * @param hook the call to hook
  * @param fn the callback
  * @return 0 if all went fine, -1 otherwise
@@ -591,11 +591,11 @@ private int socket_hook(ASKL_SocketHook hook, int (*fn)(ASKL_Socket *s));
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_SocketQueue *socket_queue_alloc(void);
+ASKL_API Socket_Queue *socket_queue_alloc(void);
 
 /**
  * @ingroup socket
- * @fn ASKL_SocketQueue *socket_queue_alloc(void)
+ * @fn Socket_Queue *socket_queue_alloc(void)
  * @return a new socket queue, or NULL
  *
  * This function allocates and initializes a new socket queue. Socket queues
@@ -609,11 +609,11 @@ public ASKL_SocketQueue *socket_queue_alloc(void);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_SocketQueue *socket_queue_free(ASKL_SocketQueue *q);
+ASKL_API Socket_Queue *socket_queue_free(Socket_Queue *q);
 
 /**
  * @ingroup socket
- * @fn ASKL_SocketQueue *socket_queue_free(ASKL_SocketQueue *q)
+ * @fn Socket_Queue *socket_queue_free(Socket_Queue *q)
  * @param q a socket queue
  * @return always NULL
  *
@@ -623,11 +623,11 @@ public ASKL_SocketQueue *socket_queue_free(ASKL_SocketQueue *q);
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_enqueue(ASKL_SocketQueue *q, uint16_t id);
+ASKL_API int socket_enqueue(Socket_Queue *q, uint16_t id);
 
 /**
  * @ingroup socket
- * @fn int socket_enqueue(ASKL_SocketQueue *q, ASKL_Socket *s)
+ * @fn int socket_enqueue(Socket_Queue *q, uint16_t id)
  * @param q a socket queue
  * @param id socket identifier
  * @return 0 if the socket identifier was properly queued, -1 otherwise
@@ -639,11 +639,11 @@ public int socket_enqueue(ASKL_SocketQueue *q, uint16_t id);
 
 /* -------------------------------------------------------------------------- */
 
-public uint16_t socket_dequeue(ASKL_SocketQueue *q);
+ASKL_API uint16_t socket_dequeue(Socket_Queue *q);
 
 /**
  * @ingroup socket
- * @fn uint16_t socket_dequeue(ASKL_SocketQueue *q)
+ * @fn uint16_t socket_dequeue(Socket_Queue *q)
  * @param q a socket queue
  * @return a socket identifier, or 0 if the queue is empty
  *
@@ -654,11 +654,11 @@ public uint16_t socket_dequeue(ASKL_SocketQueue *q);
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_queue_empty(ASKL_SocketQueue *q);
+ASKL_API int socket_queue_empty(Socket_Queue *q);
 
 /**
  * @ingroup socket
- * @fn int socket_queue_empty(ASKL_SocketQueue *q)
+ * @fn int socket_queue_empty(Socket_Queue *q)
  * @param q a socket queue
  * @return 1 if the queue is empty, 0 otherwise
  *
@@ -668,11 +668,11 @@ public int socket_queue_empty(ASKL_SocketQueue *q);
 
 /* -------------------------------------------------------------------------- */
 
-public void socket_queue_wait(ASKL_SocketQueue *q, unsigned int duration);
+ASKL_API void socket_queue_wait(Socket_Queue *q, unsigned int duration);
 
 /**
  * @ingroup socket
- * @fn void socket_queue_wait(ASKL_SocketQueue *q, unsigned int microseconds)
+ * @fn void socket_queue_wait(Socket_Queue *q, unsigned int microseconds)
  * @param q a socket queue
  * @param duration the time to wait for a socket to be queued, in microseconds
  * @return void
@@ -683,16 +683,16 @@ public void socket_queue_wait(ASKL_SocketQueue *q, unsigned int duration);
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_queue_poll(
-    ASKL_SocketQueue *q,
-    ASKL_Socket **s,
+INTERNAL int socket_queue_poll(
+    Socket_Queue *q,
+    Socket **s,
     size_t len,
     int timeout
 );
 
 /**
  * @ingroup socket
- * @fn int socket_queue_poll(ASKL_SocketQueue *q, ASKL_Socket **s, size_t len,
+ * @fn int socket_queue_poll(Socket_Queue *q, Socket **s, size_t len,
  *                           int timeout)
  * @param q a socket queue
  * @param s an array of socket
@@ -719,7 +719,7 @@ private int socket_queue_poll(
 
 /* -------------------------------------------------------------------------- */
 
-public void socket_api_exit(void);
+ASKL_API void socket_api_exit(void);
 
 /**
  * @ingroup socket

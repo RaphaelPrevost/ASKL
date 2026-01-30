@@ -33,7 +33,7 @@ static void *threadA(UNUSED void *dummy)
     sleep(2);
 
     printf("(*) Opened file %.*s\n", (int) orig->pathlen, orig->path);
-    printf("(*) Thread A got: %s\n", DATA(orig->data));
+    printf("(*) Thread A got: %s\n", orig->data->data);
 
     orig = fs_closefile(orig);
 
@@ -45,7 +45,7 @@ static void *threadA(UNUSED void *dummy)
 static void *threadB(UNUSED void *dummy)
 {
     m_file *file = NULL;
-    m_string *test = NULL;
+    String *test = NULL;
 
     if (! (test = string_alloc("new_test", sizeof("new_test"))) )
         pthread_exit(NULL);
@@ -70,7 +70,7 @@ static void *threadB(UNUSED void *dummy)
     } else printf("(*) Opening a remapped virtual file: SUCCESS\n");
 
     printf("(*) Opened file %.*s\n", (int) file->pathlen, file->path);
-    printf("(*) Thread B got: %s\n", DATA(file->data));
+    printf("(*) Thread B got: %s\n", file->data->data);
 
     file = fs_closefile(file);
 
@@ -82,7 +82,7 @@ static void *threadB(UNUSED void *dummy)
 int test_fs(void)
 {
     pthread_t a, b;
-    m_string *s = NULL;
+    String *s = NULL;
     char buffer[BUFSIZ];
     m_view *v = NULL;
 

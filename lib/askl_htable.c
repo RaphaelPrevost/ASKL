@@ -36,68 +36,68 @@
 #include "askl_htable.h"
 
 /* -------------------------------------------------------------------------- */
-#ifdef _ENABLE_HASHTABLE
+#ifdef _ENABLE_HASHMAP
 /* -------------------------------------------------------------------------- */
 
 #include "arcane/bitops.c"
 #include "arcane/htable.c"
 
-typedef struct _item {
+typedef struct _Item {
     void *ptr;
-    variant val;
+    Variant val;
     struct {
         uint16_t len;
         char str[];
     } key;
-} _item;
+} _Item;
 
 /**
- * @ingroup hashtable
- * @struct _item
+ * @ingroup map
+ * @struct _Item
  *
- * Internal representation of a single key/value entry stored in an
- * @ref ASKL_LinkedMap. An @ref _item is never allocated on its own;
- * it is always embedded inside a @ref _bucket.
+ * Internal representation of a single key/value entry stored in a @ref Map.
+ * An @ref _Item is never allocated on its own; it is always embedded
+ * inside a @ref _Bucket.
  *
  * @b private @ref key.len is the key length in bytes (excluding the NUL byte).
  * @b private @ref key.str is the inline key storage (flexible array), always
  *                         terminated with a NUL character.
  * @b private @ref val is the value stored in the map, as a @ref variant.
  * @b private @ref ptr has two roles depending on where the item is stored:
- *   - in the main hash table (@ref _ASKL_LinkedMap::_bucket), it caches the
+ *   - in the main hash table (@ref Map::_bucket), it caches the
  *     primary hash value (hash0) as a uintptr_t
- *   - in the overflow basket (@ref _ASKL_LinkedMap::_basket), @ref ptr is
+ *   - in the overflow basket (@ref Map::_basket), @ref ptr is
  *     used as the "next" link in the basket's singly linked list.
  *
  * This type is internal and may change at any time.
  */
 
-typedef struct _bucket {
-    struct _bucket *next;
-    _item item; 
-} _bucket;
+typedef struct _Bucket {
+    struct _Bucket *next;
+    _Item item;
+} _Bucket;
 
 #if (TAG_SHIFT > 0)
 STATIC_ASSERT(
-    ((ALIGNOF(_bucket) | offsetof(_bucket, item)) & TAG_MASK) == 0,
+    ((ALIGNOF(_Bucket) | offsetof(_Bucket, item)) & TAG_MASK) == 0,
     pointer_alignment_unsuitable_for_tagging
 );
 #endif
 
 /**
- * @ingroup hashtable
- * @struct _bucket
+ * @ingroup map
+ * @struct _Bucket
  *
  * Internal node used to maintain the map's traversal order.
  *
- * While the hash index is stored separately as an array of @ref _item pointers
- * (@ref _ASKL_LinkedMap::_bucket), the map also keeps a singly linked list of
+ * While the hash index is stored separately as an array of @ref _Item pointers
+ * (@ref Map::_bucket), the map also keeps a singly linked list of
  * all entries to support stable iteration and sorting. Each node of that list
- * is a @ref _bucket that embeds an @ref _item.
+ * is a @ref _Bucket that embeds an @ref _Item.
  *
- * The head of this list is stored in @ref _ASKL_LinkedMap::_index, and
- * functions such as @ref map_each(), @ref map_next() and @ref map_sort()
- * operate on this list rather than on the main hash table.
+ * The head of this list is stored in @ref Map::_index, and functions such as
+ * @ref map_each(), @ref map_next() and @ref map_sort() operate on this list
+ * rather than on the main hash table.
  *
  * @b private @ref next links nodes in the traversal list.
  * @b private @ref item is the embedded entry payload for this position in the
@@ -107,25 +107,25 @@ STATIC_ASSERT(
  * This type is internal and may change at any time.
  */
 
-struct _ASKL_LinkedMap {
-    ASKL_RWLock *_lock;
-    struct _bucket *_index;
-    struct _item **_bucket;
-    struct _item *_basket;
+struct _Map {
+    RW_Lock *_lock;
+    struct _Bucket *_index;
+    struct _Item **_bucket;
+    struct _Item *_basket;
     size_t _bucket_size;
     size_t _bucket_count;
-    void (*_freeval)(variant);
+    void (*_freeval)(Variant);
     uintptr_t _seed[HASH_COUNT];
 };
 
 /**
- * @ingroup linkedmap
- * @struct _ASKL_LinkedMap
+ * @ingroup map
+ * @struct _Map
  *
- * This structure holds the internal state of a @ref ASKL_LinkedMap.
+ * This structure holds the internal state of a @ref Map.
  *
- * An ASKL_LinkedMap is a hash-indexed associative container that also maintains
- * a stable traversal order (typically insertion order, and optionally sortable)
+ * A Map is a hash-indexed associative container that also maintains a stable
+ * traversal order (typically insertion order, and optionally sortable)
  * It combines cuckoo hashing for O(1) expected lookup with an overflow basket
  * for guaranteed insertion when cuckoo displacement fails.
  *
@@ -153,7 +153,7 @@ struct _ASKL_LinkedMap {
 
 /* -------------------------------------------------------------------------- */
 
-static int _probe(ASKL_LinkedMap *h, unsigned int i, _item *new, int replace)
+static int _probe(Map *h, unsigned int i, _Item *new, int replace)
 {
     if (! h->_bucket[i]) {
         if (unlikely(replace == MODIFY_ONLY)) return -1;
@@ -164,7 +164,7 @@ static int _probe(ASKL_LinkedMap *h, unsigned int i, _item *new, int replace)
     }
 
     if (replace >= 0 && unlikely(GET_TAG(h->_bucket[i]) == HASHTAG(new->ptr))) {
-        _item *slot = GET_PTR(h->_bucket[i]);
+        _Item *slot = GET_PTR(h->_bucket[i]);
         if (new->ptr == slot->ptr) {
             /* XXX tombstones have a zero length but we can rely on the
                NUL terminator of the key to inspect them */
@@ -188,16 +188,16 @@ static int _probe(ASKL_LinkedMap *h, unsigned int i, _item *new, int replace)
 /* -------------------------------------------------------------------------- */
 
 static int _set_item(
-    ASKL_LinkedMap *h,
-    _item *item,
+    Map *h,
+    _Item *item,
     int replace,
-    variant *val,
-    variant (*on_insert)(const char *k, size_t l, variant new),
-    variant (*on_update)(const char *k, size_t l, variant old, variant new)
+    Variant *val,
+    Variant (*on_insert)(const char *k, size_t l, Variant new),
+    Variant (*on_update)(const char *k, size_t l, Variant old, Variant new)
 )
 {
     unsigned int i = 0, index = 0, retry = 0;
-    _item *slot = NULL;
+    _Item *slot = NULL;
     uintptr_t hash = 0, mask = h->_bucket_size - 1;
 
     /* avoid rehashing every key */
@@ -267,7 +267,7 @@ _loop:  index = hash & mask;
 
     /* try cuckoo eviction */
     for (index = (uintptr_t) item->ptr & mask; retry < HASH_RETRY; retry ++) {
-        _item *tmp = GET_PTR(h->_bucket[index]);
+        _Item *tmp = GET_PTR(h->_bucket[index]);
         int loop = (tmp->ptr == item->ptr);
 
         h->_bucket[index] = TAG_PTR(item, item->ptr); item = tmp;
@@ -305,7 +305,7 @@ _loop:  index = hash & mask;
 
 _replace:
     if (replace) {
-        variant new = item->val, rejected = slot->val;
+        Variant new = item->val, rejected = slot->val;
         if (on_update) {
             new = on_update(item->key.str, item->key.len, slot->val, item->val);
             if (! variant_equal(new, item->val)) {
@@ -337,12 +337,12 @@ _failure:
 
 /* -------------------------------------------------------------------------- */
 
-static int _resize(ASKL_LinkedMap *h, size_t size)
+static int _resize(Map *h, size_t size)
 {
-    _bucket *b = NULL, *next = NULL;
-    _bucket **prev = NULL;
-    _item *item = NULL, *tmp = NULL;
-    _item **new = NULL;
+    _Bucket *b = NULL, *next = NULL;
+    _Bucket **prev = NULL;
+    _Item *item = NULL, *tmp = NULL;
+    _Item **new = NULL;
 
     if (h->_bucket_count * HASH_RATIO < h->_bucket_size) return 0;
 
@@ -389,18 +389,18 @@ static int _resize(ASKL_LinkedMap *h, size_t size)
 
 /* -------------------------------------------------------------------------- */
 
-static inline variant _insert(
-    ASKL_LinkedMap *h,
+static inline Variant _insert(
+    Map *h,
     const char *key,
     size_t len,
-    variant val,
+    Variant val,
     int replace,
-    variant (*on_insert)(const char *k, size_t l, variant new),
-    variant (*on_update)(const char *k, size_t l, variant old, variant new)
+    Variant (*on_insert)(const char *k, size_t l, Variant new),
+    Variant (*on_update)(const char *k, size_t l, Variant old, Variant new)
 )
 {
-    _bucket *bucket = NULL;
-    int (*lockfn[3])(ASKL_RWLock *) = {
+    _Bucket *bucket = NULL;
+    int (*lockfn[3])(RW_Lock *) = {
         lock_wrlock, lock_wrlock, lock_rdlock
     };
 
@@ -438,9 +438,9 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
+ASKL_API Map *map_alloc(void (*freeval)(Variant))
 {
-    ASKL_LinkedMap *h = NULL;
+    Map *h = NULL;
 
     if (! (h = malloc(sizeof(*h))) ) {
         perror(ERR(map_alloc, malloc));
@@ -493,12 +493,12 @@ _err_rand:
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_set_with(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_set_with(
+    Map *h,
     const char *k,
     size_t l,
-    variant v,
-    variant (*function)(const char *k, size_t l, variant old, variant new)
+    Variant v,
+    Variant (*function)(const char *k, size_t l, Variant old, Variant new)
 )
 {
     if (unlikely(! h || ! k || ! l)) {
@@ -511,7 +511,7 @@ public variant map_set_with(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
+ASKL_API Variant map_set(Map *h, const char *k, size_t l, Variant v)
 {
     if (unlikely(! h || ! k || ! l)) {
         debug("map_set(): bad parameters.\n");
@@ -523,12 +523,12 @@ public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_insert_with(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_insert_with(
+    Map *h,
     const char *k,
     size_t l,
-    variant v,
-    variant (*function)(const char *k, size_t l, variant new)
+    Variant v,
+    Variant (*function)(const char *k, size_t l, Variant new)
 )
 {
     if (unlikely(! h || ! k || ! l)) {
@@ -541,7 +541,7 @@ public variant map_insert_with(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
+ASKL_API Variant map_insert(Map *h, const char *k, size_t l, Variant v)
 {
     if (unlikely(! h || ! k || ! l)) {
         debug("map_insert(): bad parameters.\n");
@@ -553,12 +553,12 @@ public variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_update_with(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_update_with(
+    Map *h,
     const char *k,
     size_t l,
-    variant v,
-    variant (*function)(const char *k, size_t l, variant old, variant new)
+    Variant v,
+    Variant (*function)(const char *k, size_t l, Variant old, Variant new)
 )
 {
     if (unlikely(! h || ! k || ! l)) {
@@ -571,7 +571,7 @@ public variant map_update_with(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_update(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
+ASKL_API Variant map_update(Map *h, const char *k, size_t l, Variant v)
 {
     if (unlikely(! h || ! k || ! l)) {
         debug("map_update(): bad parameters.\n");
@@ -583,11 +583,11 @@ public variant map_update(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 
 /* -------------------------------------------------------------------------- */
 
-static _item *_get_item(ASKL_LinkedMap *h, const char *k, size_t l, variant *v)
+static _Item *_get_item(Map *h, const char *k, size_t l, Variant *v)
 {
     unsigned int i = 0;
     uintptr_t h0, hash, mask = h->_bucket_size - 1;
-    _item *ptr = NULL;
+    _Item *ptr = NULL;
 
     h0 = hash = _hash(k, l, h->_seed[0]);
     #if (UINTPTR_MAX == 0xffffffffffffffffULL)
@@ -637,14 +637,14 @@ _loop:  _MAP_GET(hash & mask);
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_get_with(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_get_with(
+    Map *h,
     const char *key,
     size_t len,
-    variant (*function)(variant)
+    Variant (*function)(Variant)
 )
 {
-    variant res = { 0 };
+    Variant res = { 0 };
 
     if (unlikely(! h || ! key || ! len)) {
         debug("map_get_with(): bad parameters.\n");
@@ -663,9 +663,9 @@ public variant map_get_with(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len)
+ASKL_API Variant map_get(Map *h, const char *key, size_t len)
 {
-    variant res = { 0 };
+    Variant res = { 0 };
 
     if (unlikely(! h || ! key || ! len)) {
         debug("map_get(): bad parameters.\n");
@@ -683,28 +683,28 @@ public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static variant _exists(UNUSED variant v)
+static Variant _exists(UNUSED Variant v)
 {
     return variant_true();
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int map_has(ASKL_LinkedMap *h, const char *key, size_t len)
+ASKL_API int map_has(Map *h, const char *key, size_t len)
 {
-    variant v = map_get_with(h, key, len, _exists);
+    Variant v = map_get_with(h, key, len, _exists);
     return (is_boolean(v) && variant_to_boolean(v));
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int map_merge(
-    ASKL_LinkedMap *dest,
-    ASKL_LinkedMap *src,
-    variant merge(const char *key, size_t len, variant destval, variant srcval)
+ASKL_API int map_merge(
+    Map *dest,
+    Map *src,
+    Variant merge(const char *key, size_t len, Variant destval, Variant srcval)
 )
 {
-    _bucket *b = NULL, *next = NULL;
+    _Bucket *b = NULL, *next = NULL;
 
     if (! dest || ! src || ! merge) {
         debug("map_merge(): bad parameters.\n");
@@ -721,7 +721,7 @@ public int map_merge(
     lock_break(src->_lock);
 
     for (b = src->_index, src->_index = NULL; b; b = next) {
-        variant v = variant_null();
+        Variant v = variant_null();
         next = b->next;
 
         if (! b->item.key.len) { free(b); continue; }
@@ -751,12 +751,9 @@ public int map_merge(
 
 /* -------------------------------------------------------------------------- */
 
-public void map_foreach(
-    ASKL_LinkedMap *h,
-    int (*f)(const char *, size_t, variant)
-)
+ASKL_API void map_foreach(Map *h, int (*f)(const char *, size_t, Variant))
 {
-    _bucket *bucket = NULL;
+    _Bucket *bucket = NULL;
 
     if (! h || ! f) {
         debug("map_foreach(): bad parameters.\n");
@@ -788,21 +785,21 @@ public void map_foreach(
 
 /* -------------------------------------------------------------------------- */
 
-public int map_sort(
-    ASKL_LinkedMap *h,
+ASKL_API int map_sort(
+    Map *h,
     unsigned int order,
     int (*cmp)(
         const char *key0,
         const char *key1,
         size_t len,
-        variant value0,
-        variant value1
+        Variant value0,
+        Variant value1
     )
 )
 {
-    _bucket *l[2] = { NULL, NULL }, *bucket = NULL, *tail = NULL;
+    _Bucket *l[2] = { NULL, NULL }, *bucket = NULL, *tail = NULL;
     unsigned int size = 1, merge = 0, i = 0;
-    _item *a = NULL, *b = NULL;
+    _Item *a = NULL, *b = NULL;
     unsigned int c[2] = { 0, 0 };
 
     if (! h || ! cmp || (order != MAP_ASC && order != MAP_DESC) ) {
@@ -860,12 +857,12 @@ public int map_sort(
 
 /* -------------------------------------------------------------------------- */
 
-public int map_sort_keys(
+ASKL_API int map_sort_keys(
     const char *key0,
     const char *key1,
     size_t l,
-    UNUSED variant val0,
-    UNUSED variant val1
+    UNUSED Variant val0,
+    UNUSED Variant val1
 )
 {
     return memcmp(key0, key1, l);
@@ -873,16 +870,16 @@ public int map_sort_keys(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_remove_if(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_remove_if(
+    Map *h,
     const char *key,
     size_t len,
-    int (*condition)(const char *key, size_t len, variant val)
+    int (*condition)(const char *key, size_t len, Variant val)
 )
 {
     unsigned int i = 0;
-    _item *tmp = NULL, *prev = NULL;
-    variant result = { 0 };
+    _Item *tmp = NULL, *prev = NULL;
+    Variant result = { 0 };
     uintptr_t h0 = 0, hash = 0, mask = 0;
 
     if (! h || ! key || ! len) {
@@ -953,16 +950,16 @@ _result:
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
+ASKL_API Variant map_remove(Map *h, const char *key, size_t len)
 {
     return map_remove_if(h, key, len, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
+ASKL_API size_t map_footprint(Map *h, size_t *overhead)
 {
-    _bucket *bucket = NULL;
+    _Bucket *bucket = NULL;
     size_t key = 0;
     size_t ret = sizeof(*h);
 
@@ -983,7 +980,7 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
                 ret += (
                     sizeof(char *) + bucket->item.key.len +
                     sizeof(bucket->item.key.len) +
-                    sizeof(char *) + sizeof(variant)
+                    sizeof(char *) + sizeof(Variant)
                 );
                 /* key length and value pointer are not overhead */
                 key += (
@@ -1003,9 +1000,9 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h)
+ASKL_API Map *map_free(Map *h)
 {
-    _bucket *bucket = NULL, *next = NULL;
+    _Bucket *bucket = NULL, *next = NULL;
 
     if (! h) return NULL;
 
@@ -1032,9 +1029,9 @@ public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h)
 /* Iterator */
 /* -------------------------------------------------------------------------- */
 
-public ASKL_MapIterator *map_each(ASKL_LinkedMap *h)
+ASKL_API Map_Iterator *map_each(Map *h)
 {
-    ASKL_MapIterator *iterator = NULL;
+    Map_Iterator *iterator = NULL;
 
     if (! h) {
         debug("map_each(): bad parameters.\n");
@@ -1071,9 +1068,9 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_MapIterator *map_at(ASKL_LinkedMap *h, const char *key, size_t len)
+ASKL_API Map_Iterator *map_at(Map *h, const char *key, size_t len)
 {
-    ASKL_MapIterator *iterator = NULL;
+    Map_Iterator *iterator = NULL;
     uint8_t *ptr = NULL;
 
     if (! h) {
@@ -1096,7 +1093,7 @@ public ASKL_MapIterator *map_at(ASKL_LinkedMap *h, const char *key, size_t len)
     }
 
     /* find the bucket from the item address */
-    iterator->_current = (_bucket *) (ptr - offsetof(_bucket, item));
+    iterator->_current = (_Bucket *) (ptr - offsetof(_Bucket, item));
     iterator->key = iterator->_current->item.key.str;
     iterator->len = iterator->_current->item.key.len;
 
@@ -1111,9 +1108,9 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_MapIterator * CALLBACK map_next(ASKL_MapIterator *iterator)
+ASKL_API Map_Iterator *map_next(Map_Iterator *iterator)
 {
-    _bucket *bucket = NULL;
+    _Bucket *bucket = NULL;
 
     for (bucket = iterator->_current->next; bucket; bucket = bucket->next) {
         if (likely(bucket->item.key.len)) {
@@ -1130,9 +1127,9 @@ public ASKL_MapIterator * CALLBACK map_next(ASKL_MapIterator *iterator)
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_set_at(ASKL_MapIterator *iterator, variant new)
+ASKL_API Variant map_set_at(Map_Iterator *iterator, Variant new)
 {
-    variant old;
+    Variant old;
 
     if (lock_upgrade(iterator->map->_lock) == -1) return new;
         old = iterator->_current->item.val;
@@ -1145,9 +1142,9 @@ public variant map_set_at(ASKL_MapIterator *iterator, variant new)
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_remove_at(ASKL_MapIterator *iterator)
+ASKL_API Variant map_remove_at(Map_Iterator *iterator)
 {
-    variant ret = { 0 };
+    Variant ret = { 0 };
     unsigned int len = 0;
 
     if (lock_upgrade(iterator->map->_lock) == -1) return ret;
@@ -1163,7 +1160,7 @@ public variant map_remove_at(ASKL_MapIterator *iterator)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_MapIterator *map_break(ASKL_MapIterator *iterator)
+ASKL_API Map_Iterator *map_break(Map_Iterator *iterator)
 {
     if (! iterator) {
         debug("map_break(): bad parameters.\n");

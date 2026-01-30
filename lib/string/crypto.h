@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Wamigo Daemon                                                              *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,20 +33,21 @@
  *                                                                             *
  ******************************************************************************/
 
-#include "wamigo_plugin.h"
+#ifndef ASKL_CRYPTO_H
+
+#define ASKL_CRYPTO_H
+
+#include "../askl.h"
+#include "../askl_string.h"
 
 /* -------------------------------------------------------------------------- */
 
-private int wamigo_set(void *path, const char *attr, const char *val, size_t l)
-{
-    return file_setxattr(path, attr, val, l, 0);
-}
+ASKL_API String *string_sha1s(const char *string, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-private int wamigo_get(void *path, const char *attr, char *out, size_t outlen)
-{
-    return file_getxattr(path, attr, out, outlen);
-}
+ASKL_API String *string_sha1(String *s);
 
 /* -------------------------------------------------------------------------- */
+
+#endif

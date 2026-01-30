@@ -40,7 +40,7 @@
 /* -------------------------------------------------------------------------- */
 
 typedef struct _Socket {
-    struct ASKL_Socket interface;
+    struct Socket interface;
 
     uint32_t _flags;
     SOCKET _fd;
@@ -100,21 +100,21 @@ STATIC_ASSERT(offsetof(_Socket, interface) == 0, interface_must_be_first);
 /* Socket Helpers */
 /* -------------------------------------------------------------------------- */
 
-static inline _Socket *socket_private_interface(ASKL_Socket *socket)
+static inline _Socket *socket_private_interface(Socket *socket)
 {
     return (_Socket *) socket;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static inline ASKL_Socket *socket_public_interface(_Socket *socket)
+static inline Socket *socket_public_interface(_Socket *socket)
 {
-    return (ASKL_Socket *) socket;
+    return (Socket *) socket;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint16_t socket_get_id(ASKL_Socket *socket)
+static inline uint16_t socket_get_id(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return (s->_flags & _SOCKET_SOCK_ID);
@@ -122,7 +122,7 @@ static inline uint16_t socket_get_id(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint32_t socket_get_options(ASKL_Socket *socket)
+static inline uint32_t socket_get_options(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return (s->_flags & _SOCKET_OPTIONS);
@@ -130,7 +130,7 @@ static inline uint32_t socket_get_options(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline int socket_option_isset(ASKL_Socket *socket, uint32_t opt)
+static inline int socket_option_isset(Socket *socket, uint32_t opt)
 {
     _Socket *s = socket_private_interface(socket);
     return (s->_flags & opt);
@@ -152,7 +152,7 @@ static inline uint32_t _set_ingress_id(uint16_t ingress)
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint16_t socket_get_ingress(ASKL_Socket *socket)
+static inline uint16_t socket_get_ingress(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return _get_ingress_id(s->_flags);
@@ -160,7 +160,7 @@ static inline uint16_t socket_get_ingress(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline const struct sockaddr *socket_get_sockaddr(ASKL_Socket *socket)
+static inline const struct sockaddr *socket_get_sockaddr(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return s->info->ai_addr;
@@ -168,7 +168,7 @@ static inline const struct sockaddr *socket_get_sockaddr(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline socklen_t socket_get_socklen(ASKL_Socket *socket)
+static inline socklen_t socket_get_socklen(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return s->info->ai_addrlen;
@@ -176,7 +176,7 @@ static inline socklen_t socket_get_socklen(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint32_t socket_get_tag(ASKL_Socket *socket)
+static inline uint32_t socket_get_tag(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     if (! s) return 0;
@@ -185,7 +185,7 @@ static inline uint32_t socket_get_tag(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline int socket_set_tag(ASKL_Socket *socket, uint32_t tag)
+static inline int socket_set_tag(Socket *socket, uint32_t tag)
 {
     _Socket *s = socket_private_interface(socket);
     if (! s) return -1;
@@ -195,7 +195,7 @@ static inline int socket_set_tag(ASKL_Socket *socket, uint32_t tag)
 
 /* -------------------------------------------------------------------------- */
 
-static inline int socket_haserror(ASKL_Socket *socket)
+static inline int socket_haserror(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return (s->_state & _SOCKET_E);
@@ -203,7 +203,7 @@ static inline int socket_haserror(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline int socket_readable(ASKL_Socket *socket)
+static inline int socket_readable(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return (s->_state & _SOCKET_R);
@@ -211,7 +211,7 @@ static inline int socket_readable(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline int socket_writable(ASKL_Socket *socket)
+static inline int socket_writable(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return (s->_state & _SOCKET_W);
@@ -219,7 +219,7 @@ static inline int socket_writable(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline int socket_incoming(ASKL_Socket *socket)
+static inline int socket_incoming(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return (s->_state & _SOCKET_R);
@@ -227,7 +227,7 @@ static inline int socket_incoming(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-static inline int socket_outgoing(ASKL_Socket *socket)
+static inline int socket_outgoing(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
     return (s->_state & _SOCKET_C);
@@ -237,7 +237,7 @@ static inline int socket_outgoing(ASKL_Socket *socket)
 /* Socket Queue internals */
 /* -------------------------------------------------------------------------- */
 
-struct _ASKL_SocketQueue {
+struct _Socket_Queue {
     pthread_mutex_t _head_lock;
     pthread_mutex_t _tail_lock;
     pthread_cond_t _empty;

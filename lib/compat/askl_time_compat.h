@@ -88,7 +88,7 @@ struct timezone {
     #define usleep(t) Sleep((t) / 1000)
 #endif
 
-public int gettimeofday(struct timeval *tv, struct timezone *tz);
+ASKL_API int gettimeofday(struct timeval *tv, struct timezone *tz);
 
 /**
  * @fn int gettimeofday(struct timeval *tv, struct timezone *tz)
@@ -108,7 +108,7 @@ public int gettimeofday(struct timeval *tv, struct timezone *tz);
  */
 
 /* -------------------------------------------------------------------------- */
-#elif defined(__APPLE__)
+#elif (defined(__APPLE__))
 /* -------------------------------------------------------------------------- */
 
 #include <sys/time.h>
@@ -124,7 +124,7 @@ public int gettimeofday(struct timeval *tv, struct timezone *tz);
 #endif
 /* -------------------------------------------------------------------------- */
 
-public void monotonic_timer_init(void);
+ASKL_API void monotonic_timer_init(void);
 
 /**
  * @fn void monotonic_timer_init(void)
@@ -136,7 +136,7 @@ public void monotonic_timer_init(void);
 
 /* -------------------------------------------------------------------------- */
 
-public int monotonic_timer(struct timespec *ts);
+ASKL_API int monotonic_timer(struct timespec *ts);
 
 /**
  * @fn int monotonic_timer(struct timespec *ts)

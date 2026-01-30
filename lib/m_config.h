@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -62,7 +62,7 @@
 
 /* -------------------------------------------------------------------------- */
 
-private int configure(const char *path, const char *configfile);
+INTERNAL int configure(const char *path, const char *configfile);
 
 /**
  * @ingroup config
@@ -80,11 +80,11 @@ private int configure(const char *path, const char *configfile);
 
 /* -------------------------------------------------------------------------- */
 
-public void config_force_profile(int profile);
+ASKL_API void config_force_profile(int profile);
 
 /* -------------------------------------------------------------------------- */
 
-private void configure_cleanup(void);
+INTERNAL void configure_cleanup(void);
 
 /**
  * @ingroup config
@@ -96,7 +96,7 @@ private void configure_cleanup(void);
 
 /* -------------------------------------------------------------------------- */
 
-public unsigned int config_get_concurrency(void);
+ASKL_API unsigned int config_get_concurrency(void);
 
 /**
  * @ingroup config
@@ -123,7 +123,7 @@ public m_dbpool *config_get_db(const char *id);
 
 #ifdef _ENABLE_SSL
 
-private SSL_CTX *config_get_ssl(unsigned int id);
+INTERNAL SSL_CTX *config_get_ssl(unsigned int id);
 
 /**
  * @ingroup config
@@ -136,7 +136,7 @@ private SSL_CTX *config_get_ssl(unsigned int id);
 
 /* -------------------------------------------------------------------------- */
 
-private int config_process(const char *config, size_t len);
+INTERNAL int config_process(const char *config, size_t len);
 
 /**
  * @ingroup config

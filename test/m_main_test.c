@@ -5,7 +5,7 @@
 extern int test_socket(void);
 extern int test_string(void);
 extern int test_queue(void);
-#ifdef _ENABLE_HASHTABLE
+#ifdef _ENABLE_HASHMAP
 extern int test_hashtable(void);
 #endif
 #ifdef _ENABLE_TRIE
@@ -43,17 +43,17 @@ int main(void)
     } else printf("=== m_http test: SUCCESS ===\n");
     #endif
 
-    #ifdef _ENABLE_HASHTABLE
+    #ifdef _ENABLE_HASHMAP
     if (test_hashtable() == -1) {
         printf("!!! m_hashtable test: FAILURE !!!\n");
         exit(EXIT_FAILURE);
     } else printf("=== m_hashtable test: SUCCESS ===\n");
     #endif
 
-    /*if (test_socket() == -1) {
+    if (test_socket() == -1) {
         printf("!!! m_socket test: FAILURE !!!\n");
         exit(EXIT_FAILURE);
-    } else printf("=== m_socket test: SUCCESS ===\n");*/
+    } else printf("=== m_socket test: SUCCESS ===\n");
 
     if (test_queue() == -1) {
         printf("!!! m_queue test: FAILURE !!!\n");

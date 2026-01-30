@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -64,7 +64,7 @@ static int16_t _master_to_server[SOCKET_MAX + 1];
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_router_init(void)
+INTERNAL int stream_router_init(void)
 {
     const char *host = NULL;
     const char *port = NULL;
@@ -168,40 +168,40 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_heartbeat(int socket_id)
+INTERNAL int stream_heartbeat(int socket_id)
 {
-    m_reply *reply = NULL;
-    m_string *data = NULL;
+    Response *response = NULL;
+    String *data = NULL;
 
-    reply = server_reply_init(
+    response = server_response_init(
         SERVER_MSG_ACK | SERVER_MSG_OOB,
         module_get_token()
     );
 
-    if (! reply) goto _err_rep;
+    if (! response) goto _err_rep;
 
     if (! (data = string_alloc("!", 1)) ) goto _err_fmt;
 
-    if (server_reply_setheader(reply, data) == -1) goto _err_set;
+    if (server_response_setheader(response, data) == -1) goto _err_set;
 
     /* send a heartbeat every minute */
-    if (server_reply_setdelay(reply, 60) == -1) goto _err_set;
+    if (server_response_setdelay(response, 60) == -1) goto _err_set;
 
-    reply = server_send_reply(socket_id, reply);
+    response = server_send_response(socket_id, response);
 
     return 0;
 
 _err_set:
     string_free(data);
 _err_fmt:
-    server_reply_free(reply);
+    server_response_free(response);
 _err_rep:
     return -1;
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_get_id(int hint, int personality)
+INTERNAL int stream_get_id(int hint, int personality)
 {
     int ret = -1;
 
@@ -226,7 +226,7 @@ private int stream_get_id(int hint, int personality)
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_set_route(int type, uint16_t s0, uint16_t s1)
+INTERNAL void stream_set_route(int type, uint16_t s0, uint16_t s1)
 {
     if (type == ROUTE_WORKER) {
         pthread_rwlock_wrlock(& _master_lock);
@@ -247,14 +247,14 @@ private void stream_set_route(int type, uint16_t s0, uint16_t s1)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_get_route(int ingress)
+INTERNAL int stream_get_route(int ingress)
 {
     return route_type[ingress];
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_open_ingress(int stream_id, int type)
+INTERNAL int stream_open_ingress(int stream_id, int type)
 {
     if (stream_id < 0 || stream_id >= _STREAMS_MAX) {
         debug("stream_alloc_ingress(): bad parameters.\n");
@@ -280,7 +280,7 @@ private int stream_open_ingress(int stream_id, int type)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_get_ingress(int stream_id, int type)
+INTERNAL int stream_get_ingress(int stream_id, int type)
 {
     if (stream_id < 0 || stream_id >= _STREAMS_MAX) {
         debug("stream_get_ingress(): bad parameters.\n");
@@ -297,7 +297,7 @@ private int stream_get_ingress(int stream_id, int type)
 
 /* -------------------------------------------------------------------------- */
 
-private uint16_t stream_get_egress(uint16_t socket_id, uint16_t ingress_id)
+INTERNAL uint16_t stream_get_egress(uint16_t socket_id, uint16_t ingress_id)
 {
     uint16_t match = 0;
 
@@ -343,7 +343,7 @@ private uint16_t stream_get_egress(uint16_t socket_id, uint16_t ingress_id)
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_router_exit(void)
+INTERNAL void stream_router_exit(void)
 {
     pthread_rwlock_destroy(& _worker_lock);
     pthread_rwlock_destroy(& _master_lock);

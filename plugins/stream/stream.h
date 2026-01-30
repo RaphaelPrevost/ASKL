@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -82,7 +82,7 @@
 /* MANDATORY MODULE CALLBACKS */
 /* -------------------------------------------------------------------------- */
 
-public unsigned int module_api(void);
+ASKL_API unsigned int module_api(void);
 
 /**
  * @ingroup module
@@ -97,7 +97,7 @@ public unsigned int module_api(void);
 
 /* -------------------------------------------------------------------------- */
 
-public int module_init(uint32_t id, int argc, char **argv);
+ASKL_API int module_init(uint32_t id, int argc, char **argv);
 
 /**
  * @ingroup module
@@ -124,20 +124,20 @@ public int module_init(uint32_t id, int argc, char **argv);
 
 /* -------------------------------------------------------------------------- */
 
-private uint32_t module_get_token(void);
+INTERNAL uint32_t module_get_token(void);
 
 /* -------------------------------------------------------------------------- */
 
-public void module_input_handler(
+ASKL_API void module_input_handler(
     uint16_t socket_id,
     uint16_t ingress_id,
-    m_string *data
+    String *data
 );
 
 /**
  * @ingroup module
  * @fn void module_input_handler(uint16_t socket_id, uint16_t ingress_id,
- *                               m_string *data)
+ *                               String *data)
  * @param socket_id connection identifier
  * @param ingress_id a channel identifier
  * @param data incoming data
@@ -145,13 +145,13 @@ public void module_input_handler(
  * This function is called by the server when data become available on a
  * connection.
  *
- * The incoming data are encapsulated in a @ref m_string structure, so the
+ * The incoming data are encapsulated in a @ref String structure, so the
  * module can fetch the data it needs and the server can handle request
  * fragmentation. If the module leaves data in the buffer, they will be kept
  * by the server and subsequent incoming data will be automatically appended.
  *
  * If you don't want the server to keep these remaining data, you can discard
- * them by calling @ref string_flush() on the @ref m_string.
+ * them by calling @ref string_flush() on the @ref String.
  *
  * This method can use the server functions @ref server_send_string() or
  * @ref server_send_response() to send a reply.
@@ -160,7 +160,7 @@ public void module_input_handler(
 
 /* -------------------------------------------------------------------------- */
 
-public void module_exit(void);
+ASKL_API void module_exit(void);
 
 /**
  * @ingroup module
@@ -176,17 +176,17 @@ public void module_exit(void);
 /* OPTIONAL MODULE CALLBACKS */
 /* -------------------------------------------------------------------------- */
 
-public void module_event_handler(
+ASKL_API void module_event_handler(
     uint16_t id,
     uint16_t ingress_id,
-    ASKL_ModuleEvent event,
+    Module_Event event,
     void *event_data
 );
 
 /**
  * @ingroup module
  * @fn void module_event_handler(uint16_t id, uint16_t ingress_id,
- *                               ASKL_ModuleEvent event, void *event_data)
+ *                               Module_Event event, void *event_data)
  * @param id connection identifier
  * @param ingress_id ingress identifier
  * @param event event code
@@ -205,7 +205,7 @@ public void module_event_handler(
 /* Configuration */
 /* -------------------------------------------------------------------------- */
 
-private int stream_config_init(int argc, char **argv);
+INTERNAL int stream_config_init(int argc, char **argv);
 
 /**
  * @ingroup stream
@@ -221,7 +221,7 @@ private int stream_config_init(int argc, char **argv);
  * or socket setup is performed.
  */
 
-private int stream_personality(void);
+INTERNAL int stream_personality(void);
 
 /**
  * @ingroup stream
@@ -233,7 +233,7 @@ private int stream_personality(void);
  * PERSONALITY_WORKER.
  */
 
-private int stream_master_streams(void);
+INTERNAL int stream_master_streams(void);
 
 /**
  * @ingroup stream
@@ -244,7 +244,7 @@ private int stream_master_streams(void);
  * should expose as a MASTER (public listener + worker ingress).
  */
 
-private int stream_worker_streams(void);
+INTERNAL int stream_worker_streams(void);
 
 /**
  * @ingroup stream
@@ -255,7 +255,7 @@ private int stream_worker_streams(void);
  * should run as a WORKER (master endpoint + service endpoint).
  */
 
-private const char *stream_config_host(int stream, int target);
+INTERNAL const char *stream_config_host(int stream, int target);
 
 /**
  * @ingroup stream
@@ -268,7 +268,7 @@ private const char *stream_config_host(int stream, int target);
  * The returned pointer remains valid until stream_config_exit() is called.
  */
 
-private const char *stream_config_port(int stream, int target);
+INTERNAL const char *stream_config_port(int stream, int target);
 
 /**
  * @ingroup stream
@@ -281,7 +281,7 @@ private const char *stream_config_port(int stream, int target);
  * The returned pointer remains valid until stream_config_exit() is called.
  */
 
-private int stream_config_destination(int stream);
+INTERNAL int stream_config_destination(int stream);
 
 /**
  * @ingroup stream
@@ -294,7 +294,7 @@ private int stream_config_destination(int stream);
  * should be opened.
  */
 
-private const char *stream_config_module_name(int stream);
+INTERNAL const char *stream_config_module_name(int stream);
 
 /**
  * @ingroup stream
@@ -306,7 +306,7 @@ private const char *stream_config_module_name(int stream);
  * and identification.
  */
 
-private void stream_config_exit(void);
+INTERNAL void stream_config_exit(void);
 
 /**
  * @ingroup stream
@@ -319,7 +319,7 @@ private void stream_config_exit(void);
 /* Router */
 /* -------------------------------------------------------------------------- */
 
-private int stream_router_init(void);
+INTERNAL int stream_router_init(void);
 
 /**
  * @ingroup stream
@@ -333,7 +333,7 @@ private int stream_router_init(void);
  * It must be called after stream_config_init().
  */
 
-private int stream_heartbeat(int socket_id);
+INTERNAL int stream_heartbeat(int socket_id);
 
 /**
  * @ingroup stream
@@ -346,7 +346,7 @@ private int stream_heartbeat(int socket_id);
  * a dead MASTER.
  */
 
-private int stream_get_id(int hint, int personality);
+INTERNAL int stream_get_id(int hint, int personality);
 
 /**
  * @ingroup stream
@@ -360,7 +360,7 @@ private int stream_get_id(int hint, int personality);
  * MASTER or a WORKER.
  */
 
-private void stream_set_route(int type, uint16_t s0, uint16_t s1);
+INTERNAL void stream_set_route(int type, uint16_t s0, uint16_t s1);
 
 /**
  * @ingroup stream
@@ -374,7 +374,7 @@ private void stream_set_route(int type, uint16_t s0, uint16_t s1);
  * so that payload can be forwarded in both directions.
  */
 
-private int stream_get_route(int ingress);
+INTERNAL int stream_get_route(int ingress);
 
 /**
  * @ingroup stream
@@ -386,7 +386,7 @@ private int stream_get_route(int ingress);
  * can decide how to interpret control messages and how to forward payload.
  */
 
-private int stream_open_ingress(int stream_id, int type);
+INTERNAL int stream_open_ingress(int stream_id, int type);
 
 /**
  * @ingroup stream
@@ -399,7 +399,7 @@ private int stream_open_ingress(int stream_id, int type);
  * stream and route type, and registers it for later lookups.
  */
 
-private int stream_get_ingress(int stream_id, int type);
+INTERNAL int stream_get_ingress(int stream_id, int type);
 
 /**
  * @ingroup stream
@@ -412,7 +412,7 @@ private int stream_get_ingress(int stream_id, int type);
  * stream and route type.
  */
 
-private uint16_t stream_get_egress(uint16_t socket_id, uint16_t ingress_id);
+INTERNAL uint16_t stream_get_egress(uint16_t socket_id, uint16_t ingress_id);
 
 /**
  * @ingroup stream
@@ -427,7 +427,7 @@ private uint16_t stream_get_egress(uint16_t socket_id, uint16_t ingress_id);
  * It is used to implement bidirectional forwarding inside a pipe.
  */
 
-private void stream_router_exit(void);
+INTERNAL void stream_router_exit(void);
 
 /**
  * @ingroup stream
@@ -440,7 +440,7 @@ private void stream_router_exit(void);
 /* Sockets */
 /* -------------------------------------------------------------------------- */
 
-private int stream_socket_init(void);
+INTERNAL int stream_socket_init(void);
 
 /**
  * @ingroup stream
@@ -454,7 +454,7 @@ private int stream_socket_init(void);
  * For MASTER personality, it allocates per-stream queues.
  */
 
-private int stream_set_status(uint16_t socket_id, int status);
+INTERNAL int stream_set_status(uint16_t socket_id, int status);
 
 /**
  * @ingroup stream
@@ -469,7 +469,7 @@ private int stream_set_status(uint16_t socket_id, int status);
  * The call is thread-safe.
  */
 
-private int stream_get_status(uint16_t socket_id);
+INTERNAL int stream_get_status(uint16_t socket_id);
 
 /**
  * @ingroup stream
@@ -482,7 +482,7 @@ private int stream_get_status(uint16_t socket_id);
  * The call is thread-safe.
  */
 
-private void stream_add_worker(int stream_id, uint16_t worker);
+INTERNAL void stream_add_worker(int stream_id, uint16_t worker);
 
 /**
  * @ingroup stream
@@ -496,7 +496,7 @@ private void stream_add_worker(int stream_id, uint16_t worker);
  * can be set to STREAM_STATUS_WORK.
  */
 
-private uint16_t stream_borrow_worker(int stream_id);
+INTERNAL uint16_t stream_borrow_worker(int stream_id);
 
 /**
  * @ingroup stream
@@ -509,7 +509,7 @@ private uint16_t stream_borrow_worker(int stream_id);
  * found.
  */
 
-private uint16_t stream_release_worker(int stream_id, uint16_t worker);
+INTERNAL uint16_t stream_release_worker(int stream_id, uint16_t worker);
 
 /**
  * @ingroup stream
@@ -522,7 +522,7 @@ private uint16_t stream_release_worker(int stream_id, uint16_t worker);
  * in STREAM_STATUS_WORK.
  */
 
-private uint16_t stream_enqueue_connection(int stream_id, uint16_t conn);
+INTERNAL uint16_t stream_enqueue_connection(int stream_id, uint16_t conn);
 
 /**
  * @ingroup stream
@@ -535,7 +535,7 @@ private uint16_t stream_enqueue_connection(int stream_id, uint16_t conn);
  * queue. It marks the connection as STREAM_STATUS_WAIT before insertion.
  */
 
-private uint16_t stream_dequeue_connection(int stream_id);
+INTERNAL uint16_t stream_dequeue_connection(int stream_id);
 
 /**
  * @ingroup stream
@@ -548,7 +548,7 @@ private uint16_t stream_dequeue_connection(int stream_id);
  * is found.
  */
 
-private uint16_t stream_enqueue_waiting(int stream_id, uint16_t conn);
+INTERNAL uint16_t stream_enqueue_waiting(int stream_id, uint16_t conn);
 
 /**
  * @ingroup stream
@@ -561,7 +561,7 @@ private uint16_t stream_enqueue_waiting(int stream_id, uint16_t conn);
  * The master will attempt to open a pipe as soon as a worker becomes ready.
  */
 
-private uint16_t stream_dequeue_waiting(int stream_id);
+INTERNAL uint16_t stream_dequeue_waiting(int stream_id);
 
 /**
  * @ingroup stream
@@ -573,11 +573,11 @@ private uint16_t stream_dequeue_waiting(int stream_id);
  * skipping stale entries until a STREAM_STATUS_CONN socket is found.
  */
 
-private m_string *stream_enqueue_packet(uint16_t socket_id, m_string *data);
+INTERNAL String *stream_enqueue_packet(uint16_t socket_id, String *data);
 
 /**
  * @ingroup stream
- * @fn m_string *stream_enqueue_packet(uint16_t socket_id, m_string *data)
+ * @fn String *stream_enqueue_packet(uint16_t socket_id, String *data)
  * @param socket_id the originating socket id
  * @param data the packet payload
  * @return NULL (packets are duplicated and queued), or NULL on error
@@ -588,21 +588,21 @@ private m_string *stream_enqueue_packet(uint16_t socket_id, m_string *data);
  * The call is thread-safe.
  */
 
-private m_string *stream_dequeue_packet(uint16_t socket_id);
+INTERNAL String *stream_dequeue_packet(uint16_t socket_id);
 
 /**
  * @ingroup stream
- * @fn m_string *stream_dequeue_packet(uint16_t socket_id)
+ * @fn String *stream_dequeue_packet(uint16_t socket_id)
  * @param socket_id the socket id whose packet queue should be read
- * @return a queued m_string packet, or NULL if none
+ * @return a queued String packet, or NULL if none
  *
  * This function dequeues and returns the next buffered packet for the given socket.
- * The caller owns the returned m_string and must free it.
+ * The caller owns the returned String and must free it.
  *
  * The call is thread-safe.
  */
 
-private void stream_drop_packets(uint16_t socket_id);
+INTERNAL void stream_drop_packets(uint16_t socket_id);
 
 /**
  * @ingroup stream
@@ -610,12 +610,12 @@ private void stream_drop_packets(uint16_t socket_id);
  * @param socket_id the socket id whose packet queue should be destroyed
  *
  * This function destroys the pending packet queue for a socket and frees all
- * queued m_string nodes.
+ * queued String nodes.
  *
  * The call is thread-safe.
  */
 
-private void stream_flush_packets(uint16_t socket_id, uint16_t egress);
+INTERNAL void stream_flush_packets(uint16_t socket_id, uint16_t egress);
 
 /**
  * @ingroup stream
@@ -630,7 +630,7 @@ private void stream_flush_packets(uint16_t socket_id, uint16_t egress);
  * The call is thread-safe with respect to the packet queue.
  */
 
-private int stream_get_connection(int stream_id);
+INTERNAL int stream_get_connection(int stream_id);
 
 /**
  * @ingroup stream
@@ -642,7 +642,7 @@ private int stream_get_connection(int stream_id);
  * (MASTER -> send MASTER_OP_HIRED to a worker).
  */
 
-private int stream_get_pipe(int stream_id, uint16_t socket_id);
+INTERNAL int stream_get_pipe(int stream_id, uint16_t socket_id);
 
 /**
  * @ingroup stream
@@ -657,7 +657,7 @@ private int stream_get_pipe(int stream_id, uint16_t socket_id);
  * in the waiting list.
  */
 
-private void stream_open_pipe(int stream_id);
+INTERNAL void stream_open_pipe(int stream_id);
 
 /**
  * @ingroup stream
@@ -669,7 +669,7 @@ private void stream_open_pipe(int stream_id);
  * raw payload can be forwarded in both directions.
  */
 
-private void stream_socket_exit(void);
+INTERNAL void stream_socket_exit(void);
 
 /**
  * @ingroup stream

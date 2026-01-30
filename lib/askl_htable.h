@@ -33,11 +33,11 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef ASKL_HASHTABLE_H
+#ifndef ASKL_MAP_H
 
-#define ASKL_HASHTABLE_H
+#define ASKL_MAP_H
 
-#ifdef _ENABLE_HASHTABLE
+#ifdef _ENABLE_HASHMAP
 
 #include "askl.h"
 #include "askl_rwlock.h"
@@ -46,20 +46,20 @@
 #define MAP_ASC                 0
 #define MAP_DESC                1
 
-/** @defgroup hashtable ASKL::hashtable */
+/** @defgroup map ASKL::map */
 
-typedef struct _ASKL_LinkedMap ASKL_LinkedMap;
+typedef struct _Map Map;
 
 /**
- * @ingroup hashtable
- * @struct ASKL_LinkedMap
+ * @ingroup map
+ * @struct Map
  *
  * Opaque handle to a concurrent linked hash map.
  *
- * An ASKL_LinkedMap is a hash-indexed associative container mapping arbitrary
- * byte-string keys to @ref variant values. In addition to O(1) expected-time
- * lookups, it maintains a stable internal index so that entries can be visited
- * in a well-defined order (e.g. insertion order or user-specified sort order).
+ * A Map is a hash-indexed associative container mapping arbitrary byte-string
+ * keys to @ref variant values. In addition to O(1) expected-time lookups, it
+ * maintains a stable internal index so that entries can be visited in a
+ * well-defined order (e.g. insertion order or user-specified sort order).
  *
  * The map is safe for concurrent access: readers and writers are synchronized
  * internally using a read–write lock. Simple operations such as @ref map_get(),
@@ -72,20 +72,19 @@ typedef struct _ASKL_LinkedMap ASKL_LinkedMap;
  * structure layout is intentionally hidden and may change between releases.
  */
 
-typedef struct ASKL_MapIterator {
-    ASKL_LinkedMap *map;
-    struct _bucket *_current;
+typedef struct Map_Iterator {
+    Map *map;
+    struct _Bucket *_current;
     const char *key;
     size_t len;
-    variant val;
-} ASKL_MapIterator;
+    Variant val;
+} Map_Iterator;
 
 /**
- * @ingroup hashtable
- * @struct ASKL_MapIterator
+ * @ingroup map
+ * @struct Map_Iterator
  *
- * This structure represents an iterator over the entries of an
- * @ref ASKL_LinkedMap.
+ * This structure represents an iterator over the entries of a @ref Map.
  *
  * Iterators are created by @ref map_each() or @ref map_at().
  * They carry a reference to the underlying map and expose the current
@@ -118,13 +117,13 @@ typedef struct ASKL_MapIterator {
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_LinkedMap *map_alloc(void (*freeval)(variant));
+ASKL_API Map *map_alloc(void (*freeval)(Variant));
 
 /**
- * @ingroup hashtable
- * @fn ASKL_LinkedMap *map_alloc(void (*freeval)(variant))
+ * @ingroup map
+ * @fn Map *map_alloc(void (*freeval)(Variant))
  * @param freeval optional callback used to destroy stored values
- * @return a pointer to a newly allocated @ref ASKL_LinkedMap, or NULL on error
+ * @return a pointer to a newly allocated @ref Map, or NULL on error
  *
  * This function allocates and initializes a new concurrent linked hash map.
  *
@@ -138,20 +137,20 @@ public ASKL_LinkedMap *map_alloc(void (*freeval)(variant));
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_set_with(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_set_with(
+    Map *h,
     const char *k,
     size_t l,
-    variant v,
-    variant (*function)(const char *k, size_t l, variant old, variant new)
+    Variant v,
+    Variant (*function)(const char *k, size_t l, Variant old, Variant new)
 );
 
 /**
- * @ingroup hashtable
- * @fn variant map_set_with(ASKL_LinkedMap *h, const char *key, size_t len,
- *                          variant value,
- *                          variant (*function)(const char *, size_t,
- *                                              variant, variant))
+ * @ingroup map
+ * @fn Variant map_set_with(Map *h, const char *key, size_t len,
+ *                          Variant value,
+ *                          Variant (*function)(const char *, size_t,
+ *                                              Variant, Variant))
  * @param h        a pointer to a linked hashmap
  * @param key      pointer to the key bytes
  * @param len      length of the key in bytes
@@ -183,11 +182,11 @@ public variant map_set_with(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v);
+ASKL_API Variant map_set(Map *h, const char *k, size_t l, Variant v);
 
 /**
- * @ingroup hashtable
- * @fn variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
+ * @ingroup map
+ * @fn Variant map_set(Map *h, const char *k, size_t l, Variant v)
  * @param h a pointer to a linked hashmap
  * @param k pointer to the key bytes (not necessarily NUL-terminated)
  * @param l length of the key in bytes
@@ -202,20 +201,20 @@ public variant map_set(ASKL_LinkedMap *h, const char *k, size_t l, variant v);
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_insert_with(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_insert_with(
+    Map *h,
     const char *key,
     size_t len,
-    variant value,
-    variant (*function)(const char *k, size_t l, variant new)
+    Variant value,
+    Variant (*function)(const char *k, size_t l, Variant new)
 );
 
 /**
- * @ingroup hashtable
- * @fn variant map_insert_with(ASKL_LinkedMap *h, const char *key, size_t len,
- *                             variant value,
- *                             variant (*function)(const char *, size_t,
- *                                                 variant))
+ * @ingroup map
+ * @fn Variant map_insert_with(Map *h, const char *key, size_t len,
+ *                             Variant value,
+ *                             Variant (*function)(const char *, size_t,
+ *                                                 Variant))
  * @param h        a pointer to a linked hashmap
  * @param key      pointer to the key bytes
  * @param len      length of the key in bytes
@@ -240,11 +239,11 @@ public variant map_insert_with(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v);
+ASKL_API Variant map_insert(Map *h, const char *k, size_t l, Variant v);
 
 /**
- * @ingroup hashtable
- * @fn variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
+ * @ingroup map
+ * @fn Variant map_insert(Map *h, const char *k, size_t l, Variant v)
  * @param h a pointer to a linked hashmap
  * @param k pointer to the key bytes (not necessarily NUL-terminated)
  * @param l length of the key in bytes
@@ -263,20 +262,20 @@ public variant map_insert(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_update_with(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_update_with(
+    Map *h,
     const char *k,
     size_t l,
-    variant v,
-    variant (*function)(const char *k, size_t l, variant old, variant new)
+    Variant v,
+    Variant (*function)(const char *k, size_t l, Variant old, Variant new)
 );
 
 /**
- * @ingroup hashtable
- * @fn variant map_update_with(ASKL_LinkedMap *h, const char *key, size_t len,
- *                             variant value,
- *                             variant (*function)(const char *key, size_t len,
- *                                                  variant old, variant new))
+ * @ingroup map
+ * @fn variant map_update_with(Map *h, const char *key, size_t len,
+ *                             Variant value,
+ *                             Variant (*function)(const char *key, size_t len,
+ *                                                 Variant old, Variant new))
  * @param h        a pointer to a linked hashmap
  * @param key      pointer to the key bytes (not necessarily NUL-terminated)
  * @param len      length of the key in bytes
@@ -318,12 +317,11 @@ public variant map_update_with(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_update(ASKL_LinkedMap *h, const char *k, size_t l, variant v);
+ASKL_API Variant map_update(Map *h, const char *k, size_t l, Variant v);
 
 /**
- * @ingroup hashtable
- * @fn variant map_update(ASKL_LinkedMap *h, const char *key, size_t len,
- *                        variant value)
+ * @ingroup map
+ * @fn Variant map_update(Map *h, const char *key, size_t len, Variant value)
  * @param h     a pointer to a linked hashmap
  * @param key   pointer to the key bytes (not necessarily NUL-terminated)
  * @param len   length of the key in bytes
@@ -345,17 +343,17 @@ public variant map_update(ASKL_LinkedMap *h, const char *k, size_t l, variant v)
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_get_with(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_get_with(
+    Map *h,
     const char *key,
     size_t len,
-    variant (*function)(variant)
+    Variant (*function)(Variant)
 );
 
 /**
- * @ingroup hashtable
- * @fn variant map_get_with(ASKL_LinkedMap *h, const char *key, size_t len,
- *                          variant (*function)(variant))
+ * @ingroup map
+ * @fn Variant map_get_with(Map *h, const char *key, size_t len,
+ *                          Variant (*function)(Variant))
  * @param h        a pointer to a linked hashmap
  * @param key      pointer to the key bytes
  * @param len      length of the key in bytes
@@ -381,11 +379,11 @@ public variant map_get_with(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len);
+ASKL_API Variant map_get(Map *h, const char *key, size_t len);
 
 /**
- * @ingroup hashtable
- * @fn variant map_get(ASKL_LinkedMap *h, const char *key, size_t len)
+ * @ingroup map
+ * @fn Variant map_get(Map *h, const char *key, size_t len)
  * @param h   a pointer to a linked hashmap
  * @param key pointer to the key bytes
  * @param len length of the key in bytes
@@ -398,11 +396,11 @@ public variant map_get(ASKL_LinkedMap *h, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public int map_has(ASKL_LinkedMap *h, const char *key, size_t len);
+ASKL_API int map_has(Map *h, const char *key, size_t len);
 
 /**
- * @ingroup hashtable
- * @fn int map_has(ASKL_LinkedMap *h, const char *key, size_t len)
+ * @ingroup map
+ * @fn int map_has(Map *h, const char *key, size_t len)
  * @param h   a pointer to a linked hashmap
  * @param key pointer to the key bytes
  * @param len length of the key in bytes
@@ -414,16 +412,16 @@ public int map_has(ASKL_LinkedMap *h, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public int map_merge(
-    ASKL_LinkedMap *dest,
-    ASKL_LinkedMap *src,
-    variant merge(const char *key, size_t len, variant destval, variant srcval)
+ASKL_API int map_merge(
+    Map *dest,
+    Map *src,
+    Variant merge(const char *key, size_t len, Variant destval, Variant srcval)
 );
 
 /**
- * @ingroup hashtable
- * @fn int map_merge(ASKL_LinkedMap *dest, ASKL_LinkedMap *src,
- *                   variant (*merge)(const char *, size_t, variant, variant))
+ * @ingroup map
+ * @fn int map_merge(Map *dest, Map *src,
+ *                   Variant (*merge)(const char *, size_t, Variant, Variant))
  * @param dest  destination hashmap
  * @param src   source hashmap (consumed and destroyed)
  * @param merge conflict resolution callback
@@ -460,15 +458,11 @@ public int map_merge(
 
 /* -------------------------------------------------------------------------- */
 
-public void map_foreach(
-    ASKL_LinkedMap *h,
-    int (*function)(const char *, size_t, variant)
-);
+ASKL_API void map_foreach(Map *h, int (*function)(const char *, size_t, Variant));
 
 /**
  * @ingroup hashtable
- * @fn void map_foreach(ASKL_LinkedMap *h,
- *                      int (*function)(const char *, size_t, variant))
+ * @fn void map_foreach(Map *h, int (*function)(const char *, size_t, Variant))
  * @param h        a pointer to a linked hashmap
  * @param function a callback invoked once per key/value pair
  * @return void
@@ -492,23 +486,23 @@ public void map_foreach(
 
 /* -------------------------------------------------------------------------- */
 
-public int map_sort(
-    ASKL_LinkedMap *h,
+ASKL_API int map_sort(
+    Map *h,
     unsigned int order,
     int (*cmp)(
         const char *,
         const char *,
         size_t,
-        variant,
-        variant
+        Variant,
+        Variant
     )
 );
 
 /**
- * @ingroup hashtable
- * @fn int map_sort(ASKL_LinkedMap *h, unsigned int order,
+ * @ingroup map
+ * @fn int map_sort(Map *h, unsigned int order,
  *                  int (*cmp)(const char *, const char *, size_t,
- *                             variant, variant))
+ *                             Variant, Variant))
  * @param h     a pointer to a map
  * @param order sort order: @ref MAP_ASC or @ref MAP_DESC
  * @param cmp   comparison callback
@@ -540,16 +534,16 @@ public int map_sort(
 
 /* -------------------------------------------------------------------------- */
 
-public int map_sort_keys(
+ASKL_API int map_sort_keys(
     const char *key0,
     const char *key1,
     size_t l,
-    UNUSED variant val0,
-    UNUSED variant val1
+    UNUSED Variant val0,
+    UNUSED Variant val1
 );
 
 /**
- * @ingroup hashtable
+ * @ingroup map
  * @fn int map_sort_keys(const char *key0, const char *key1, size_t l,
  *                       variant val0, variant val1)
  * @param key0 first key
@@ -566,17 +560,17 @@ public int map_sort_keys(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_remove_if(
-    ASKL_LinkedMap *h,
+ASKL_API Variant map_remove_if(
+    Map *h,
     const char *key,
     size_t len,
-    int (*condition)(const char *key, size_t len, variant val)
+    int (*condition)(const char *key, size_t len, Variant val)
 );
 
 /**
- * @ingroup hashtable
- * @fn variant map_remove_if(ASKL_LinkedMap *h, const char *key, size_t len,
- *                           int (*condition)(const char *, size_t, variant))
+ * @ingroup map
+ * @fn Variant map_remove_if(Map *h, const char *key, size_t len,
+ *                           int (*condition)(const char *, size_t, Variant))
  * @param h         a pointer to a linked hashmap
  * @param key       pointer to the key bytes
  * @param len       length of the key in bytes
@@ -597,11 +591,11 @@ public variant map_remove_if(
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len);
+ASKL_API Variant map_remove(Map *h, const char *key, size_t len);
 
 /**
- * @ingroup hashtable
- * @fn variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len)
+ * @ingroup map
+ * @fn Variant map_remove(Map *h, const char *key, size_t len)
  * @param h   a pointer to a linked hashmap
  * @param key pointer to the key bytes
  * @param len length of the key in bytes
@@ -613,11 +607,11 @@ public variant map_remove(ASKL_LinkedMap *h, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead);
+ASKL_API size_t map_footprint(Map *h, size_t *overhead);
 
 /**
- * @ingroup hashtable
- * @fn size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead)
+ * @ingroup map
+ * @fn size_t map_footprint(Map *h, size_t *overhead)
  * @param h        a pointer to a linked hashmap
  * @param overhead optional pointer to receive the internal overhead, in bytes
  * @return the total memory footprint of the hashmap, in bytes
@@ -636,11 +630,11 @@ public size_t map_footprint(ASKL_LinkedMap *h, size_t *overhead);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h);
+ASKL_API Map *map_free(Map *h);
 
 /**
- * @ingroup hashtable
- * @fn ASKL_LinkedMap *map_free(ASKL_LinkedMap *h)
+ * @ingroup map
+ * @fn Map *map_free(Map *h)
  * @param h a pointer to a linked hashmap
  * @return always NULL
  *
@@ -656,11 +650,11 @@ public ASKL_LinkedMap *map_free(ASKL_LinkedMap *h);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_MapIterator *map_each(ASKL_LinkedMap *h);
+ASKL_API Map_Iterator *map_each(Map *h);
 
 /**
- * @ingroup hashtable
- * @fn ASKL_MapIterator *map_each(ASKL_LinkedMap *h)
+ * @ingroup map
+ * @fn Map_Iterator *map_each(Map *h)
  * @param h   a pointer to a linked hashmap
  * @return a newly allocated iterator positioned on the first entry, or @c NULL
  *         if the map is empty or an error occurred
@@ -680,11 +674,11 @@ public ASKL_MapIterator *map_each(ASKL_LinkedMap *h);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_MapIterator *map_at(ASKL_LinkedMap *h, const char *key, size_t len);
+ASKL_API Map_Iterator *map_at(Map *h, const char *key, size_t len);
 
 /**
- * @ingroup hashtable
- * @fn ASKL_MapIterator *map_at(ASKL_LinkedMap *h, const char *key, size_t len)
+ * @ingroup map
+ * @fn Map_Iterator *map_at(Map *h, const char *key, size_t len)
  * @param h    a pointer to a linked hashmap
  * @param key  a pointer to the key to look up
  * @param len  the length in bytes of @p key
@@ -708,11 +702,11 @@ public ASKL_MapIterator *map_at(ASKL_LinkedMap *h, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_MapIterator * CALLBACK map_next(ASKL_MapIterator *iterator);
+ASKL_API Map_Iterator *map_next(Map_Iterator *iterator);
 
 /**
- * @ingroup hashtable
- * @fn ASKL_MapIterator *map_next(ASKL_MapIterator *iterator)
+ * @ingroup map
+ * @fn Map_Iterator *map_next(Map_Iterator *iterator)
  * @param iterator  an iterator created with @ref map_each or @ref map_at
  * @return the same iterator positioned on the next entry, or @c NULL if the
  *         end of the traversal is reached or an error occurred
@@ -731,11 +725,11 @@ public ASKL_MapIterator * CALLBACK map_next(ASKL_MapIterator *iterator);
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_set_at(ASKL_MapIterator *iterator, variant new);
+ASKL_API Variant map_set_at(Map_Iterator *iterator, Variant new);
 
 /**
  * @ingroup hashtable
- * @fn variant map_set_at(ASKL_MapIterator *iterator, variant value)
+ * @fn Variant map_set_at(Map_Iterator *iterator, Variant value)
  * @param iterator  a valid iterator positioned on an existing entry
  * @param value     the new value to store at the current position
  * @return the previous value stored at the iterator’s current key
@@ -756,11 +750,11 @@ public variant map_set_at(ASKL_MapIterator *iterator, variant new);
 
 /* -------------------------------------------------------------------------- */
 
-public variant map_remove_at(ASKL_MapIterator *iterator);
+ASKL_API Variant map_remove_at(Map_Iterator *iterator);
 
 /**
- * @ingroup hashtable
- * @fn variant map_remove_at(ASKL_MapIterator *iterator)
+ * @ingroup map
+ * @fn Variant map_remove_at(Map_Iterator *iterator)
  * @param iterator  a valid iterator positioned on an existing entry
  * @return the value that was stored at the iterator’s current key
  *
@@ -797,11 +791,11 @@ public variant map_remove_at(ASKL_MapIterator *iterator);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_MapIterator *map_break(ASKL_MapIterator *iterator);
+ASKL_API Map_Iterator *map_break(Map_Iterator *iterator);
 
 /**
- * @ingroup hashtable
- * @fn ASKL_MapIterator *map_break(ASKL_MapIterator *iterator)
+ * @ingroup map
+ * @fn Map_Iterator *map_break(Map_Iterator *iterator)
  * @param iterator  an iterator obtained from @ref map_each or @ref map_at
  * @return always @c NULL
  *
@@ -818,7 +812,7 @@ public ASKL_MapIterator *map_break(ASKL_MapIterator *iterator);
  * @endcode
  */
 
-/* _ENABLE_HASHTABLE */
+/* _ENABLE_HASHMAP */
 #endif
 
 #endif

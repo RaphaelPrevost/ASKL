@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -108,7 +108,7 @@ static const char *str[] = {
 
 /* -------------------------------------------------------------------------- */
 
-private const char *_socket_win32_strerror(void)
+INTERNAL const char *_socket_win32_strerror(void)
 {
     unsigned int i = 0, err_count = sizeof(err) / sizeof(err[0]);
 
@@ -120,7 +120,7 @@ private const char *_socket_win32_strerror(void)
 
 /* -------------------------------------------------------------------------- */
 
-private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 {
     HANDLE handle = INVALID_FILE_HANDLE;
     off_t current = 0;
@@ -152,19 +152,19 @@ private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 }
 
 /* -------------------------------------------------------------------------- */
-#elif defined (__linux__)
+#elif (defined (__linux__))
 /* -------------------------------------------------------------------------- */
 
-private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 {
     return sendfile(out, in, off, len);
 }
 
 /* -------------------------------------------------------------------------- */
-#elif defined (__FreeBSD__)
+#elif (defined (__FreeBSD__))
 /* -------------------------------------------------------------------------- */
 
-private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 {
     off_t written = 0, current = 0, p = 0;
     int ret = -1;
@@ -184,10 +184,10 @@ private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 }
 
 /* -------------------------------------------------------------------------- */
-#elif defined(MAC_OS_X_VERSION_10_5) || defined(__MAC_10_5)
+#elif (defined(MAC_OS_X_VERSION_10_5) || defined(__MAC_10_5))
 /* -------------------------------------------------------------------------- */
 
-private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 {
     off_t l = len;
     int ret = 0;
@@ -201,10 +201,10 @@ private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 }
 
 /* -------------------------------------------------------------------------- */
-#elif defined (__sun)
+#elif (defined (__sun))
 /* -------------------------------------------------------------------------- */
 
-private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 {
     size_t written = 0, current = 0;
     int ret = 0;
@@ -234,7 +234,7 @@ private ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 /* -------------------------------------------------------------------------- */
 
 /* use the generic implementation */
-private ssize_t _socket_sendfile(
+INTERNAL ssize_t _socket_sendfile(
     UNUSED int out,
     UNUSED int in,
     UNUSED off_t *off,
@@ -260,7 +260,7 @@ private ssize_t _socket_sendfile(
 #ifdef _POSIX_EMULATION
 /* -------------------------------------------------------------------------- */
 
-public int getaddrinfo(const char *node, const char *service,
+ASKL_API int getaddrinfo(const char *node, const char *service,
                        const struct addrinfo *hints, struct addrinfo **res)
 {
     /** @brief *Very* minimal getaddrinfo() implementation */
@@ -306,7 +306,7 @@ public int getaddrinfo(const char *node, const char *service,
 
 /* -------------------------------------------------------------------------- */
 
-public int getnameinfo(const struct sockaddr *s, int salen, char *host,
+ASKL_API int getnameinfo(const struct sockaddr *s, int salen, char *host,
                        size_t hostlen, char *serv, size_t servlen, int flags)
 {
     /** @brief *Very* minimal getnameinfo() implementation */
@@ -342,7 +342,7 @@ public int getnameinfo(const struct sockaddr *s, int salen, char *host,
 
 /* -------------------------------------------------------------------------- */
 
-public void freeaddrinfo(struct addrinfo *res)
+ASKL_API void freeaddrinfo(struct addrinfo *res)
 {
     /** @brief *Very* minimal freeaddrinfo() implementation */
     /*
@@ -373,7 +373,7 @@ public void freeaddrinfo(struct addrinfo *res)
 #define AF_UNIX 0x0
 #endif
 
-public int socketpair(UNUSED int d, UNUSED int t, UNUSED int p, int sv[2])
+ASKL_API int socketpair(UNUSED int d, UNUSED int t, UNUSED int p, int sv[2])
 {
     SOCKET s = INVALID_SOCKET;
     struct sockaddr_in addr;
@@ -436,7 +436,7 @@ _err_sock:
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_sendfd(int socket, int fd)
+ASKL_API int socket_sendfd(int socket, int fd)
 {
     WSAPROTOCOL_INFO info;
     DWORD pid = 0;
@@ -463,7 +463,7 @@ public int socket_sendfd(int socket, int fd)
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_recvfd(int socket)
+ASKL_API int socket_recvfd(int socket)
 {
     WSAPROTOCOL_INFO info;
     DWORD pid = _getpid();
@@ -489,7 +489,7 @@ public int socket_recvfd(int socket)
 
 /* -------------------------------------------------------------------------- */
 
-public SOCKET dupsocket(SOCKET s)
+ASKL_API SOCKET dupsocket(SOCKET s)
 {
     HANDLE h;
     BOOL ret = DuplicateHandle(
@@ -572,7 +572,7 @@ union fdmsg {
 };
 #endif
 
-public int socket_sendfd(int sock, int fd)
+ASKL_API int socket_sendfd(int sock, int fd)
 {
     int ret = 0;
     struct iovec  iov[1];
@@ -590,7 +590,7 @@ public int socket_sendfd(int sock, int fd)
     msg.msg_namelen = 0;
 
     {
-#ifdef SCM_RIGHTS
+        #ifdef SCM_RIGHTS
         /* New BSD 4.4 way (ouch, why does this have to be so convoluted). */
         union  fdmsg  cmsg;
         struct cmsghdr *h;
@@ -604,11 +604,11 @@ public int socket_sendfd(int sock, int fd)
         h->cmsg_level = SOL_SOCKET;
         h->cmsg_type  = SCM_RIGHTS;
         *CMSG_DATA(h) = fd;
-#else
+        #else
         /* Old BSD 4.3 way. Not tested. */
         msg.msg_accrights = & fd;
         msg.msg_accrightslen = sizeof(fd);
-#endif
+        #endif
 
         ret = (sendmsg(sock, & msg, 0) < 0) ? 0 : 1;
     }
@@ -618,7 +618,7 @@ public int socket_sendfd(int sock, int fd)
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_recvfd(int sock)
+ASKL_API int socket_recvfd(int sock)
 {
     int count;
     int ret = 0;
@@ -634,7 +634,7 @@ public int socket_recvfd(int sock)
     msg.msg_namelen = 0;
 
     {
-#ifdef SCM_RIGHTS
+        #ifdef SCM_RIGHTS
         union fdmsg  cmsg;
         struct cmsghdr *h;
 
@@ -672,13 +672,13 @@ public int socket_recvfd(int sock)
                 ret = *CMSG_DATA(h);
             }
         }
-#else
+        #else
         int receive_fd;
         msg.msg_accrights = & receive_fd;
         msg.msg_accrightslen = sizeof(receive_fd);
 
         ret = (recvmsg(sock, & msg, 0) < 0) ? 0 : receive_fd;
-#endif
+        #endif
     }
 
     return ret;

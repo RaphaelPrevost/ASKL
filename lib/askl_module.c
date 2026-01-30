@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -55,9 +55,9 @@
  */
 
 static pthread_rwlock_t _module_lock;
-static ASKL_LinkedMap *_module;
-static ASKL_Trie *_module_name;
-static ASKL_Random *_random;
+static Map *_module;
+static Trie *_module_name;
+static Random *_random;
 
 /** @var _module_path
  *
@@ -71,7 +71,7 @@ static size_t _module_path_len = 0;
 
 /* -------------------------------------------------------------------------- */
 
-static void _module_destroy(variant v)
+static void _module_destroy(Variant v)
 {
     _Module *mod = NULL;
 
@@ -96,7 +96,7 @@ static void _module_destroy(variant v)
 
 /* -------------------------------------------------------------------------- */
 
-static variant _module_wrlock(variant v)
+static Variant _module_wrlock(Variant v)
 {
     if (is_pointer(v)) {
         _Module *mod = variant_to_pointer(v);
@@ -109,7 +109,7 @@ static variant _module_wrlock(variant v)
 
 /* -------------------------------------------------------------------------- */
 
-static variant _module_rdlock(variant v)
+static Variant _module_rdlock(Variant v)
 {
     if (is_pointer(v)) {
         _Module *mod = variant_to_pointer(v);
@@ -125,7 +125,7 @@ static variant _module_rdlock(variant v)
 
 /* -------------------------------------------------------------------------- */
 
-private int module_api_init(void)
+INTERNAL int module_api_init(void)
 {
     uint32_t seed[4];
 
@@ -156,14 +156,14 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-private uint32_t module_open(const char *path, const char *name)
+INTERNAL uint32_t module_open(const char *path, const char *name)
 {
     _Module *mod = NULL;
     unsigned int (*module_api)(void) = NULL;
     char *fullpath = NULL;
     uint32_t module_id = 0;
     size_t namelen = 0;
-    variant v;
+    Variant v;
 
     /* check if a name was provided */
     namelen = (name) ? strlen(name) : 1;
@@ -242,14 +242,14 @@ private uint32_t module_open(const char *path, const char *name)
     mod->interface.exit = (void (*)(void)) dlsym(mod->_handle, "module_exit");
     if (! mod->interface.exit) goto _err_dlget;
 
-    mod->interface.input = (void (*)(uint16_t, uint16_t, m_string *)) dlsym(
+    mod->interface.input = (void (*)(uint16_t, uint16_t, String *)) dlsym(
         mod->_handle,
         "module_input_handler"
     );
     if (! mod->interface.input) goto _err_dlget;
 
     /* optional symbol, module interrupt handler */
-    mod->interface.event = (void (*)(uint16_t, uint16_t, ASKL_ModuleEvent, void *)) dlsym(
+    mod->interface.event = (void (*)(uint16_t, uint16_t, Module_Event, void *)) dlsym(
         mod->_handle,
         "module_event_handler"
     );
@@ -304,9 +304,9 @@ _err_malloc:
 
 /* -------------------------------------------------------------------------- */
 
-private uint32_t module_getid(const char *name)
+INTERNAL uint32_t module_getid(const char *name)
 {
-    variant v;
+    Variant v;
 
     if (! name) {
         debug("module_getid(): bad parameters.\n");
@@ -320,9 +320,9 @@ private uint32_t module_getid(const char *name)
 
 /* -------------------------------------------------------------------------- */
 
-private int module_start(uint32_t id, int argc, char **argv)
+INTERNAL int module_start(uint32_t id, int argc, char **argv)
 {
-    variant v;
+    Variant v;
     int ret = -1;
 
     if (! id) {
@@ -346,13 +346,13 @@ private int module_start(uint32_t id, int argc, char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-private void module_call(const char* name, int call, ...)
+INTERNAL void module_call(const char* name, int call, ...)
 {
     uint32_t module_id = 0;
-    ASKL_Module *mod = NULL;
+    Module *mod = NULL;
     uint16_t socket_id = 0;
     uint16_t ingress_id = 0;
-    m_string *buffer = NULL;
+    String *buffer = NULL;
     unsigned int event = 0;
     void *event_data = NULL;
     va_list ap;
@@ -375,7 +375,7 @@ private void module_call(const char* name, int call, ...)
     case MODULE_INPUT: {
         socket_id = va_arg(ap, int);
         ingress_id = va_arg(ap, int);
-        buffer = va_arg(ap, m_string *);
+        buffer = va_arg(ap, String *);
         mod->input(socket_id, ingress_id, buffer);
     } break;
 
@@ -400,7 +400,7 @@ private void module_call(const char* name, int call, ...)
 
 /* -------------------------------------------------------------------------- */
 
-private int module_setpath(const char *path, size_t len)
+INTERNAL int module_setpath(const char *path, size_t len)
 {
     char *p = NULL;
 
@@ -433,7 +433,7 @@ private int module_setpath(const char *path, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-private char *module_getpath(const char *dso, size_t len)
+INTERNAL char *module_getpath(const char *dso, size_t len)
 {
     char *ret = NULL;
     size_t off = 0;
@@ -476,7 +476,7 @@ private char *module_getpath(const char *dso, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-public const char *module_getopt(const char *opt, int argc, char **argv)
+ASKL_API const char *module_getopt(const char *opt, int argc, char **argv)
 {
     int i = 0;
 
@@ -492,7 +492,7 @@ public const char *module_getopt(const char *opt, int argc, char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-public const char *module_getarrayopt(
+ASKL_API const char *module_getarrayopt(
     const char *opt,
     int index,
     int argc,
@@ -531,7 +531,7 @@ public const char *module_getarrayopt(
 
 /* -------------------------------------------------------------------------- */
 
-public int module_getboolopt(const char *opt, int argc, char **argv)
+ASKL_API int module_getboolopt(const char *opt, int argc, char **argv)
 {
     const char *optval = module_getopt(opt, argc, argv);
     return (optval && atoi(optval) == 1) ? 1 : 0;
@@ -539,7 +539,7 @@ public int module_getboolopt(const char *opt, int argc, char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-private int module_exists(uint32_t id)
+INTERNAL int module_exists(uint32_t id)
 {
     if (! id) {
         debug("module_exists(): bad parameters.\n");
@@ -552,9 +552,9 @@ private int module_exists(uint32_t id)
 
 /* -------------------------------------------------------------------------- */
 
-private ASKL_Module *module_acquire(uint32_t id)
+INTERNAL Module *module_acquire(uint32_t id)
 {
-    variant v;
+    Variant v;
 
     if (! id) {
         debug("module_acquire(): bad parameters.\n");
@@ -573,7 +573,7 @@ private ASKL_Module *module_acquire(uint32_t id)
 
 /* -------------------------------------------------------------------------- */
 
-private ASKL_Module *module_release(ASKL_Module *module)
+INTERNAL Module *module_release(Module *module)
 {
     _Module *mod = module_private_interface(module);
 
@@ -584,9 +584,9 @@ private ASKL_Module *module_release(ASKL_Module *module)
 
 /* -------------------------------------------------------------------------- */
 
-static int _module_shutdown(UNUSED const char *k, UNUSED size_t l, variant v)
+static int _module_shutdown(UNUSED const char *k, UNUSED size_t l, Variant v)
 {
-    ASKL_Module *module = NULL;
+    Module *module = NULL;
 
     if (! is_pointer(v)) return 0;
 
@@ -600,14 +600,14 @@ static int _module_shutdown(UNUSED const char *k, UNUSED size_t l, variant v)
 
 /* -------------------------------------------------------------------------- */
 
-private void module_api_shutdown(void)
+INTERNAL void module_api_shutdown(void)
 {
     map_foreach(_module, _module_shutdown);
 }
 
 /* -------------------------------------------------------------------------- */
 
-private void module_api_exit(void)
+INTERNAL void module_api_exit(void)
 {
     trie_free(_module_name);
     map_free(_module);

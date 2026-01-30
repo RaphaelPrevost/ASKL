@@ -42,24 +42,24 @@
 #define POLICY_DENY     0
 #define POLICY_ALLOW    1
 
-static UNUSED ASKL_Trie *rules = NULL;
+static UNUSED Trie *rules = NULL;
 
 /* -------------------------------------------------------------------------- */
 
-private void security_default_policy(UNUSED unsigned int policy)
+INTERNAL void security_default_policy(UNUSED unsigned int policy)
 {
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int security_api_setup(void)
+INTERNAL int security_api_setup(void)
 {
     return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
-private void security_api_cleanup(void)
+INTERNAL void security_api_cleanup(void)
 {
 }
 

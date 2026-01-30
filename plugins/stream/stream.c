@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -40,7 +40,7 @@ static uint32_t module_token = 0;
 
 /* -------------------------------------------------------------------------- */
 
-public unsigned int module_api(void)
+ASKL_API unsigned int module_api(void)
 {
     unsigned int required_api_revision = 1390;
     return required_api_revision;
@@ -48,14 +48,14 @@ public unsigned int module_api(void)
 
 /* -------------------------------------------------------------------------- */
 
-private uint32_t module_get_token(void)
+INTERNAL uint32_t module_get_token(void)
 {
     return module_token;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int module_init(uint32_t id, int argc, char **argv)
+ASKL_API int module_init(uint32_t id, int argc, char **argv)
 {
     if (module_token) {
         fprintf(stderr, "Stream: module already loaded.\n");
@@ -95,10 +95,10 @@ _init_conf_failure:
 
 /* -------------------------------------------------------------------------- */
 
-public void module_input_handler(
+ASKL_API void module_input_handler(
     uint16_t socket_id,
     uint16_t ingress_id,
-    m_string *data
+    String *data
 )
 {
     uint16_t egress = 0;
@@ -159,8 +159,8 @@ public void module_input_handler(
                 module_get_token(),
                 egress,
                 0x0,
-                DATA(data),
-                SIZE(data)
+                data->data,
+                data->len
             );
         } else server_close_managed_socket(module_get_token(), socket_id);
         string_flush(data);
@@ -171,10 +171,10 @@ public void module_input_handler(
 
 /* -------------------------------------------------------------------------- */
 
-public void module_event_handler(
+ASKL_API void module_event_handler(
     uint16_t socket_id,
     uint16_t ingress_id,
-    ASKL_ModuleEvent event,
+    Module_Event event,
     void *event_data
 )
 {
@@ -191,7 +191,7 @@ public void module_event_handler(
         stream_set_status(socket_id, STREAM_STATUS_CONN);
         if (stream_personality() & PERSONALITY_WORKER) {
             if (stream_get_id(socket_id, PERSONALITY_WORKER) != -1) {
-                server_send_response(
+                server_send(
                     module_get_token(),
                     socket_id,
                     0x0,
@@ -214,9 +214,9 @@ public void module_event_handler(
 
     case MODULE_EVENT_REQUEST_UNDELIVERED: {
         /* retransmit failed heartbeat */
-        m_reply *r = event_data;
+        Response *response = event_data;
         debug("Stream: retransmit failed heartbeat.\n");
-        r = server_send_reply(socket_id, r);
+        response = server_send_response(socket_id, response);
     } break;
 
     case MODULE_EVENT_REQUEST_TRANSMITTED: {
@@ -226,7 +226,7 @@ public void module_event_handler(
     } break;
 
     case MODULE_EVENT_OUT_OF_BAND_MESSAGE: {
-        m_string *message = event_data;
+        String *message = event_data;
         uint8_t packet = string_fetch_uint8(message);
         if (packet == '!') debug("Stream: received heartbeat.\n");
         else debug("Stream: received OOB message: 0x%x\n", packet);
@@ -242,7 +242,7 @@ public void module_event_handler(
 
 /* -------------------------------------------------------------------------- */
 
-public void module_exit(void)
+ASKL_API void module_exit(void)
 {
     stream_socket_exit();
     stream_config_exit();

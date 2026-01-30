@@ -51,7 +51,7 @@ DBG     = gdb
 # -D_ENABLE_SERVER                : enable the server
 # -D_ENABLE_RANDOM                : enable builtin PRNG
 # -D_ENABLE_TRIE                  : enable builtin crit-bit trie implementation
-# -D_ENABLE_HASHTABLE             : enable builtin hashtable implementation
+# -D_ENABLE_HASHMAP               : enable builtin hash map implementation
 # -D_ENABLE_PRIVILEGE_SEPARATION  : drop privileges in the server process
 # -D_ENABLE_BUILTIN_PLUGIN        : embed a default plugin
 # -D_ENABLE_CONFIG                : XML configuration file
@@ -63,7 +63,7 @@ CONFIG  = -D_ENABLE_SERVER \
           -D_ENABLE_UDP \
           -D_ENABLE_SSL \
           -D_ENABLE_RANDOM \
-          -D_ENABLE_HASHTABLE \
+          -D_ENABLE_HASHMAP \
           -D_ENABLE_TRIE \
           -D_ENABLE_FILE \
           -D_ENABLE_PCRE \
@@ -73,23 +73,21 @@ CONFIG  = -D_ENABLE_SERVER \
           -D_BUILTIN_MODULE \
           -D_USE_BIG_FDS=4095
 
-# Modules configuration flags
-# Available PLGCONF flags:
-# -D_DIALMSN_ENABLE_BOT           : enable the bot in the DialMessenger module
-
-PLGCONF = -D_DIALMSN_ENABLE_BOT
+PLGCONF =
 
 # Files
 OBJBIN  = $(addsuffix .o, $(basename $(wildcard *.c)))
 OBJLIB  = $(addsuffix .o, $(basename $(wildcard lib/*.c))) \
-          $(addsuffix .o, $(basename $(wildcard lib/util/*.c))) \
+          $(addsuffix .o, $(basename $(wildcard lib/string/*.c))) \
+		  $(addsuffix .o, $(basename $(wildcard lib/string/format/*.c))) \
           lib/compat/askl_compat_layer.o
 OBJTEST = $(addsuffix .o, $(basename $(wildcard test/*.c)))
 OBJPROF = $(addsuffix .gcno, $(basename $(wildcard lib/*.c))) \
           $(addsuffix .gcno, $(basename $(wildcard lib/util/*.c))) \
           $(addsuffix .gcno, $(basename $(wildcard test/*.c))) \
           $(addsuffix .gcda, $(basename $(wildcard lib/*.c))) \
-          $(addsuffix .gcda, $(basename $(wildcard lib/util/*.c))) \
+          $(addsuffix .o, $(basename $(wildcard lib/string/*.c))) \
+		  $(addsuffix .o, $(basename $(wildcard lib/string/format/*.c))) \
           $(addsuffix .gcda, $(basename $(wildcard test/*.c))) \
           lib/compat/askl_compat_layer.gcno \
 		  lib/compat/askl_compat_layer.gcda \
@@ -117,13 +115,14 @@ MODULES = $(shell find plugins/* -type d | grep -v .svn)
 # LIBFLAGS is other specific flags used to build a library
 
 BUILD    =
-FINAL    = -O2 -pipe
+FINAL    = -O2 -pipe -DNDEBUG
 DEBUG    = -O0 -g -DDEBUG -DDEBUG_SQL
 TRACE    = -O0 -g -pg -fprofile-generate
 FLAGS    = -std=c11 -pedantic -W -Wall $(BUILD) -Wpointer-arith
 
 SHARED   =
 LIBFLAGS =
+LIBFINAL =
 
 # Installation
 PREFIX =
@@ -183,7 +182,7 @@ endif
 
 ifeq ($(GCC_CLANG),0)
 FLAGS += -Wno-flexible-array-extensions
-FINAL += -flto=auto
+LIBFINAL += -flto=auto
 endif
 
 ifneq ($(PREFIX), )
@@ -337,7 +336,7 @@ trace: BUILD = $(TRACE)
 trace: modules
 
 # build only the library, with optimizations
-lib: BUILD = $(FINAL)
+lib: BUILD = $(FINAL) $(LIBFINAL)
 lib: $(LIB)
 # library only, with debug
 dbglib: BUILD = $(DEBUG)
@@ -417,11 +416,9 @@ json_checker:
 	@echo "JSON_CHECKER"
 	@$(CC) \
 	-D_ENABLE_JSON -D_ENABLE_TRIE -D_ENABLE_PARSER \
-	$(FINAL) -lpthread \
-	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
-	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
-	lib/compat/askl_compat_layer.c lib/m_string.c lib/askl_cbtrie.c \
-	lib/askl_variant.c lib/askl_rwlock.c lib/m_parser.c \
+	$(FINAL) $(LIBFINAL) -lpthread \
+	lib/compat/askl_compat_layer.c lib/askl_string.c lib/askl_cbtrie.c \
+	lib/askl_variant.c lib/askl_rwlock.c lib/string/parser.c \
 	test/json/json_checker.c -o json_checker
 
 json_debug:
@@ -429,17 +426,15 @@ json_debug:
 	@$(CC) \
 	-D_ENABLE_JSON -D_ENABLE_TRIE -D_ENABLE_PARSER \
 	$(DEBUG) -lpthread \
-	lib/util/m_util_vfscanf.c lib/util/m_util_vfprintf.c \
-	lib/util/m_util_float.c lib/util/m_util_dtoa.c \
-	lib/compat/askl_compat_layer.c lib/m_string.c lib/askl_cbtrie.c \
-	lib/askl_variant.c lib/askl_rwlock.c lib/m_parser.c \
+	lib/compat/askl_compat_layer.c lib/askl_string.c lib/askl_cbtrie.c \
+	lib/askl_variant.c lib/askl_rwlock.c lib/string/parser.c \
 	test/json/json_checker.c -o json_checker
 
 hashbench:
 	@echo "HASHBENCH"
 	@$(CC) \
-	-D_ENABLE_HASHTABLE \
-	$(FINAL) -lpthread \
+	-D_ENABLE_HASHMAP \
+	$(FINAL) $(LIBFINAL) -lpthread \
 	lib/compat/askl_compat_layer.c lib/askl_htable.c \
 	lib/askl_rwlock.c lib/askl_variant.c \
 	test/hash/hash.c -o hashbench
@@ -448,9 +443,11 @@ clean:
 	@echo "CLEAN"
 	@rm -f $(BIN) lib$(LIB).$(LIBEXT) $(PLG).so \
 	$(OBJBIN) $(OBJLIB) $(OBJPLG) $(OBJTEST) $(OBJPROF) \
-	*~ lib/*~ lib/util/*~ lib/compat/*~ test/*~ $(DBG_BIN) \
+	*~ lib/*~ lib/string/*~ lib/string/format/*~ \
+	lib/compat/*~ test/*~ $(DBG_BIN) \
 	plugins/*.so plugins/*/*~ lib/*.o lib/util/*.o lib/compat/*.o test/*.o \
-	*.d lib/*.d lib/util/*.d lib/compat/*.d test/*.d plugins/*/*.d \
+	*.d lib/*.d lib/string/*.d lib/string/format/*.d \
+	lib/compat/*.d test/*.d plugins/*/*.d \
 	json_checker hashbench
 	@rm -rf *.dSYM plugins/*.dSYM
 

@@ -12,8 +12,8 @@ static int init_done = 0;
 
 static void *_server(void *params)
 {
-    ASKL_Socket *client = NULL;
-    ASKL_Socket *s = NULL;
+    Socket *client = NULL;
+    Socket *s = NULL;
     char buffer[SOCKET_BUFFER];
     ssize_t r = 0;
 
@@ -63,7 +63,9 @@ static void *_server(void *params)
         pthread_exit(NULL);
     } else printf("(*) Reading incoming request (\"%s\"): SUCCESS\n", buffer);
 
-    if (socket_option_isset(s, SOCKET_UDP)) client = socket_close(client);
+    if (socket_option_isset(s, SOCKET_UDP)) {
+        client = s = socket_close(client);
+    }
     s = socket_close(s);
 
     pthread_exit(NULL);
@@ -73,7 +75,7 @@ static void *_server(void *params)
 
 static void *_client(void *params)
 {
-    ASKL_Socket *client = NULL;
+    Socket *client = NULL;
     char host[NI_MAXHOST];
     uint16_t port = 0;
     ssize_t r = 0;

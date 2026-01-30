@@ -36,6 +36,27 @@
 #include "askl_server.h"
 #include "arcane/socket.c"
 
+struct _Response {
+    long timer;
+    uint16_t delay;
+
+    uint16_t op;
+
+    uint32_t token;
+
+    String *header;
+    String *footer;
+
+    #ifdef _ENABLE_FILE
+    m_file *file;
+    off_t off;
+    size_t len;
+    #endif
+};
+
+/* the Response stucture is used to store informations about packets to process
+   and queue them if they can not be sent immediately */
+
 /* -------------------------------------------------------------------------- */
 #ifdef _ENABLE_SERVER
 /* -------------------------------------------------------------------------- */
@@ -56,16 +77,16 @@ static unsigned int _concurrency = 0;
 
 #ifdef _ENABLE_UDP
 /* UDP sockets registry */
-static ASKL_LinkedMap *_UDP = NULL;
+static Map *_UDP = NULL;
 #endif
 
 #define _POLL_MAX      1024
 
 /* server socket queues */
-static ASKL_SocketQueue *_blocking = NULL;
-static ASKL_SocketQueue *_readable = NULL;
-static ASKL_SocketQueue *_writable = NULL;
-static ASKL_SocketQueue *_incoming = NULL;
+static Socket_Queue *_blocking = NULL;
+static Socket_Queue *_readable = NULL;
+static Socket_Queue *_writable = NULL;
+static Socket_Queue *_incoming = NULL;
 
 #define server_enqueue_blocking(s) \
 do { socket_enqueue(_blocking, socket_get_id((s))); } while (0)
@@ -86,11 +107,11 @@ static pthread_mutex_t _server_blocking = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t _server_incoming = PTHREAD_MUTEX_INITIALIZER;
 
 /* sockets work queues */
-static ASKL_Queue *_work[SOCKET_MAX];
+static Queue *_work[SOCKET_MAX];
 #define SOCKET_IDLE(s) (queue_empty(_work[SOCKET_ID(s)]))
 
 /* sockets fragmentation cache */
-static m_string *_frag[SOCKET_MAX];
+static String *_frag[SOCKET_MAX];
 
 #ifdef _ENABLE_PRIVILEGE_SEPARATION
 #define _OP_LEN 4
@@ -102,17 +123,17 @@ static int _priv_com = -1;
 /* Server internal data structures */
 /* -------------------------------------------------------------------------- */
 
-public m_reply *server_reply_init(uint16_t flags, uint32_t token)
+ASKL_API Response *server_response_init(uint16_t flags, uint32_t token)
 {
-    m_reply *new = NULL;
+    Response *new = NULL;
 
     if (! token) {
-        debug("server_reply_init(): bad parameters.\n");
+        debug("server_response_init(): bad parameters.\n");
         return NULL;
     }
 
     if (! (new = malloc(sizeof(*new))) ) {
-        perror(ERR(server_reply_init, malloc));
+        perror(ERR(server_response_init, malloc));
         return NULL;
     }
 
@@ -131,7 +152,7 @@ public m_reply *server_reply_init(uint16_t flags, uint32_t token)
 
 /* -------------------------------------------------------------------------- */
 
-public m_reply *server_reply_free(m_reply *r)
+ASKL_API Response *server_response_free(Response *r)
 {
     if (! r) return NULL;
 
@@ -149,34 +170,34 @@ public m_reply *server_reply_free(m_reply *r)
 
 /* -------------------------------------------------------------------------- */
 
-public int server_reply_setheader(m_reply *reply, m_string *data)
+ASKL_API int server_response_setheader(Response *response, String *data)
 {
-    if (! reply || ! data) {
-        debug("server_reply_setheader(): bad parameters.\n");
+    if (! response || ! data) {
+        debug("server_response_setheader(): bad parameters.\n");
         return -1;
     }
 
-    if (reply->header) {
-        string_cat(reply->header, data);
+    if (response->header) {
+        string_append(response->header, data);
         string_free(data);
-    } else reply->header = data;
+    } else response->header = data;
 
     return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int server_reply_setfooter(m_reply *reply, m_string *data)
+ASKL_API int server_response_setfooter(Response *response, String *data)
 {
-    if (! reply || ! data) {
-        debug("server_reply_setfooter(): bad parameters.\n");
+    if (! response || ! data) {
+        debug("server_response_setfooter(): bad parameters.\n");
         return -1;
     }
 
-    if (reply->footer) {
-        string_cat(reply->footer, data);
+    if (response->footer) {
+        string_append(response->footer, data);
         string_free(data);
-    } else reply->footer = data;
+    } else response->footer = data;
 
     return 0;
 }
@@ -185,22 +206,27 @@ public int server_reply_setfooter(m_reply *reply, m_string *data)
 #ifdef _ENABLE_FILE
 /* -------------------------------------------------------------------------- */
 
-public int server_reply_setfile(m_reply *reply, m_file *f, off_t o, size_t len)
+ASKL_API int server_response_setfile(
+    Response *response,
+    m_file *f,
+    off_t o,
+    size_t len
+)
 {
-    if (! reply || ! f) {
-        debug("server_reply_setfile(): bad parameters.\n");
+    if (! response || ! f) {
+        debug("server_response_setfile(): bad parameters.\n");
         return -1;
     }
 
-    if (reply->op & SERVER_MSG_OOB) {
-        debug("server_reply_setfile(): cannot send file out of band.\n");
+    if (response->op & SERVER_MSG_OOB) {
+        debug("server_response_setfile(): cannot send file out of band.\n");
         return -1;
     }
 
-    if (reply->file) fs_closefile(reply->file);
-    reply->file = f;
-    reply->off = o;
-    reply->len = (len) ? len : f->len;
+    if (response->file) fs_closefile(response->file);
+    response->file = f;
+    response->off = o;
+    response->len = (len) ? len : f->len;
 
     return 0;
 }
@@ -209,49 +235,49 @@ public int server_reply_setfile(m_reply *reply, m_file *f, off_t o, size_t len)
 #endif
 /* -------------------------------------------------------------------------- */
 
-public int server_reply_setdelay(m_reply *reply, unsigned int nsec)
+ASKL_API int server_response_setdelay(Response *response, unsigned int seconds)
 {
     struct timespec ts;
 
-    if (! reply || ! nsec) {
-        debug("server_reply_setdelay(): bad parameters.\n");
+    if (! response || ! seconds) {
+        debug("server_response_setdelay(): bad parameters.\n");
         return -1;
     }
 
-    if (nsec > 3600) {
-        debug("server_reply_setdelay(): delay cannot exceed one hour.");
+    if (seconds > 3600) {
+        debug("server_response_setdelay(): delay cannot exceed one hour.");
         return -1;
     }
 
     monotonic_timer(& ts);
 
-    reply->timer = ts.tv_sec;
-    reply->delay = nsec;
+    response->timer = ts.tv_sec;
+    response->delay = seconds;
 
     return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public m_reply *server_send_reply(uint16_t sockid, m_reply *r)
+ASKL_API Response *server_send_response(uint16_t sockid, Response *r)
 {
     /* basic sanity checks (destroy any broken task) */
     if (! r || sockid > SOCKET_MAX) {
-        debug("server_send_reply(): bad parameters.\n");
-        return server_reply_free(r);
+        debug("server_send_response(): bad parameters.\n");
+        return server_response_free(r);
     }
 
     /* check that there is an actual socket matching the id */
     if (! socket_exists(sockid)) {
-        debug("server_send_reply(): no such socket.\n");
-        return server_reply_free(r);
+        debug("server_send_response(): no such socket.\n");
+        return server_response_free(r);
     }
 
     /* allocate work queue if necessary */
     if (! _work[sockid] && ! (_work[sockid] = queue_alloc()) ) {
-        debug("server_send_reply(): socket work queue allocation failed.\n");
+        debug("server_send_response(): socket work queue allocation failed.\n");
         /* FIXME what should we do here ? silently drop the task ? */
-        return server_reply_free(r);
+        return server_response_free(r);
     }
 
     /* queue the task */
@@ -262,7 +288,7 @@ public m_reply *server_send_reply(uint16_t sockid, m_reply *r)
 
 /* -------------------------------------------------------------------------- */
 
-static int server_reply_process(m_reply *r, ASKL_Socket *s)
+static int server_response_process(Response *r, Socket *s)
 {
     ssize_t w = 0;
     struct timespec ts;
@@ -270,7 +296,7 @@ static int server_reply_process(m_reply *r, ASKL_Socket *s)
     if (! r || ! s) return SOCKET_EPARAM;
 
     if (MODULE_ID(s) != r->token) {
-        debug("server_reply_process(): this socket does not belong to you!\n");
+        debug("server_response_process(): this socket does not belong to you!\n");
         return SOCKET_EPARAM;
     }
 
@@ -287,12 +313,12 @@ static int server_reply_process(m_reply *r, ASKL_Socket *s)
     /* header */
     if (r->header) {
         if (r->op & SERVER_MSG_OOB)
-            w = socket_oob_write(s, DATA(r->header), SIZE(r->header));
-        else w = socket_write(s, DATA(r->header), SIZE(r->header));
-        if (w < (ssize_t) SIZE(r->header)) {
+            w = socket_oob_write(s, r->header->data, r->header->len);
+        else w = socket_write(s, r->header->data, r->header->len);
+        if (w < (ssize_t) r->header->len) {
             if (w > 0) {
-                debug("server_reply_process(): partial header write.\n");
-                string_suppr(r->header, 0, w);
+                debug("server_response_process(): partial header write.\n");
+                string_cut(r->header, 0, w, NULL);
                 return SOCKET_EAGAIN;
             } else if (w == SOCKET_EAGAIN) {
                 return SOCKET_EAGAIN;
@@ -315,11 +341,11 @@ static int server_reply_process(m_reply *r, ASKL_Socket *s)
 
     /* footer */
     if (r->footer) {
-        w = socket_write(s, DATA(r->footer), SIZE(r->footer));
-        if (w < (ssize_t) SIZE(r->footer)) {
+        w = socket_write(s, r->footer->data, r->footer->len);
+        if (w < (ssize_t) r->footer->len) {
             if (w > 0) {
-                debug("server_reply_process(): partial footer write.\n");
-                string_suppr(r->footer, 0, w);
+                debug("server_response_process(): partial footer write.\n");
+                string_cut(r->footer, 0, w, NULL);
                 return SOCKET_EAGAIN;
             } else if (w == SOCKET_EAGAIN) {
                 return SOCKET_EAGAIN;
@@ -337,7 +363,7 @@ static int server_reply_process(m_reply *r, ASKL_Socket *s)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_UDP
-static int _server_poll_udp(UNUSED const char *k, UNUSED size_t l, variant val)
+static int _server_poll_udp(UNUSED const char *k, UNUSED size_t l, Variant val)
 {
     unsigned int id = variant_to_integer(val);
 
@@ -354,7 +380,7 @@ static int _server_poll_udp(UNUSED const char *k, UNUSED size_t l, variant val)
 
 static void _server_poll(void)
 {
-    ASKL_Socket *s[_POLL_MAX], *new = NULL;
+    Socket *s[_POLL_MAX], *new = NULL;
     int i = 0, pending = 0;
 
     if (! server_running) return;
@@ -415,17 +441,17 @@ _wait:
 /* SERVER MAIN LOOP */
 /* -------------------------------------------------------------------------- */
 
-static ASKL_Socket *_server_receive(m_string *buffer)
+static Socket *_server_receive(String *buffer)
 {
     uint16_t socket_id = 0;
-    ASKL_Socket *s = NULL;
+    Socket *s = NULL;
     char *sockbuf = NULL;
-    m_string *request = NULL;
+    String *request = NULL;
     #ifdef _ENABLE_HTTP
     int http = 0;
-    m_string *input = NULL;
+    String *input = NULL;
     #endif
-    ASKL_Module *module = NULL;
+    Module *module = NULL;
     int ret = 0;
 
     /* try to get a readable socket */
@@ -438,15 +464,15 @@ static ASKL_Socket *_server_receive(m_string *buffer)
     if (_frag[SOCKET_ID(s)] && IS_LARGE(_frag[SOCKET_ID(s)])) {
         /* prepare for streaming */
         if (STRING_AVL(_frag[SOCKET_ID(s)]) < SOCKET_BUFFER) {
-            string_dim(
+            string_resize(
                 _frag[SOCKET_ID(s)],
-                SIZE(_frag[SOCKET_ID(s)]) + SOCKET_BUFFER
+                _frag[SOCKET_ID(s)]->len + SOCKET_BUFFER
             );
         }
         sockbuf = (char *) STRING_END(_frag[SOCKET_ID(s)]);
     } else
     #endif
-    sockbuf = (char *) DATA(buffer);
+    sockbuf = (char *) buffer->data;
 
     /* read the incoming data */
     if ( (ret = socket_read(s, sockbuf, SOCKET_BUFFER)) <= 0) {
@@ -467,14 +493,14 @@ static ASKL_Socket *_server_receive(m_string *buffer)
 
     /* prepare the input buffer */
     #ifdef _ENABLE_HTTP
-    if (sockbuf == DATA(buffer)) {
+    if (sockbuf == buffer->data) {
     #endif
-        buffer->_len = ret;
+        buffer->len = ret;
     #ifdef _ENABLE_HTTP
         input = buffer;
     } else {
         /* streaming - use the pending request buffer */
-        input = _frag[SOCKET_ID(s)]; input->_len += ret;
+        input = _frag[SOCKET_ID(s)]; input->len += ret;
         _frag[SOCKET_ID(s)] = NULL;
     }
     #endif
@@ -489,8 +515,8 @@ static ASKL_Socket *_server_receive(m_string *buffer)
        is stored in the _UDP hashmap. */
     if (socket_option_isset(s, SOCKET_UDP)) {
         unsigned int udp = 0;
-        ASKL_Socket *z = NULL;
-        variant val = map_get(
+        Socket *z = NULL;
+        Variant val = map_get(
             _UDP,
             (const char *) socket_get_sockaddr(s),
             socket_get_socklen(s)
@@ -546,7 +572,7 @@ static ASKL_Socket *_server_receive(m_string *buffer)
     /* check if there is already some data to be processed */
     if (_frag[SOCKET_ID(s)]) {
         /* append the new data to the fragmentation buffer */
-        if (string_cat(_frag[SOCKET_ID(s)], buffer)) {
+        if (string_append(_frag[SOCKET_ID(s)], buffer)) {
             request = _frag[SOCKET_ID(s)];
         } else {
             /* something is wrong */
@@ -578,7 +604,7 @@ static ASKL_Socket *_server_receive(m_string *buffer)
         if (request == buffer) {
             /* check if the buffer has been entirely processed */
             if (! EMPTY(request))
-                _frag[SOCKET_ID(s)] = string_dup(request);
+                _frag[SOCKET_ID(s)] = string_clone(request);
             request = NULL;
         } else {
             if (EMPTY(request)) {
@@ -600,11 +626,11 @@ static ASKL_Socket *_server_receive(m_string *buffer)
 
 /* -------------------------------------------------------------------------- */
 
-static int _server_respond(ASKL_Socket *s)
+static int _server_respond(Socket *s)
 {
     uint16_t socket_id = 0;
-    ASKL_Module *m = NULL;
-    m_reply *r = NULL;
+    Module *m = NULL;
+    Response *r = NULL;
     int ret = 0;
 
     if (! s) {
@@ -619,9 +645,9 @@ static int _server_respond(ASKL_Socket *s)
         if (! (r = queue_pop(_work[SOCKET_ID(s)])) ) goto _release;
 
         /* process it */
-        switch (server_reply_process(r, s)) {
+        switch (server_response_process(r, s)) {
         case SOCKET_EPARAM:
-            server_reply_free(r);
+            server_response_free(r);
             goto _release;
         case SOCKET_EDELAY:
             ret = queue_empty(_work[SOCKET_ID(s)]);
@@ -631,7 +657,7 @@ static int _server_respond(ASKL_Socket *s)
             if (socket_persist(s) == -1) {
                 /* write error, close the socket immediately */
                 socket_release(s); s = socket_close(s);
-                server_reply_free(r);
+                server_response_free(r);
                 goto _continue;
             }
             /* FALLTHRU */
@@ -657,12 +683,12 @@ static int _server_respond(ASKL_Socket *s)
         /* Connection: close */
         if (r->op & SERVER_MSG_END) {
             socket_release(s); s = socket_close(s);
-            server_reply_free(r);
+            server_response_free(r);
             goto _continue;
         }
 
         /* destroy the completed task */
-        server_reply_free(r);
+        server_response_free(r);
     }
 
 _release:
@@ -689,9 +715,9 @@ _continue:
 
 static void *_server_loop(UNUSED void *dummy)
 {
-    ASKL_Socket *s = NULL;
+    Socket *s = NULL;
     char data[SOCKET_BUFFER];
-    m_string buffer = STRING_STATIC_INITIALIZER(data, sizeof(data));
+    String buffer = STRING_STATIC_INITIALIZER(data, sizeof(data));
 
     #ifndef WIN32
     signal(SIGPIPE, SIG_IGN);
@@ -707,10 +733,10 @@ static void *_server_loop(UNUSED void *dummy)
         s = _server_receive(& buffer);
 
         /* clean the input buffer */
-        buffer._flags &= _STRING_EXTENSION;
+        buffer.internal.flags &= _STRING_EXTENSION;
         string_free_token(& buffer);
-        buffer._data = data; buffer._alloc = sizeof(data);
-        buffer._len = 0;
+        buffer.data = data; buffer.internal.capacity = sizeof(data);
+        buffer.len = 0;
 
         /* poll if there is nothing else to do */
         if (! _server_respond(s) && ! s) _server_poll();
@@ -723,7 +749,7 @@ static void *_server_loop(UNUSED void *dummy)
 /* Socket API callbacks */
 /* -------------------------------------------------------------------------- */
 
-static int _server_listen_cb(ASKL_Socket *s)
+static int _server_listen_cb(Socket *s)
 {
     #ifdef _ENABLE_UDP
     if (! socket_option_isset(s, SOCKET_UDP))
@@ -742,9 +768,9 @@ static int _server_listen_cb(ASKL_Socket *s)
 
 /* -------------------------------------------------------------------------- */
 
-static int _server_accept_cb(ASKL_Socket *s)
+static int _server_accept_cb(Socket *s)
 {
-    ASKL_Module *module = NULL;
+    Module *module = NULL;
 
     /* notify the module that a new client has been accepted */
     if ( (module = module_acquire(MODULE_ID(s))) ) {
@@ -764,9 +790,9 @@ static int _server_accept_cb(ASKL_Socket *s)
 
 /* -------------------------------------------------------------------------- */
 
-static int _server_opened_cb(ASKL_Socket *s)
+static int _server_opened_cb(Socket *s)
 {
-    ASKL_Module *module = NULL;
+    Module *module = NULL;
 
     /* connection successfully opened */
     if ( (module = module_acquire(MODULE_ID(s))) ) {
@@ -786,10 +812,10 @@ static int _server_opened_cb(ASKL_Socket *s)
 
 /* -------------------------------------------------------------------------- */
 
-static int _server_reinit_cb(ASKL_Socket *s)
+static int _server_reinit_cb(Socket *s)
 {
-    ASKL_Module *module = NULL;
-    m_reply *r = NULL, *retransmit = NULL;
+    Module *module = NULL;
+    Response *r = NULL, *retransmit = NULL;
 
     /* flush the work queue */
     if (_work[SOCKET_ID(s)]) {
@@ -797,7 +823,7 @@ static int _server_reinit_cb(ASKL_Socket *s)
             if (r->op & SERVER_MSG_ACK && ! retransmit) {
                 retransmit = r; r = NULL;
             }
-            r = server_reply_free(r);
+            r = server_response_free(r);
         }
         _work[SOCKET_ID(s)] = queue_free(_work[SOCKET_ID(s)]);
     }
@@ -833,12 +859,12 @@ static int _server_reinit_cb(ASKL_Socket *s)
 
 /* -------------------------------------------------------------------------- */
 
-static int _server_urgent_cb(ASKL_Socket *s)
+static int _server_urgent_cb(Socket *s)
 {
     char buffer[4];
     ssize_t len = 0;
-    ASKL_Module *module = NULL;
-    m_string *message = NULL;
+    Module *module = NULL;
+    String *message = NULL;
 
     /* try to read the OOB data (normally, a single byte) */
     if ( (len = socket_oob_read(s, buffer, sizeof(buffer))) <= 0)
@@ -866,10 +892,10 @@ static int _server_urgent_cb(ASKL_Socket *s)
 
 /* -------------------------------------------------------------------------- */
 
-static int _server_closed_cb(ASKL_Socket *s)
+static int _server_closed_cb(Socket *s)
 {
-    ASKL_Module *module = NULL;
-    m_reply *r = NULL;
+    Module *module = NULL;
+    Response *r = NULL;
 
     if ( (module = module_acquire(MODULE_ID(s))) ) {
         /* notify the module that the socket is about to be closed */
@@ -886,7 +912,7 @@ static int _server_closed_cb(ASKL_Socket *s)
 
     if (_work[SOCKET_ID(s)]) {
         while ( (r = queue_pop(_work[SOCKET_ID(s)])) )
-            r = server_reply_free(r);
+            r = server_response_free(r);
         _work[SOCKET_ID(s)] = queue_free(_work[SOCKET_ID(s)]);
     }
 
@@ -911,7 +937,7 @@ static int _server_closed_cb(ASKL_Socket *s)
 /* Public server API */
 /* -------------------------------------------------------------------------- */
 
-public int server_init(void)
+ASKL_API int server_init(void)
 {
     unsigned int i = 0;
     pthread_attr_t attr;
@@ -1060,14 +1086,14 @@ _err_string:
 #ifdef _ENABLE_PRIVILEGE_SEPARATION
 /* -------------------------------------------------------------------------- */
 
-public void __server_set_privileged_channel(int channel)
+ASKL_API void __server_set_privileged_channel(int channel)
 {
     _priv_com = channel;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void __server_privileged_process(int channel)
+ASKL_API void __server_privileged_process(int channel)
 {
     /* this is the only piece of code running with privileges.
      * it may perform UNIX authentication, or bind to privileged ports.
@@ -1304,23 +1330,23 @@ public void __server_privileged_process(int channel)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_PRIVILEGE_SEPARATION
-public int server_privileged_call(int opcode, const void *cmd, size_t len)
+ASKL_API int server_privileged_call(int opcode, const void *cmd, size_t len)
 {
     off_t ret = -1;
     char *buf = NULL;
-    ASKL_Socket *s = NULL;
+    _Socket *s = NULL;
     char host[NI_MAXHOST];
     char serv[NI_MAXSERV];
     char *b = NULL;
 
     switch (opcode) {
         case OP_BIND:
-            /* cmd is a ASKL_Socket here */
-            if (len != sizeof(ASKL_Socket)) return -1;
+            /* cmd is a _Socket here */
+            if (len != sizeof(_Socket)) return -1;
 
             len = NI_MAXHOST + NI_MAXSERV + 1;
 
-            s = (ASKL_Socket *) cmd;
+            s = (_Socket *) cmd;
 
             /* get the textual bind address */
             ret = getnameinfo(
@@ -1350,8 +1376,8 @@ public int server_privileged_call(int opcode, const void *cmd, size_t len)
             b += strlen(host); *b ++ = '|';
             memcpy(b, serv, strlen(serv));
             b += strlen(serv); *b ++ = '|';
-            memcpy(b, & s->_flags, sizeof(s->_flags));
-            b += sizeof(s->_flags);
+            memcpy(b, & s->internal.flags, sizeof(s->internal.flags));
+            b += sizeof(s->internal.flags);
 
             pthread_mutex_lock(& _priv_lock);
 
@@ -1497,8 +1523,8 @@ public int server_privileged_call(int opcode, const void *cmd, size_t len)
     }
 }
 #else
-public int server_privileged_call(UNUSED int o, UNUSED const void *c,
-                                  UNUSED size_t l)
+ASKL_API int server_privileged_call(UNUSED int o, UNUSED const void *c,
+                                    UNUSED size_t l)
 {
     /* notify the user that the privileges separation is disabled */
     fprintf(
@@ -1516,10 +1542,10 @@ public int server_privileged_call(UNUSED int o, UNUSED const void *c,
 
 /* -------------------------------------------------------------------------- */
 
-public int server_open_managed_socket(uint32_t token, const char *ip,
-                                      const char *port, int flags)
+ASKL_API int server_open_managed_socket(uint32_t token, const char *ip,
+                                        const char *port, int flags)
 {
-    ASKL_Socket *sock = NULL;
+    Socket *sock = NULL;
     int ret = 0;
 
     if (! token || ! port) {
@@ -1568,22 +1594,22 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public void server_close_managed_socket(uint32_t token, uint16_t socket_id)
+ASKL_API void server_close_managed_socket(uint32_t token, uint16_t socket_id)
 {
-    m_reply *reply = NULL;
+    Response *response = NULL;
 
     /* generate the packet */
-    if (! (reply = server_reply_init(SERVER_MSG_END, token)) ) {
-        debug("server_close_managed_socket(): cannot allocate a reply.\n");
+    if (! (response = server_response_init(SERVER_MSG_END, token)) ) {
+        debug("server_close_managed_socket(): cannot allocate a response.\n");
         return;
     }
 
-    reply = server_send_reply(socket_id, reply);
+    response = server_send_response(socket_id, response);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public uint64_t server_socket_sentbytes(uint16_t sockid)
+ASKL_API uint64_t server_socket_sentbytes(uint16_t sockid)
 {
     if (sockid < 1 || sockid > SOCKET_MAX) {
         debug("server_socket_sentbytes(): bad parameters.\n");
@@ -1595,7 +1621,7 @@ public uint64_t server_socket_sentbytes(uint16_t sockid)
 
 /* -------------------------------------------------------------------------- */
 
-public uint64_t server_socket_recvbytes(uint16_t sockid)
+ASKL_API uint64_t server_socket_recvbytes(uint16_t sockid)
 {
     unsigned int buffered = 0;
 
@@ -1604,17 +1630,20 @@ public uint64_t server_socket_recvbytes(uint16_t sockid)
         return 0;
     }
 
-    if (_frag[sockid]) buffered = SIZE(_frag[sockid]);
+    if (_frag[sockid]) buffered = _frag[sockid]->len;
 
     return socket_recvbytes(sockid) - buffered;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int server_set_socket_callback(uint32_t token, uint16_t sockid,
-                                      void (*cb)(uint16_t, uint16_t, m_string *))
+ASKL_API int server_set_socket_callback(
+    uint32_t token,
+    uint16_t sockid,
+    void (*cb)(uint16_t, uint16_t, String *)
+)
 {
-    ASKL_Socket *s = NULL;
+    Socket *s = NULL;
 
     if (! token || ! sockid || ! cb) {
         debug("server_set_socket_callback(): bad parameters.\n");
@@ -1641,47 +1670,52 @@ public int server_set_socket_callback(uint32_t token, uint16_t sockid,
 
 /* -------------------------------------------------------------------------- */
 
-public int server_send_response(uint32_t token, uint16_t sockid, uint16_t flags,
-                                const char *format, ...)
+ASKL_API int server_send(
+    uint32_t token,
+    uint16_t sockid,
+    uint16_t flags,
+    const char *format,
+    ...
+)
 {
-    m_reply *reply = NULL;
-    m_string *string = NULL;
+    Response *response = NULL;
+    String *string = NULL;
     va_list args;
 
     if (! token || ! sockid || ! format) {
-        debug("server_send_response(): bad parameters.\n");
+        debug("server_send(): bad parameters.\n");
         return -1;
     }
 
     va_start(args, format);
 
     /* generate the packet */
-    if (! (reply = server_reply_init(flags, token)) ) {
-        debug("server_send_response(): cannot allocate reply.\n");
+    if (! (response = server_response_init(flags, token)) ) {
+        debug("server_send(): cannot allocate response.\n");
         goto _err_rep;
     }
 
     if (! (string = string_vfmt(NULL, format, args)) ) {
-        debug("server_send_response(): cannot allocate header.\n");
+        debug("server_send(): cannot allocate header.\n");
         goto _err_fmt;
     }
 
-    if (server_reply_setheader(reply, string) == -1) {
-        debug("server_send_response(): cannot allocate task data.\n");
+    if (server_response_setheader(response, string) == -1) {
+        debug("server_send(): cannot allocate task data.\n");
         goto _err_set;
     }
 
     va_end(args);
 
     /* store the new task */
-    reply = server_send_reply(sockid, reply);
+    response = server_send_response(sockid, response);
 
     return 0;
 
 _err_set:
     string_free(string);
 _err_fmt:
-    reply = server_reply_free(reply);
+    response = server_response_free(response);
 _err_rep:
     va_end(args);
     return -1;
@@ -1689,41 +1723,50 @@ _err_rep:
 
 /* -------------------------------------------------------------------------- */
 
-public int server_send_string(uint32_t token, uint16_t sockid, uint16_t flags,
-                              m_string *string)
+ASKL_API int server_send_string(
+    uint32_t token,
+    uint16_t sockid,
+    uint16_t flags,
+    String *string
+)
 {
-    m_reply *reply = NULL;
+    Response *response = NULL;
 
-    if (! token || ! sockid || ! string || ! string->_data) {
+    if (! token || ! sockid || ! string || ! string->data) {
         debug("server_send_string(): bad parameters.\n");
         return -1;
     }
 
     /* generate the packet */
-    if (! (reply = server_reply_init(flags, token)) ) {
-        debug("server_send_string(): cannot allocate reply.\n");
+    if (! (response = server_response_init(flags, token)) ) {
+        debug("server_send_string(): cannot allocate response.\n");
         return -1;
     }
 
-    if (server_reply_setheader(reply, string) == -1) {
-        debug("server_send_string(): cannot set reply header.\n");
-        reply = server_reply_free(reply);
+    if (server_response_setheader(response, string) == -1) {
+        debug("server_send_string(): cannot set response header.\n");
+        response = server_response_free(response);
         return -1;
     }
 
     /* store the new task */
-    reply = server_send_reply(sockid, reply);
+    response = server_send_response(sockid, response);
 
     return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int server_send_buffer(uint32_t token, uint16_t sockid, uint16_t flags,
-                              const char *data, size_t len)
+ASKL_API int server_send_buffer(
+    uint32_t token,
+    uint16_t sockid,
+    uint16_t flags,
+    const char *data,
+    size_t len
+)
 {
-    m_reply *reply = NULL;
-    m_string *string = NULL;
+    Response *response = NULL;
+    String *string = NULL;
 
     if (! token || ! sockid || ! data || ! len) {
         debug("server_send_buffer(): bad parameters.\n");
@@ -1731,26 +1774,26 @@ public int server_send_buffer(uint32_t token, uint16_t sockid, uint16_t flags,
     }
 
     /* generate the packet */
-    if (! (reply = server_reply_init(flags, token)) ) {
-        debug("server_send_buffer(): cannot allocate reply.\n");
+    if (! (response = server_response_init(flags, token)) ) {
+        debug("server_send_buffer(): cannot allocate response.\n");
         return -1;
     }
 
     if (! (string = string_alloc(data, len)) ) {
         debug("server_send_buffer(): cannot allocate header.\n");
-        reply = server_reply_free(reply);
+        response = server_response_free(response);
         return -1;
     }
 
-    if (server_reply_setheader(reply, string) == -1) {
-        debug("server_send_buffer(): cannot set reply header.\n");
-        reply = server_reply_free(reply);
+    if (server_response_setheader(response, string) == -1) {
+        debug("server_send_buffer(): cannot set response header.\n");
+        response = server_response_free(response);
         string = string_free(string);
         return -1;
     }
 
     /* store the new task */
-    reply = server_send_reply(sockid, reply);
+    response = server_send_response(sockid, response);
 
     return 0;
 }
@@ -1763,7 +1806,7 @@ public int server_send_http(uint32_t token, uint16_t sockid, uint16_t flags,
                             m_http *request, int method, const char *action,
                             const char *host)
 {
-    m_reply *reply = NULL;
+    Response *response = NULL;
     m_string *http = NULL, *header = NULL, *footer = NULL;
     unsigned int i = 0;
 
@@ -1783,22 +1826,22 @@ public int server_send_http(uint32_t token, uint16_t sockid, uint16_t flags,
 
         for (i = 0; i < http->parts; i += 2) {
             /* generate a new request */
-            if (! (reply = server_reply_init(flags, token)) ) {
-                debug("server_send_http(): cannot allocate a reply.\n");
+            if (! (response = server_response_init(flags, token)) ) {
+                debug("server_send_http(): cannot allocate a response.\n");
                 return -1;
             }
 
-            if (! (header = string_dup(TOKEN(http, i))) ) {
+            if (! (header = string_clone(TOKEN(http, i))) ) {
                 debug("server_send_http(): cannot allocate header.\n");
                 http = string_free(http);
-                reply = server_reply_free(reply);
+                response = server_response_free(response);
                 return -1;
             }
 
-            if (server_reply_setheader(reply, header) == -1) {
-                debug("server_send_http(): cannot set reply header.\n");
+            if (server_response_setheader(response, header) == -1) {
+                debug("server_send_http(): cannot set response header.\n");
                 http = string_free(http);
-                reply = server_reply_free(reply);
+                response = server_response_free(response);
                 header = string_free(header);
                 return -1;
             }
@@ -1808,54 +1851,54 @@ public int server_send_http(uint32_t token, uint16_t sockid, uint16_t flags,
             while (! request->file && request->next)
                 request = request->next;
 
-            if (! (reply->file = fs_reopenfile(request->file)) ) {
+            if (! (response->file = fs_reopenfile(request->file)) ) {
                 debug("server_send_http(): cannot reopen file.\n");
                 http = string_free(http);
-                server_reply_free(reply);
+                server_response_free(response);
                 return -1;
             }
 
-            reply->off = request->offset;
-            reply->len = (request->length) ? request->length :
-                         reply->file->len - reply->off;
+            response->off = request->offset;
+            response->len = (request->length) ? request->length :
+                             response->file->len - response->off;
             #endif
 
             /* set the footer */
-            if (! (footer = string_dup(TOKEN(http, i + 1))) ) {
+            if (! (footer = string_clone(TOKEN(http, i + 1))) ) {
                 debug("server_send_http(): cannot allocate footer.\n");
                 http = string_free(http);
-                reply = server_reply_free(reply);
+                response = server_response_free(response);
                 return -1;
             }
 
-            if (server_reply_setfooter(reply, footer) == -1) {
-                debug("server_send_http(): cannot set reply header.\n");
+            if (server_response_setfooter(response, footer) == -1) {
+                debug("server_send_http(): cannot set response header.\n");
                 http = string_free(http);
-                reply = server_reply_free(reply);
+                response = server_response_free(response);
                 footer = string_free(footer);
                 return -1;
             }
 
             /* every two parts complete a request */
-            reply = server_send_reply(sockid, reply);
+            response = server_send_response(sockid, response);
         }
 
         http = string_free(http);
     } else {
         /* generate a new request */
-        if (! (reply = server_reply_init(flags, token)) ) {
-            debug("server_send_http(): cannot allocate reply.\n");
+        if (! (response = server_response_init(flags, token)) ) {
+            debug("server_send_http(): cannot allocate response.\n");
             return -1;
         }
 
-        if (server_reply_setheader(reply, http) == -1) {
-            debug("server_send_http(): cannot set reply header.\n");
+        if (server_response_setheader(response, http) == -1) {
+            debug("server_send_http(): cannot set response header.\n");
             http = string_free(http);
-            reply = server_reply_free(reply);
+            response = server_response_free(response);
             return -1;
         }
 
-        reply = server_send_reply(sockid, reply);
+        response = server_send_response(sockid, response);
     }
 
     /* clean up the original request */
@@ -1868,7 +1911,7 @@ public int server_send_http(uint32_t token, uint16_t sockid, uint16_t flags,
 #endif
 /* -------------------------------------------------------------------------- */
 
-public void server_exit(void)
+ASKL_API void server_exit(void)
 {
     unsigned int i = 0;
 

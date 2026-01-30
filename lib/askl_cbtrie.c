@@ -41,33 +41,26 @@
 
 #include "arcane/bitops.c"
 
-typedef struct _node {
+typedef struct _Node {
     void *child[2];
     uint16_t pos;
     uint8_t val;
     uint8_t bit;
-} _node;
+} _Node;
 
-typedef struct _leaf {
-    uint16_t len;
-    uint16_t pad;
-    variant val;
-    char key[];
-} _leaf;
-
-struct _ASKL_Trie {
-    ASKL_RWLock *_lock;
+struct _Trie {
+    RW_Lock *_lock;
     void *_root;
-    void (*_freeval)(variant);
+    void (*_freeval)(Variant);
 };
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Trie *trie_alloc(void (*freeval)(variant))
+ASKL_API Trie *trie_alloc(void (*freeval)(Variant))
 {
     /** @brief allocate an empty crit-bit tree */
 
-    ASKL_Trie *t = malloc(sizeof(*t));
+    Trie *t = malloc(sizeof(*t));
 
     if (! t) {
         perror(ERR(trie_alloc, malloc));
@@ -91,71 +84,68 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert_with(
-    ASKL_Trie *t,
-    const char *key,
-    size_t len,
-    variant value,
-    variant (*function)(const char *key, size_t len, variant new)
-)
+static inline unsigned _max63(unsigned pos)
 {
-    const uint8_t * restrict const k = (void *) key;
+    pos |= -(pos > 63u);
+    pos &= 63u;
+    return pos;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void **_insert(void **root, const uint8_t *k, size_t l, Trie_Leaf *new)
+{
     uint8_t *p = NULL, byte = 0;
     int branch = 0, newbranch = 0;
-    _node *node = NULL;
-    _leaf *leaf = NULL, *newleaf = NULL;
+    _Node *node = NULL;
+    Trie_Leaf *leaf = NULL;
     unsigned prefix_len = 0, n = 0, pos = 0, critbit = 0;
-    void **parent = NULL, **last_diff = NULL, **prev_node = NULL;
+    void **parent = NULL, **current_node = NULL, **ancestor = NULL;
+    uint64_t bitmap = 0;
 
-    if (! t || ! k || ! len) {
-        debug("trie_insert(): bad parameters.\n");
-        return -1;
-    }
-
-    if (len >= UINT16_MAX) {
-        debug("trie_insert(): overly long key.\n");
-        return -1;
-    }
-
-    if (! (newleaf = malloc(sizeof(*newleaf) + len + 1)) ) {
-        perror(ERR(trie_insert, malloc));
-        goto _err_leaf;
-    }
-
-    if (unlikely(lock_wrlock(t->_lock) == -1)) goto _err_lock;
-
-    if (unlikely(! t->_root)) {
+    if (unlikely(! *root)) {
         /* the tree is empty, add a new leaf */
-        t->_root = newleaf->key;
-        goto _success;
-    } else parent = prev_node = & t->_root;
+        *root = new->key;
+        return root;
+    }
+
+    parent = current_node = root;
 
     /* traverse the tree to find where the new node should be inserted */
-    for (p = t->_root; (uintptr_t) p & 0x1; p = node->child[branch]) {
+    for (p = *root; (uintptr_t) p & 0x1; p = node->child[branch]) {
         node = (void *) (p - 1);
-        if (likely(node->pos < len)) {
+        if (likely(node->pos < l)) {
+            prefix_len = __ctzll(~bitmap);
             byte = k[node->pos];
             branch = (1 + (node->bit | byte)) >> 8;
+
+            if (likely(node->pos > prefix_len)) continue;
+
             if (likely(node->val != byte)) {
                 critbit = __msb(node->val ^ byte) ^ 0xff;
-                if (node->bit > critbit) {
+                if (likely(critbit > node->bit)) {
+                    /* XXX bytes up to the current node position all matched
+                       but the critical bit is higher for the current index.
+                       the current node is therefore a suitable parent. */
+                    parent = current_node;
+                } else if (critbit < node->bit) {
+                    /* XXX there was no previous divergence and the critical
+                       bit is lower: new byte for this position. */
                     pos = node->pos;
-                    byte = node->val;
-                    if (last_diff) parent = last_diff;
                     goto _newbyte;
                 }
-                last_diff = node->child + branch;
-            } else parent = prev_node;
-            prev_node = node->child + branch;
-            PREFETCH((char *) node->child[branch] - 1, 0, NTACCESS);
+            } else bitmap |= (1 << _max63(node->pos));
         } else branch = 0;
+        current_node = node->child + branch;
     }
 
-    /* found a leaf, compute the divergence */
-    leaf = (_leaf *) (p - offsetof(_leaf, key));
-    prefix_len = (leaf->len + ((len - leaf->len) & -(len < leaf->len)));
+    /* compute the actual divergence */
+    leaf = (Trie_Leaf *) (p - offsetof(Trie_Leaf, key));
+    /* skip matching bytes */
+    pos = prefix_len;
+    prefix_len = (leaf->len + ((l - leaf->len) & -(l < leaf->len)));
 
-    for (n = prefix_len & ~7u; pos < n; pos += sizeof(uint64_t)) {
+    for (n = (prefix_len - pos) & ~7u; pos < n; pos += sizeof(uint64_t)) {
         uint64_t bytes, leaf64;
         memcpy(& bytes, k + pos, sizeof(bytes));
         memcpy(& leaf64, p + pos, sizeof(leaf64));
@@ -185,15 +175,16 @@ public int trie_insert_with(
     }
 
     /* duplicate key */
-    if (unlikely(prefix_len == len)) goto _failure;
+    if (unlikely(leaf->len == l)) return NULL;
 
 _critbit:
     critbit = __msb(p[pos] ^ k[pos]) ^ 0xff;
-    byte = p[pos];
 
 _newbyte:
-    newbranch = (1 + (critbit | byte)) >> 8;
+    newbranch = (1 + (critbit | k[pos])) >> 8;
     n = (pos << 8) | critbit;
+
+    ancestor = parent;
 
     for (p = *parent; (uintptr_t) p & 0x1; p = *parent) {
         node = (void *) (p - 1);
@@ -205,53 +196,147 @@ _newbyte:
 
     if (! (node = malloc(sizeof(*node))) ) {
         perror(ERR(trie_insert, malloc));
-        goto _failure;
+        return NULL;
     }
 
     node->pos = pos;
     node->val = k[pos];
     node->bit = critbit;
-    node->child[1 - newbranch] = newleaf->key;
-    node->child[newbranch] = *parent;
+    node->child[newbranch] = new->key;
+    node->child[1 - newbranch] = *parent;
 
     *parent = (void *) (1 + (char *) node);
 
-_success:
-    memcpy(newleaf->key, k, len);
-    newleaf->key[len] = '\0';
-    newleaf->len = len;
-    if (function)
-        newleaf->val = function(newleaf->key, newleaf->len, value);
-    else newleaf->val = value;
+    return ancestor;
+}
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API int trie_insert_with(
+    Trie *t,
+    const char *key,
+    size_t len,
+    Variant value,
+    Variant (*function)(const char *key, size_t len, Variant new)
+)
+{
+    Trie_Leaf *newleaf = NULL;
+
+    if (! t || ! key || ! len) {
+        debug("trie_insert(): bad parameters.\n");
+        return -1;
+    }
+
+    if (len >= UINT16_MAX) {
+        debug("trie_insert(): overly long key.\n");
+        return -1;
+    }
+
+    if (! (newleaf = malloc(sizeof(*newleaf) + len + 1)) ) {
+        perror(ERR(trie_insert, malloc));
+        return -1;
+    }
+
+    if (unlikely(lock_wrlock(t->_lock) == -1)) goto _err_lock;
+
+        if (unlikely(! _insert(& t->_root, (void *) key, len, newleaf)))
+            goto _failure;
+
+        memcpy(newleaf->key, key, len);
+        newleaf->key[len] = '\0';
+        newleaf->len = len;
+        if (function) newleaf->val = function(key, len, value);
+        else newleaf->val = value;
+
     lock_unlock(t->_lock);
+
     return 0;
 
 _failure:
     lock_unlock(t->_lock);
 _err_lock:
     free(newleaf);
-_err_leaf:
     return -1;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert(ASKL_Trie *t, const char *key, size_t len, variant value)
+ASKL_API int trie_insert(Trie *t, const char *key, size_t len, Variant value)
 {
     return trie_insert_with(t, key, len, value, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_lookup(ASKL_Trie *t, const char *key, size_t len,
-                           variant (CALLBACK *function)(variant))
+ASKL_API int trie_insert_prefix_list(
+    Trie *t,
+    size_t prefix_len,
+    Trie_Leaf **list,
+    size_t count
+)
+{
+    unsigned int i = 0;
+    void **top = NULL;
+    int result = 0;
+
+    if (! t || ! list || ! count) {
+        debug("trie_insert_batch(): bad parameters.\n");
+        return -1;
+    }
+
+    if (lock_wrlock(t->_lock) == -1) return -1;
+
+        top = _insert(& t->_root, (void *) list[0]->key, list[0]->len, list[0]);
+        if (! top) {
+            if (t->_freeval) t->_freeval(list[0]->val);
+            free(list[0]);
+            top = & t->_root;
+        } else result = 1;
+
+        /* try to find a safe insertion point */
+        if (prefix_len && count > 2) {
+            if (top == & t->_root) {
+                uint8_t *p = NULL;
+                void **next = top;
+                for (p = *top; (uintptr_t) p & 0x1; p = *next) {
+                    _Node *node = (void *) (p - 1);
+                    int branch;
+                    if (node->pos < prefix_len) {
+                        top = next;
+                    } else break;
+                    branch = (1 + (node->bit | list[1]->key[node->pos])) >> 8;
+                    next = node->child + branch;
+                }
+            }
+        }
+
+        for (i = 1; i < count; i ++) {
+            if (! _insert(top, (void *) list[i]->key, list[i]->len, list[i])) {
+                if (t->_freeval) t->_freeval(list[i]->val);
+                free(list[i]);
+            } else result ++;
+        }
+
+    lock_unlock(t->_lock);
+
+    return result;
+}
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API Variant trie_lookup(
+    Trie *t,
+    const char *key,
+    size_t len,
+    Variant (*function)(Variant)
+)
 {
     const uint8_t * restrict const k = (void *) key;
     uint8_t *p = NULL;
-    _node *node = NULL;
-    _leaf *leaf = NULL;
+    _Node *node = NULL;
+    Trie_Leaf *leaf = NULL;
     unsigned int branch = 0;
-    variant ret = { 0 };
+    Variant ret = { 0 };
 
     if (! t || ! k || ! len) {
         debug("trie_lookup(): bad parameters.\n");
@@ -273,7 +358,7 @@ public variant trie_lookup(ASKL_Trie *t, const char *key, size_t len,
         else branch = 0;
     }
 
-    leaf = (_leaf *) (p - offsetof(_leaf, key));
+    leaf = (Trie_Leaf *) (p - offsetof(Trie_Leaf, key));
 
     /* check for exact match */
     if (leaf->len == len && memcmp(leaf->key, k, len) == 0)
@@ -286,35 +371,35 @@ public variant trie_lookup(ASKL_Trie *t, const char *key, size_t len,
 
 /* -------------------------------------------------------------------------- */
 
-static variant _exists(UNUSED variant v)
+static Variant _exists(UNUSED Variant v)
 {
     return variant_true();
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_has(ASKL_Trie *t, const char *key, size_t len)
+ASKL_API int trie_has(Trie *t, const char *key, size_t len)
 {
-    variant v = trie_lookup(t, key, len, _exists);
+    Variant v = trie_lookup(t, key, len, _exists);
     return (is_boolean(v) && v.value.integer);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_remove_if(
-    ASKL_Trie *t,
+ASKL_API Variant trie_remove_if(
+    Trie *t,
     const char *key,
     size_t len,
-    int (*condition)(const char *key, size_t len, variant value)
+    int (*condition)(const char *key, size_t len, Variant value)
 )
 {
     const uint8_t * restrict const k = (void *) key;
     uint8_t *p = NULL;
     void **ancestor = NULL, **parent = NULL;
-    _node *node = NULL;
-    _leaf *leaf = NULL;
+    _Node *node = NULL;
+    Trie_Leaf *leaf = NULL;
     int branch = 0;
-    variant ret = { 0 };
+    Variant ret = { 0 };
 
     if (! t || ! k || ! len) {
         debug("trie_remove(): bad parameters.\n");
@@ -337,7 +422,7 @@ public variant trie_remove_if(
         parent = node->child + branch;
     }
 
-    leaf = (_leaf *) (p - offsetof(_leaf, key));
+    leaf = (Trie_Leaf *) (p - offsetof(Trie_Leaf, key));
 
     /* check for exact match */
     if (leaf->len != len || memcmp(leaf->key, k, len)) goto _err;
@@ -363,20 +448,20 @@ _err:
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_remove(ASKL_Trie *t, const char *key, size_t len)
+ASKL_API Variant trie_remove(Trie *t, const char *key, size_t len)
 {
     return trie_remove_if(t, key, len, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_update(ASKL_Trie *t, const char *key, size_t len, variant v)
+ASKL_API Variant trie_update(Trie *t, const char *key, size_t len, Variant v)
 {
     const uint8_t * restrict const k = (void *) key;
     uint8_t *p = NULL;
-    _node *node = NULL;
-    _leaf *leaf = NULL;
-    variant ret = { 0 };
+    _Node *node = NULL;
+    Trie_Leaf *leaf = NULL;
+    Variant ret = { 0 };
     int branch = 0;
 
     if (! t || ! k || ! len) {
@@ -399,7 +484,7 @@ public variant trie_update(ASKL_Trie *t, const char *key, size_t len, variant v)
         else branch = 0;
     }
 
-    leaf = (_leaf *) (p - offsetof(_leaf, key));
+    leaf = (Trie_Leaf *) (p - offsetof(Trie_Leaf, key));
 
     /* check for exact match and update the value */
     if (leaf->len == len && ! memcmp(leaf->key, k, len)) {
@@ -415,14 +500,14 @@ public variant trie_update(ASKL_Trie *t, const char *key, size_t len, variant v)
 /* -------------------------------------------------------------------------- */
 
 static int _each(
-    ASKL_Trie *t,
+    Trie *t,
     void **top,
-    int (*f)(const char *, size_t, variant)
+    int (*f)(const char *, size_t, Variant)
 )
 {
     uint8_t *p = NULL;
-    _node *node = NULL;
-    _leaf *leaf = NULL;
+    _Node *node = NULL;
+    Trie_Leaf *leaf = NULL;
     int ret[2] = { 0, 0 };
 
     if (! (p = *top) ) return -1;
@@ -441,7 +526,7 @@ static int _each(
             goto _free_node;
         }
     } else {
-        leaf = (_leaf *) (p - offsetof(_leaf, key));
+        leaf = (Trie_Leaf *) (p - offsetof(Trie_Leaf, key));
 
         if ( (ret[0] = f(leaf->key, leaf->len, leaf->val)) == -1) {
             if (t->_freeval) t->_freeval(leaf->val);
@@ -460,7 +545,7 @@ _free_node:
 
 /* -------------------------------------------------------------------------- */
 
-public void trie_foreach(ASKL_Trie *t, int (*f)(const char *, size_t, variant))
+ASKL_API void trie_foreach(Trie *t, int (*f)(const char *, size_t, Variant))
 {
     if (! t) {
         debug("trie_foreach(): bad parameters.\n");
@@ -481,14 +566,14 @@ public void trie_foreach(ASKL_Trie *t, int (*f)(const char *, size_t, variant))
 
 /* -------------------------------------------------------------------------- */
 
-static int _delete(UNUSED const char *k, UNUSED size_t l, UNUSED variant v)
+static int _delete(UNUSED const char *k, UNUSED size_t l, UNUSED Variant v)
 {
     return -1;
 }
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Trie *trie_free(ASKL_Trie *t)
+ASKL_API Trie *trie_free(Trie *t)
 {
     if (! t) return NULL;
     trie_foreach(t, _delete);
@@ -501,7 +586,7 @@ public ASKL_Trie *trie_free(ASKL_Trie *t)
 /* Iterator */
 /* -------------------------------------------------------------------------- */
 
-static int _iterator_push(ASKL_TrieIterator *iterator, uint8_t *p)
+static int _iterator_push(Trie_Iterator *iterator, uint8_t *p)
 {
     if (iterator->_node_count == iterator->_node_alloc) {
         uint8_t **nodes = NULL;
@@ -529,7 +614,7 @@ static int _iterator_push(ASKL_TrieIterator *iterator, uint8_t *p)
 
 /* -------------------------------------------------------------------------- */
 
-static inline uint8_t *_iterator_pop(ASKL_TrieIterator *iterator)
+static inline uint8_t *_iterator_pop(Trie_Iterator *iterator)
 {
     if (unlikely(! iterator->_node_count)) return NULL;
     return iterator->_node[-- iterator->_node_count];
@@ -537,9 +622,9 @@ static inline uint8_t *_iterator_pop(ASKL_TrieIterator *iterator)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_TrieIterator *trie_each(ASKL_Trie *t)
+ASKL_API Trie_Iterator *trie_each(Trie *t)
 {
-    ASKL_TrieIterator *iterator = NULL;
+    Trie_Iterator *iterator = NULL;
 
     if (! t) {
         debug("trie_each(): bad parameters.\n");
@@ -575,17 +660,13 @@ _err:
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_TrieIterator *trie_each_prefix(
-    ASKL_Trie *t,
-    const char *prefix,
-    size_t len
-)
+ASKL_API Trie_Iterator *trie_each_prefix(Trie *t, const char *prefix, size_t len)
 {
     const uint8_t * restrict const k = (void *) prefix;
     uint8_t *p = NULL, *top = NULL;
     unsigned int branch = 0;
-    _leaf *leaf = NULL;
-    ASKL_TrieIterator *iterator = NULL;
+    Trie_Leaf *leaf = NULL;
+    Trie_Iterator *iterator = NULL;
 
     if (! t || ! k || ! len) {
         debug("trie_each_prefix(): bad parameters.\n");
@@ -601,7 +682,7 @@ public ASKL_TrieIterator *trie_each_prefix(
 
     /* find the best match for the given prefix */
     while ((uintptr_t) p & 0x1) {
-        _node *node = (void *) (p - 1);
+        _Node *node = (void *) (p - 1);
         if (likely(node->pos < len)) {
             branch = (1 + (node->bit | k[node->pos])) >> 8;
             top = node->child[branch];
@@ -609,7 +690,7 @@ public ASKL_TrieIterator *trie_each_prefix(
         p = node->child[branch];
     }
 
-    leaf = (_leaf *) (p - offsetof(_leaf, key));
+    leaf = (Trie_Leaf *) (p - offsetof(Trie_Leaf, key));
 
     /* check if the best match is correct */
     if (leaf->len < len || memcmp(leaf->key, k, len)) {
@@ -639,11 +720,11 @@ _err:
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_TrieIterator * CALLBACK trie_next(ASKL_TrieIterator *iterator)
+ASKL_API Trie_Iterator *trie_next(Trie_Iterator *iterator)
 {
     uint8_t *p = NULL;
-    _node *node = NULL;
-    _leaf *leaf = NULL;
+    _Node *node = NULL;
+    Trie_Leaf *leaf = NULL;
 
     for (p = _iterator_pop(iterator); (uintptr_t) p & 0x1; p = *node->child) {
         node = (void *) (p - 1);
@@ -652,7 +733,7 @@ public ASKL_TrieIterator * CALLBACK trie_next(ASKL_TrieIterator *iterator)
     }
 
     if (likely(p)) {
-        leaf = (_leaf *) (p - offsetof(_leaf, key));
+        leaf = (Trie_Leaf *) (p - offsetof(Trie_Leaf, key));
         iterator->key = leaf->key;
         iterator->len = leaf->len;
         iterator->val = leaf->val;
@@ -664,7 +745,7 @@ public ASKL_TrieIterator * CALLBACK trie_next(ASKL_TrieIterator *iterator)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_TrieIterator *trie_break(ASKL_TrieIterator *iterator)
+ASKL_API Trie_Iterator *trie_break(Trie_Iterator *iterator)
 {
     if (! iterator) {
         debug("trie_break(): bad parameters.\n");

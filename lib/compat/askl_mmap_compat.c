@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -39,7 +39,7 @@
 #ifdef WIN32 /* WIN32 mmap() compatibility module */
 /* -------------------------------------------------------------------------- */
 
-public int get_page_size(void)
+ASKL_API int get_page_size(void)
 {
     #ifndef __WINE__
     SYSTEM_INFO info;
@@ -101,7 +101,7 @@ static void *_aligned_offset_alloc(size_t size, size_t alignment, size_t offset)
 
 /* -------------------------------------------------------------------------- */
 
-public int posix_memalign(void **p, size_t alignment, size_t size)
+ASKL_API int posix_memalign(void **p, size_t alignment, size_t size)
 {
     if ( (*p = _aligned_offset_alloc(size, alignment, 0)) )
         return 0;
@@ -110,15 +110,21 @@ public int posix_memalign(void **p, size_t alignment, size_t size)
 
 /* -------------------------------------------------------------------------- */
 
-public void posix_memfree(void *memblock)
+ASKL_API void posix_memfree(void *memblock)
 {
     if (memblock) free(ORIG_PTR(memblock));
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void *mmap(void *start, size_t len, int prot, int flags, int fd,
-                  off_t offset                                         )
+ASKL_API void *mmap(
+    void *start,
+    size_t len,
+    int prot,
+    int flags,
+    int fd,
+    off_t offset
+)
 {
     /*
       This is a minimal implementation of the *NIX mmap syscall for WIN32.
@@ -194,7 +200,7 @@ public void *mmap(void *start, size_t len, int prot, int flags, int fd,
 
 /* -------------------------------------------------------------------------- */
 
-public int munmap(void *start, UNUSED size_t _dummy)
+ASKL_API int munmap(void *start, UNUSED size_t _dummy)
 {
     /*
       This is a minimal implementation of the *NIX munmap syscall for WIN32.
@@ -208,7 +214,7 @@ public int munmap(void *start, UNUSED size_t _dummy)
 
 /* -------------------------------------------------------------------------- */
 
-public void *shm_alloc(const char *name, size_t size)
+ASKL_API void *shm_alloc(const char *name, size_t size)
 {
     HANDLE hmap = NULL;
     void *ret = NULL;
@@ -245,7 +251,7 @@ public void *shm_alloc(const char *name, size_t size)
 
 /* -------------------------------------------------------------------------- */
 
-public void *shm_attach(const char *name, size_t size)
+ASKL_API void *shm_attach(const char *name, size_t size)
 {
     HANDLE hmap = NULL;
     void *ret = NULL;
@@ -267,7 +273,7 @@ public void *shm_attach(const char *name, size_t size)
 
 /* -------------------------------------------------------------------------- */
 
-public void shm_detach(void *start, UNUSED size_t _dummy)
+ASKL_API void shm_detach(void *start, UNUSED size_t _dummy)
 {
     /* we already dropped the reference of the map object, just unmap it */
     UnmapViewOfFile(start);
@@ -275,7 +281,7 @@ public void shm_detach(void *start, UNUSED size_t _dummy)
 
 /* -------------------------------------------------------------------------- */
 
-public void shm_free(UNUSED const char *_name, void *start, UNUSED size_t _dummy)
+ASKL_API void shm_free(UNUSED const char *_name, void *start, UNUSED size_t _dummy)
 {
     /* we already dropped the reference of the map object, just unmap it */
     UnmapViewOfFile(start);
@@ -285,7 +291,7 @@ public void shm_free(UNUSED const char *_name, void *start, UNUSED size_t _dummy
 #else /* POSIX compliant systems */
 /* -------------------------------------------------------------------------- */
 
-public int get_page_size(void)
+ASKL_API int get_page_size(void)
 {
     return sysconf(_SC_PAGESIZE);
 }
@@ -296,7 +302,7 @@ public int get_page_size(void)
 
 #if ! defined(MAC_OS_X_VERSION_10_6) && ! defined(__MAC_10_6)
 
-public int posix_memalign(void **p, UNUSED size_t alignment, size_t size)
+ASKL_API int posix_memalign(void **p, UNUSED size_t alignment, size_t size)
 {
     /* malloc returns 16-byte aligned memory addresses on OS X */
     return ( (*p = malloc(size)) ) ? 0 : -1;
@@ -308,7 +314,7 @@ public int posix_memalign(void **p, UNUSED size_t alignment, size_t size)
 #endif
 /* -------------------------------------------------------------------------- */
 
-public void posix_memfree(void *memblock)
+ASKL_API void posix_memfree(void *memblock)
 {
     free(memblock);
 }
@@ -317,7 +323,7 @@ public void posix_memfree(void *memblock)
 
 /* mmap(2) and munmap(2) are already there, wrap around shm_open(2) */
 
-public void *shm_alloc(const char *name, size_t size)
+ASKL_API void *shm_alloc(const char *name, size_t size)
 {
     int shm = 0;
     void *ret = NULL;
@@ -353,7 +359,7 @@ _err_shm:
 
 /* -------------------------------------------------------------------------- */
 
-public void *shm_attach(const char *name, size_t size)
+ASKL_API void *shm_attach(const char *name, size_t size)
 {
     int shm = 0;
     void *ret = NULL;
@@ -381,14 +387,14 @@ public void *shm_attach(const char *name, size_t size)
 
 /* -------------------------------------------------------------------------- */
 
-public void shm_detach(void *start, size_t size)
+ASKL_API void shm_detach(void *start, size_t size)
 {
     munmap(start, size);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void shm_free(const char *name, void *start, size_t size)
+ASKL_API void shm_free(const char *name, void *start, size_t size)
 {
     /* unmap and unlink */
     munmap(start, size);

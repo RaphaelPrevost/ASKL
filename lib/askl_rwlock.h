@@ -41,15 +41,15 @@
 
 /** @defgroup rwlock ASKL::rwlock */
 
-typedef struct _ASKL_RWLock ASKL_RWLock;
+typedef struct _RW_Lock RW_Lock;
 
 /* -------------------------------------------------------------------------- */
 
-private ASKL_RWLock *lock_alloc(void);
+INTERNAL RW_Lock *lock_alloc(void);
 
 /**
  * @ingroup rwlock
- * @fn ASKL_RWLock *lock_alloc(void)
+ * @fn RW_Lock *lock_alloc(void)
  * @return a newly allocated lock on success, or NULL on allocation failure
  *
  * This private helper allocates an uninitialized read/write lock structure.
@@ -66,11 +66,11 @@ private ASKL_RWLock *lock_alloc(void);
 
 /* -------------------------------------------------------------------------- */
 
-private int lock_init(ASKL_RWLock *lock);
+INTERNAL int lock_init(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
- * @fn int lock_init(ASKL_RWLock *lock)
+ * @fn int lock_init(RW_Lock *lock)
  * @param lock pointer to a lock structure
  * @return 0 on success, -1 on error
  *
@@ -82,11 +82,11 @@ private int lock_init(ASKL_RWLock *lock);
 
 /* -------------------------------------------------------------------------- */
 
-private int CALLBACK lock_rdlock(ASKL_RWLock *lock);
+INTERNAL int lock_rdlock(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
- * @fn int lock_rdlock(ASKL_RWLock *lock)
+ * @fn int lock_rdlock(RW_Lock *lock)
  * @param lock the lock to acquire in read (shared) mode
  * @return 0 on success, -1 if the lock is broken or an error occurred
  *
@@ -112,11 +112,11 @@ private int CALLBACK lock_rdlock(ASKL_RWLock *lock);
 
 /* -------------------------------------------------------------------------- */
 
-private int lock_wrlock(ASKL_RWLock *lock);
+INTERNAL int lock_wrlock(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
- * @fn int lock_wrlock(ASKL_RWLock *lock)
+ * @fn int lock_wrlock(RW_Lock *lock)
  * @param lock the lock to acquire in write (exclusive) mode
  * @return 0 on success, -1 if the lock is broken or an error occurred
  *
@@ -140,11 +140,11 @@ private int lock_wrlock(ASKL_RWLock *lock);
 
 /* -------------------------------------------------------------------------- */
 
-private int lock_upgrade(ASKL_RWLock *lock);
+INTERNAL int lock_upgrade(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
- * @fn int lock_upgrade(ASKL_RWLock *lock)
+ * @fn int lock_upgrade(RW_Lock *lock)
  * @param lock the lock to upgrade from read to write mode
  * @return 0 on success, -1 if the lock is broken or the upgrade fails
  *
@@ -180,11 +180,11 @@ private int lock_upgrade(ASKL_RWLock *lock);
 
 /* -------------------------------------------------------------------------- */
 
-private void CALLBACK lock_restore(ASKL_RWLock *lock);
+INTERNAL void lock_restore(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
- * @fn void lock_restore(ASKL_RWLock *lock)
+ * @fn void lock_restore(RW_Lock *lock)
  * @param lock the lock to restore to read mode
  * @return void
  *
@@ -206,7 +206,7 @@ private void CALLBACK lock_restore(ASKL_RWLock *lock);
 
 /* -------------------------------------------------------------------------- */
 
-private void CALLBACK lock_break(ASKL_RWLock *lock);
+INTERNAL void lock_break(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
@@ -235,11 +235,11 @@ private void CALLBACK lock_break(ASKL_RWLock *lock);
 
 /* -------------------------------------------------------------------------- */
 
-private void lock_unlock(ASKL_RWLock *lock);
+INTERNAL void lock_unlock(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
- * @fn void lock_unlock(ASKL_RWLock *lock)
+ * @fn void lock_unlock(RW_Lock *lock)
  * @param lock the lock to release
  * @return void
  *
@@ -261,7 +261,7 @@ private void lock_unlock(ASKL_RWLock *lock);
 
 /* -------------------------------------------------------------------------- */
 
-private void lock_destroy(ASKL_RWLock *lock);
+INTERNAL void lock_destroy(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
@@ -284,11 +284,11 @@ private void lock_destroy(ASKL_RWLock *lock);
 
 /* -------------------------------------------------------------------------- */
 
-private ASKL_RWLock *lock_free(ASKL_RWLock *lock);
+INTERNAL RW_Lock *lock_free(RW_Lock *lock);
 
 /**
  * @ingroup rwlock
- * @fn ASKL_RWLock *lock_free(ASKL_RWLock *lock)
+ * @fn RW_Lock *lock_free(RW_Lock *lock)
  * @param lock the lock structure to free
  * @return always NULL
  *

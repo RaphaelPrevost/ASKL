@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -67,7 +67,7 @@
  * SUCH DAMAGE.
  */
 
-#include "m_util_vfscanf.h"
+#include "scanf.h"
 
 /* 11-bit exponent (VAX G floating point) is 308 decimal digits */
 #define MAXEXP      308
@@ -140,8 +140,12 @@ static double _fetch_float(const u_char *, size_t, int);
 
 /* -------------------------------------------------------------------------- */
 
-public int m_vsnscanf(const char *buffer, size_t bufsize, const char *fmt0,
-                      va_list ap                                           )
+ASKL_API int m_vsnscanf(
+    const char *buffer,
+    size_t bufsize,
+    const char *fmt0,
+    va_list ap
+)
 {
     u_char *fmt = (u_char *)fmt0;
     int c;                  /* character from format, or conversion */
@@ -956,7 +960,7 @@ static double _fetch_float(const u_char *b, UNUSED size_t w, int flags)
 
 /* -------------------------------------------------------------------------- */
 
-public int m_snscanf(const char *buffer, size_t size, const char *fmt, ...)
+ASKL_API int m_snscanf(const char *buffer, size_t size, const char *fmt, ...)
 {
     int ret = 0;
     va_list ap;

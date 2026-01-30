@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -72,7 +72,7 @@
  * This code is large and complicated...
  */
 
-#include "m_util_vfprintf.h"
+#include "printf.h"
 
 #define u_char unsigned char
 #define u_long unsigned long
@@ -181,10 +181,15 @@ static int exponent(char *, int, int);
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_DB
-public int m_vsnprintf_db(void *con, char *buffer, size_t bufsize,
+ASKL_API int m_vsnprintf_db(void *con, char *buffer, size_t bufsize,
                           const char *fmt0, va_list ap)
 #else
-public int m_vsnprintf(char *buffer, size_t bufsize, const char *fmt0, va_list ap)
+ASKL_API int m_vsnprintf(
+    char *buffer,
+    size_t bufsize,
+    const char *fmt0,
+    va_list ap
+)
 #endif
 {
     char *fmt;        /* format string */
@@ -1534,7 +1539,7 @@ static int _write_float(char *out, size_t len, const u_char *b, int flags)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_DB
-public int m_vsnprintf(char *buffer, size_t bufsize, const char *fmt0,
+ASKL_API int m_vsnprintf(char *buffer, size_t bufsize, const char *fmt0,
                        va_list ap)
 {
     return m_vsnprintf_db(NULL, buffer, bufsize, fmt0, ap);
@@ -1543,7 +1548,7 @@ public int m_vsnprintf(char *buffer, size_t bufsize, const char *fmt0,
 
 /* -------------------------------------------------------------------------- */
 
-public int m_snprintf(char *buffer, size_t size, const char *fmt, ...)
+ASKL_API int m_snprintf(char *buffer, size_t size, const char *fmt, ...)
 {
     int ret = 0;
     va_list ap;
@@ -1558,7 +1563,7 @@ public int m_snprintf(char *buffer, size_t size, const char *fmt, ...)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_DB
-public int m_snprintf_db(void *con, char *buffer, size_t size,
+ASKL_API int m_snprintf_db(void *con, char *buffer, size_t size,
                          const char *fmt, ...)
 {
     int ret = 0;

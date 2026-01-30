@@ -36,7 +36,7 @@
 #include "askl_rwlock.h"
 #include "arcane/bitops.c"
 
-struct _ASKL_RWLock {
+struct _RW_Lock {
     _ATOMIC int state;
     _ATOMIC int wflag;
     pthread_mutex_t mutex;
@@ -45,7 +45,7 @@ struct _ASKL_RWLock {
 
 /**
  * @ingroup rwlock
- * @struct ASKL_RWLock
+ * @struct RW_Lock
  *
  * An internal read/write lock which provides:
  * - A fast uncontended path via atomic operations on @ref state.
@@ -136,9 +136,9 @@ struct _ASKL_RWLock {
 
 /* -------------------------------------------------------------------------- */
 
-private ASKL_RWLock *lock_alloc(void)
+INTERNAL RW_Lock *lock_alloc(void)
 {
-    ASKL_RWLock *ret = malloc(sizeof(*ret));
+    RW_Lock *ret = malloc(sizeof(*ret));
     if (! ret) {
         perror(ERR(lock_alloc, malloc));
         return NULL;
@@ -148,7 +148,7 @@ private ASKL_RWLock *lock_alloc(void)
 
 /* -------------------------------------------------------------------------- */
 
-private int lock_init(ASKL_RWLock *lock)
+INTERNAL int lock_init(RW_Lock *lock)
 {
     if (pthread_mutex_init(& lock->mutex, NULL) == -1) {
         perror(ERR(lock_init, pthread_mutex_init));
@@ -172,7 +172,7 @@ _err_cond:
 
 /* -------------------------------------------------------------------------- */
 
-private int CALLBACK lock_rdlock(ASKL_RWLock *lock)
+INTERNAL int lock_rdlock(RW_Lock *lock)
 {
     int ret = 0, x = 0;
 
@@ -218,7 +218,7 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-private int CALLBACK lock_wrlock(ASKL_RWLock *lock)
+INTERNAL int lock_wrlock(RW_Lock *lock)
 {
     int ret = 0, x = 0;
 
@@ -259,7 +259,7 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-static int _cooperate(ASKL_RWLock *lock)
+static int _cooperate(RW_Lock *lock)
 {
     int cooperative = 0;
     int state = _LOCKSTATE_GET(lock);
@@ -304,7 +304,7 @@ static int _cooperate(ASKL_RWLock *lock)
 
 /* -------------------------------------------------------------------------- */
 
-private int lock_upgrade(ASKL_RWLock *lock)
+INTERNAL int lock_upgrade(RW_Lock *lock)
 {
     #ifdef HAS_ATOMICS
     /* fast path: only reader */
@@ -367,7 +367,7 @@ _success:
 
 /* -------------------------------------------------------------------------- */
 
-private void CALLBACK lock_restore(ASKL_RWLock *lock)
+INTERNAL void lock_restore(RW_Lock *lock)
 {
     #ifdef HAS_ATOMICS
     _LOCKSTATE_CAS(lock, UPGRADED, RDLOCKED);
@@ -384,7 +384,7 @@ private void CALLBACK lock_restore(ASKL_RWLock *lock)
 
 /* -------------------------------------------------------------------------- */
 
-private void CALLBACK lock_break(ASKL_RWLock *lock)
+INTERNAL void lock_break(RW_Lock *lock)
 {
     pthread_mutex_lock(& lock->mutex);
 
@@ -397,7 +397,7 @@ private void CALLBACK lock_break(ASKL_RWLock *lock)
 
 /* -------------------------------------------------------------------------- */
 
-private void lock_unlock(ASKL_RWLock *lock)
+INTERNAL void lock_unlock(RW_Lock *lock)
 {
     int x;
 
@@ -419,7 +419,7 @@ private void lock_unlock(ASKL_RWLock *lock)
 
 /* -------------------------------------------------------------------------- */
 
-private void lock_destroy(ASKL_RWLock *lock)
+INTERNAL void lock_destroy(RW_Lock *lock)
 {
     pthread_cond_destroy(& lock->cond);
     pthread_mutex_destroy(& lock->mutex);
@@ -427,7 +427,7 @@ private void lock_destroy(ASKL_RWLock *lock)
 
 /* -------------------------------------------------------------------------- */
 
-private ASKL_RWLock *lock_free(ASKL_RWLock *lock)
+INTERNAL RW_Lock *lock_free(RW_Lock *lock)
 {
     free(lock);
     return NULL;

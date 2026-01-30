@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,7 +33,7 @@
  *                                                                             *
  ******************************************************************************/
 
-#include "m_util_float.h"
+#include "float.h"
 
 typedef struct _float {
     int _exponent;
@@ -191,7 +191,7 @@ static int _fp_to_double(_float *fp, unsigned char bin[8], int f)
 
 /* -------------------------------------------------------------------------- */
 
-public float float_read_single(const char *buffer, int flags)
+ASKL_API float float_read_single(const char *buffer, int flags)
 {
     _float cookie;
     float ret = 0;
@@ -211,7 +211,7 @@ public float float_read_single(const char *buffer, int flags)
 
 /* -------------------------------------------------------------------------- */
 
-public double float_read_double(const char *buffer, int flags)
+ASKL_API double float_read_double(const char *buffer, int flags)
 {
     _float cookie;
     double ret = 0;
@@ -231,7 +231,7 @@ public double float_read_double(const char *buffer, int flags)
 
 /* -------------------------------------------------------------------------- */
 
-public int float_write_single(char *buffer, const void *f, int flags)
+ASKL_API int float_write_single(char *buffer, const void *f, int flags)
 {
     _float cookie;
 
@@ -250,7 +250,7 @@ public int float_write_single(char *buffer, const void *f, int flags)
 
 /* -------------------------------------------------------------------------- */
 
-public int float_write_double(char *buffer, const void *f, int flags)
+ASKL_API int float_write_double(char *buffer, const void *f, int flags)
 {
     _float cookie;
 

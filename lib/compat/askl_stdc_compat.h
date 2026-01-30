@@ -99,17 +99,6 @@
 /* on Win32, both \ and / are valid path separators */
 #define isdirsepchr(c) ( ((c) == '\\' || (c) == '/') )
 
-#ifndef public
-    #if defined(BUILDING_DLL) || defined(_USRDLL) || defined(_WINDLL)
-        #define public __declspec(dllexport)
-    #else
-        #define public __declspec(dllimport)
-    #endif
-#endif
-#ifndef private
-    #define private
-#endif
-
 #ifndef snprintf
     #define snprintf _snprintf
 #endif
@@ -133,7 +122,7 @@
     } while (0)
 #endif
 
-#if defined(_MSC_VER) && (_MSC_VER < 1300)
+#if (defined(_MSC_VER) && (_MSC_VER < 1300))
     /* C99 booleans */
     #define bool     int
     #define true     1
@@ -183,14 +172,14 @@
 #endif
 
 #ifndef _strtoi64
-    public int64_t strtoll(const char *nptr, char **endptr, int base);
+    ASKL_API int64_t strtoll(const char *nptr, char **endptr, int base);
     #define strtoull (uint64_t) strtoll
 #else
     #define strtoll _strtoi64
     #define strtoull (uint64_t) _strtoi64
 #endif
 
-#if defined(_MSC_VER) && (_MSC_VER < 1800)
+#if (defined(_MSC_VER) && (_MSC_VER < 1800))
     /* va_copy is available from MSVC2013 onward */
     #define va_copy(a, b) do { a = (b); } while(0)
 #endif
@@ -208,11 +197,11 @@
 
 #define isdirsepchr(c) ( ((c) == '/') )
 
-#if ! defined(strtoll) && defined(strtoq)
+#if (! defined(strtoll) && defined(strtoq))
     #define strtoll strtoq
 #endif
 
-#if ! defined(strtoull) && defined(strtouq)
+#if (! defined(strtoull) && defined(strtouq))
     #define strtoull strtouq
 #endif
 
@@ -243,7 +232,7 @@
     (defined(__GNUC__) && (__GNUC__ < 5)) || \
     (defined(__clang__) && (__clang_major__ < 3)) || \
     (! defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L))
-public char *strndup(const char *s, size_t len);
+ASKL_API char *strndup(const char *s, size_t len);
 #endif
 
 #endif

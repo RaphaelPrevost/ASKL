@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -168,7 +168,7 @@
 #undef open
 #define open posix_open
 
-public int posix_open(const char *pathname, int flags, ...);
+ASKL_API int posix_open(const char *pathname, int flags, ...);
 
 /**
  * @fn int posix_open(const char *pathname, int flags, ...)
@@ -187,14 +187,14 @@ public int posix_open(const char *pathname, int flags, ...);
  * must be provided, exactly as for POSIX @c open(2).
  */
 
-public ssize_t file_getxattr(
+ASKL_API ssize_t file_getxattr(
     const char *file,
     const char *attrname,
     void *attrbuf,
     size_t len
 );
 
-public int file_setxattr(
+ASKL_API int file_setxattr(
     const char *file,
     const char *attrname,
     const void *buf,
@@ -212,14 +212,14 @@ public int file_setxattr(
 #include <sys/xattr.h>
 
 #ifdef __APPLE__
-public ssize_t file_getxattr(
+ASKL_API ssize_t file_getxattr(
     const char *file,
     const char *attrname,
     void *attrbuf,
     size_t len
 );
 
-public int file_setxattr(
+ASKL_API int file_setxattr(
     const char *file,
     const char *attrname,
     const void *buf,

@@ -45,27 +45,34 @@
 
 /** @defgroup trie ASKL::trie */
 
-typedef struct _ASKL_Trie ASKL_Trie;
+typedef struct _Trie Trie;
 
-typedef struct ASKL_TrieIterator {
-    ASKL_Trie *trie;
+typedef struct Trie_Leaf {
+    uint16_t len;
+    uint16_t pad;
+    Variant val;
+    char key[];
+} Trie_Leaf;
+
+typedef struct Trie_Iterator {
+    Trie *trie;
     uint8_t **_node;
     size_t _node_alloc;
     size_t _node_count;
     const char *key;
     size_t len;
-    variant val;
-} ASKL_TrieIterator;
+    Variant val;
+} Trie_Iterator;
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Trie *trie_alloc(void (*freeval)(variant));
+ASKL_API Trie *trie_alloc(void (*freeval)(Variant));
 
 /**
  * @ingroup trie
- * @fn ASKL_Trie *trie_alloc(void (*freeval)(variant))
+ * @fn Trie *trie_alloc(void (*freeval)(Variant))
  *
- * @param freeval  optional pointer to a cleanup function taking a @ref variant
+ * @param freeval  optional pointer to a cleanup function taking a @ref Variant
  *
  * @return a pointer to a newly allocated empty trie, or @c NULL if an error
  *         occurs
@@ -79,19 +86,19 @@ public ASKL_Trie *trie_alloc(void (*freeval)(variant));
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert_with(
-    ASKL_Trie *t,
+ASKL_API int trie_insert_with(
+    Trie *t,
     const char *key,
     size_t len,
-    variant value,
-    variant (*function)(const char *key, size_t len, variant new)
+    Variant value,
+    Variant (*function)(const char *key, size_t len, Variant new)
 );
 
 /**
  * @ingroup trie
- * @fn int trie_insert_with(ASKL_Trie *t, const char *key, size_t len,
- *                          variant value,
- *                          variant (*function)(const char *, size_t, variant))
+ * @fn int trie_insert_with(Trie *t, const char *key, size_t len,
+ *                          Variant value,
+ *                          Variant (*function)(const char *, size_t, Variant))
  * @param t        a pointer to the trie
  * @param key      the key to associate with the stored value
  * @param len      the length of the key
@@ -114,11 +121,11 @@ public int trie_insert_with(
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_insert(ASKL_Trie *t, const char *key, size_t len, variant value);
+ASKL_API int trie_insert(Trie *t, const char *key, size_t len, Variant value);
 
 /**
  * @ingroup trie
- * @fn trie_insert(ASKL_Trie *t, const char *key, size_t len, variant value)
+ * @fn trie_insert(Trie *t, const char *key, size_t len, Variant value)
  * @param t      a pointer to the trie
  * @param key    the key to associate with the stored value
  * @param len    the length of the key
@@ -143,24 +150,33 @@ public int trie_insert(ASKL_Trie *t, const char *key, size_t len, variant value)
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_lookup(
-    ASKL_Trie *t,
+ASKL_API int trie_insert_prefix_list(
+    Trie *t,
+    size_t prefix_len,
+    Trie_Leaf **list,
+    size_t count
+);
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API Variant trie_lookup(
+    Trie *t,
     const char *key,
     size_t len,
-    variant (CALLBACK *f)(variant)
+    Variant (*f)(Variant)
 );
 
 /**
  * @ingroup trie
- * @fn trie_lookup(ASKL_Trie *t, const char *key, size_t len,
- *                 variant (CALLBACK *f)(variant))
+ * @fn trie_lookup(Trie *t, const char *key, size_t len,
+ *                 Variant (*f)(Variant))
  * @param t     a pointer to the trie
  * @param key   the key used to retrieve the stored value
  * @param len   the length of the key
  * @param f     an optional callback that processes the retrieved value
  *
- * @return a variant containing the stored value, the return value of @b f,
- *         or a variant of type VARIANT_NULL if the key is not found
+ * @return a Variant containing the stored value, the return value of @b f,
+ *         or a Variant of type VARIANT_NULL if the key is not found
  *
  * This function searches the trie for the specified key and returns its
  * associated value. If the key does not exist, a VARIANT_NULL value is
@@ -177,11 +193,11 @@ public variant trie_lookup(
 
 /* -------------------------------------------------------------------------- */
 
-public int trie_has(ASKL_Trie *t, const char *key, size_t len);
+ASKL_API int trie_has(Trie *t, const char *key, size_t len);
 
 /**
  * @ingroup trie
- * @fn int trie_has(ASKL_Trie *t, const char *key, size_t len)
+ * @fn int trie_has(Trie *t, const char *key, size_t len)
  * @param t   a pointer to the trie
  * @param key the key used to retrieve the stored value
  * @param len the length of the key
@@ -193,17 +209,17 @@ public int trie_has(ASKL_Trie *t, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_remove_if(
-    ASKL_Trie *t,
+ASKL_API Variant trie_remove_if(
+    Trie *t,
     const char *key,
     size_t len,
-    int (*condition)(const char *key, size_t len, variant value)
+    int (*condition)(const char *key, size_t len, Variant value)
 );
 
 /**
  * @ingroup trie
- * @fn variant trie_remove_if(ASKL_Trie *t, const char *key, size_t len,
- *                            int (*condition)(const char *, size_t, variant))
+ * @fn Variant trie_remove_if(Trie *t, const char *key, size_t len,
+ *                            int (*condition)(const char *, size_t, Variant))
  * @param t         a pointer to the trie
  * @param key       the key used to retrieve the stored value
  * @param len       the length of the key
@@ -223,11 +239,11 @@ public variant trie_remove_if(
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_remove(ASKL_Trie *t, const char *key, size_t len);
+ASKL_API Variant trie_remove(Trie *t, const char *key, size_t len);
 
 /**
  * @ingroup trie
- * @fn trie_remove(ASKL_Trie *t, const char *key, size_t ulen)
+ * @fn trie_remove(Trie *t, const char *key, size_t len)
  * @param t     a pointer to the trie
  * @param key   the key used to retrieve the stored value
  * @param len   the length of the key
@@ -246,20 +262,15 @@ public variant trie_remove(ASKL_Trie *t, const char *key, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public variant trie_update(
-    ASKL_Trie *t,
-    const char *key,
-    size_t len,
-    variant v
-);
+ASKL_API Variant trie_update(Trie *t, const char *key, size_t len, Variant v);
 
 /**
  * @ingroup trie
- * @fn trie_update(ASKL_Trie *t, const char *key, size_t ulen, variant v)
+ * @fn trie_update(Trie *t, const char *key, size_t len, Variant v)
  *
  * @param t     a pointer to the trie
  * @param key   the key whose associated value should be updated
- * @param ulen  the length of the key
+ * @param len   the length of the key
  * @param v     the new value to associate with the key
  *
  * @return the previous value associated with the key, or a VARIANT_NULL
@@ -277,11 +288,11 @@ public variant trie_update(
 
 /* -------------------------------------------------------------------------- */
 
-public void trie_foreach(ASKL_Trie *t, int (*f)(const char *, size_t, variant));
+ASKL_API void trie_foreach(Trie *t, int (*f)(const char *, size_t, Variant));
 
 /**
  * @ingroup trie
- * @fn trie_foreach(ASKL_Trie *t, int (*f)(const char *, size_t, variant))
+ * @fn trie_foreach(Trie *t, int (*f)(const char *, size_t, Variant))
  *
  * @param t   a pointer to the trie
  * @param f   a callback invoked once per leaf, receiving the key, its length,
@@ -304,11 +315,11 @@ public void trie_foreach(ASKL_Trie *t, int (*f)(const char *, size_t, variant));
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_TrieIterator *trie_each(ASKL_Trie *t);
+ASKL_API Trie_Iterator *trie_each(Trie *t);
 
 /**
  * @ingroup trie
- * @fn trie_each(ASKL_Trie *t)
+ * @fn trie_each(Trie *t)
  *
  * @param t   a pointer to the trie
  *
@@ -328,15 +339,11 @@ public ASKL_TrieIterator *trie_each(ASKL_Trie *t);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_TrieIterator *trie_each_prefix(
-    ASKL_Trie *t,
-    const char *pf,
-    size_t len
-);
+ASKL_API Trie_Iterator *trie_each_prefix(Trie *t, const char *pf, size_t len);
 
 /**
  * @ingroup trie
- * @fn trie_each_prefix(ASKL_Trie *t, const char *pf, size_t len)
+ * @fn trie_each_prefix(Trie *t, const char *pf, size_t len)
  *
  * @param t    a pointer to the trie
  * @param pf   a key prefix to restrict the traversal
@@ -355,11 +362,11 @@ public ASKL_TrieIterator *trie_each_prefix(
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_TrieIterator * CALLBACK trie_next(ASKL_TrieIterator *iterator);
+ASKL_API Trie_Iterator *trie_next(Trie_Iterator *iterator);
 
 /**
  * @ingroup trie
- * @fn trie_next(ASKL_TrieIterator *iterator)
+ * @fn trie_next(Trie_Iterator *iterator)
  *
  * @param iterator  an iterator previously created with @ref trie_each or
  *                  @ref trie_each_prefix
@@ -379,11 +386,11 @@ public ASKL_TrieIterator * CALLBACK trie_next(ASKL_TrieIterator *iterator);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_TrieIterator *trie_break(ASKL_TrieIterator *iterator);
+ASKL_API Trie_Iterator *trie_break(Trie_Iterator *iterator);
 
 /**
  * @ingroup trie
- * @fn trie_break(ASKL_TrieIterator *iterator)
+ * @fn trie_break(Trie_Iterator *iterator)
  *
  * @param iterator  an iterator previously created with @ref trie_each or
  *                  @ref trie_each_prefix
@@ -403,11 +410,11 @@ public ASKL_TrieIterator *trie_break(ASKL_TrieIterator *iterator);
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Trie *trie_free(ASKL_Trie *t);
+ASKL_API Trie *trie_free(Trie *t);
 
 /**
  * @ingroup trie
- * @fn ASKL_Trie *trie_free(ASKL_Trie *t)
+ * @fn Trie *trie_free(Trie *t)
  *
  * @param t  a pointer to a trie
  *

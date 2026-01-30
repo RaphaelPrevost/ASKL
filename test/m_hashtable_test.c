@@ -1,5 +1,4 @@
 #include "../lib/askl_server.h"
-#include "hashlib.h"
 #include <signal.h>
 
 #define _CACHE_CONCURRENCY 2
@@ -19,139 +18,6 @@ static int timeout = 0;
 
 /* -------------------------------------------------------------------------- */
 
-typedef struct _item {
-    size_t len;
-    char *key;
-    char *val;
-} _item;
-
-/* -------------------------------------------------------------------------- */
-
-/* -------------------------------------------------------------------------- */
-/* wyhash32 (author: 王一 Wang Yi <godspeed_china@yeah.net>) */
-/* -------------------------------------------------------------------------- */
-
-static uint32_t _wyr32(const uint8_t *p)
-{
-    uint32_t result;
-    memcpy(& result, p, sizeof(result));
-    #if defined(BIG_ENDIAN_HOST)
-    return __bswap32(result);
-    #else
-    return result;
-    #endif
-}
-
-/* -------------------------------------------------------------------------- */
-
-static uint32_t _wyr24(const uint8_t *p, uint32_t k)
-{
-    return (((uint32_t) p[0]) << 16) | (((uint32_t) p[k >> 1]) << 8) | p[k - 1];
-}
-
-/* -------------------------------------------------------------------------- */
-
-static void _wymix32(uint32_t *a, uint32_t *b)
-{
-    uint64_t c = *a ^ 0x53c5ca59u;
-    c *= *b ^ 0x74743c1bu;
-    *a = (uint32_t) c;
-    *b = (uint32_t) (c >> 32);
-}
-
-/* -------------------------------------------------------------------------- */
-
-static uint32_t __hash(_item *item, uint32_t seed)
-{
-    const uint8_t *p = (const uint8_t *) item->key;
-    uint32_t i, see1 = item->len;
-
-    _wymix32(& seed, & see1);
-
-    for (i = item->len; i > 8; i -= 8, p += 8) {
-        seed ^= _wyr32(p);
-        see1 ^= _wyr32(p + 4);
-        _wymix32(& seed, & see1);
-    }
-
-    if (i >= 4) {
-        seed ^= _wyr32(p);
-        see1 ^= _wyr32(p + i - 4);
-    } else if (i) seed ^= _wyr24(p, i);
-
-    _wymix32(& seed, & see1);
-    _wymix32(& seed, & see1);
-
-    return seed ^ see1;
-}
-
-/* -------------------------------------------------------------------------- */
-
-static unsigned long _hash(const void *i)
-{
-    return __hash((_item *) i, 0x54662478);
-}
-
-/* -------------------------------------------------------------------------- */
-
-static unsigned long _rehash(const void *i)
-{
-    return __hash((_item *) i, 0x97566321);
-}
-
-/* -------------------------------------------------------------------------- */
-
-static int _hashcmp(const void *ia, const void *ib)
-{
-    unsigned int i = 0;
-    const char *a = NULL, *b = NULL;
-    size_t len = 0;
-
-    if (((_item *) ia)->len != ((_item *) ib)->len) return -1;
-
-    a = ((_item *) ia)->key; b = ((_item *) ib)->key;
-    len = ((_item *) ia)->len;
-
-    /*if (len <= sizeof(uint32_t))*/ return memcmp(a, b, len);
-
-    for (i = 0; i < len - sizeof(uint32_t); i += sizeof(uint32_t)) {
-        if (*((uint32_t *) (a + i)) != *((uint32_t *) (b + i)))
-            return -1;
-
-        if (i >= len - (i + sizeof(uint32_t)))
-            return 0;
-
-        if (*((uint32_t *) (a + len - (i + sizeof(uint32_t)))) !=
-            *((uint32_t *) (b + len - (i + sizeof(uint32_t)))))
-            return -1;
-    }
-
-    return 0;
-}
-
-/* -------------------------------------------------------------------------- */
-
-static void *_hashdup(const void *p)
-{
-    _item *i = (_item *) p, *new = malloc(sizeof(*new));
-    if (! new) return NULL;
-    if (! (new->key = malloc(i->len * sizeof(*new->key))) ) {
-        free(new); return NULL;
-    }
-    new->len = i->len; new->val = i->val;
-    memcpy(new->key, i->key, i->len);
-    return new;
-}
-
-/* -------------------------------------------------------------------------- */
-
-static void _hashfree(void *i)
-{
-    free(((_item *) i)->key); free(i);
-}
-
-/* -------------------------------------------------------------------------- */
-
 static void _timeout(int dummy)
 {
     dummy = 1;
@@ -161,7 +27,7 @@ static void _timeout(int dummy)
 
 /* -------------------------------------------------------------------------- */
 
-static int _print_and_delete_key(const char *key, size_t len, UNUSED variant val)
+static int _print_and_delete_key(const char *key, size_t len, UNUSED Variant val)
 {
     printf("%.*s\n", (int) len, key);
     return -1;
@@ -169,7 +35,7 @@ static int _print_and_delete_key(const char *key, size_t len, UNUSED variant val
 
 /* -------------------------------------------------------------------------- */
 
-static int _print_key_intval(const char *key, size_t len, variant val)
+static int _print_key_intval(const char *key, size_t len, Variant val)
 {
     printf("%.*s = %llu\n", (int) len, key, variant_to_integer(val));
     return 0;
@@ -177,11 +43,11 @@ static int _print_key_intval(const char *key, size_t len, variant val)
 
 /* -------------------------------------------------------------------------- */
 
-static variant _merge(
+static Variant _merge(
     UNUSED const char *key,
     UNUSED size_t len,
-    UNUSED variant dest,
-    variant src
+    UNUSED Variant dest,
+    Variant src
 )
 {
     /* overwrite */
@@ -196,7 +62,7 @@ static variant _merge(
 #define WRITE_STRESS_OPS_PER_THREAD 5000
 
 typedef struct {
-    ASKL_LinkedMap *map;
+    Map *map;
     int thread_id;
     int ops_completed;
     int errors;
@@ -205,7 +71,7 @@ typedef struct {
 static void* write_stress_thread(void* arg)
 {
     write_stress_args *args = (write_stress_args*)arg;
-    variant val;
+    Variant val;
     char keybuf[32];
 
     printf("(-) Write stress thread %d: Starting...\n", args->thread_id);
@@ -234,7 +100,7 @@ static void* write_stress_thread(void* arg)
 
 static int test_write_stress_concurrent(void)
 {
-    ASKL_LinkedMap *map = NULL;
+    Map *map = NULL;
     pthread_t threads[WRITE_STRESS_THREADS];
     write_stress_args args[WRITE_STRESS_THREADS] = {{0}};
     int total_ops = 0;
@@ -281,7 +147,7 @@ static int test_write_stress_concurrent(void)
 
     /* Verify: count items in map */
     int final_count = 0;
-    for (ASKL_MapIterator *it = map_each(map); it; it = map_next(it)) {
+    for (Map_Iterator *it = map_each(map); it; it = map_next(it)) {
         final_count ++;
     }
 
@@ -316,14 +182,14 @@ static int test_write_stress_concurrent(void)
 #define _ITER_ITEMS 10000
 
 static pthread_t _iter_thread[_ITER_THREADS];
-static ASKL_LinkedMap *_iter_map = NULL;
+static Map *_iter_map = NULL;
 static volatile int _iter_errors = 0;
 
 /* Thread that reads via iterator (no modifications) */
 static void *_iterator_reader(void *arg)
 {
     uintptr_t tid = (uintptr_t) arg;
-    ASKL_MapIterator *it;
+    Map_Iterator *it;
     int iterations = 0;
 
     pthread_mutex_lock(& mx_switch);
@@ -357,7 +223,7 @@ static void *_iterator_reader(void *arg)
 static void *_iterator_updater(void *arg)
 {
     uintptr_t tid = (uintptr_t) arg;
-    ASKL_MapIterator *it;
+    Map_Iterator *it;
     int updates = 0;
     int iterations = 0;
 
@@ -389,7 +255,7 @@ static void *_iterator_updater(void *arg)
                 unsigned int old_val = variant_to_integer(it->val);
                 unsigned int new_val = old_val + 2000000;
 
-                variant old = map_set_at(it, variant_from_integer(new_val));
+                Variant old = map_set_at(it, variant_from_integer(new_val));
 
                 if (! is_integer(old)) {
                     printf("(!) Updater thread %zu: map_set_at returned non-integer!\n", tid);
@@ -501,7 +367,7 @@ static int test_iterator_concurrency(void)
 
     printf("(*) Verifying final map integrity.\n");
     int final_count = 0;
-    ASKL_MapIterator *it;
+    Map_Iterator *it;
     for (it = map_each(_iter_map); it; it = map_next(it)) {
         if (!is_integer(it->val)) {
             printf("(!) Found non-integer value after test!\n");
@@ -535,7 +401,7 @@ static int test_iterator_concurrency(void)
 /* -------------------------------------------------------------------------- */
 
 typedef struct {
-    ASKL_LinkedMap *map;
+    Map *map;
     int thread_id;
     int removed_count;
     int iterations;
@@ -544,8 +410,8 @@ typedef struct {
 static void* removal_thread(void* arg)
 {
     removal_test_args *args = (removal_test_args*) arg;
-    ASKL_MapIterator *it = NULL;
-    variant removed;
+    Map_Iterator *it = NULL;
+    Variant removed;
     int count = 0;
 
     printf("(-) Removal thread %d: Starting...\n", args->thread_id);
@@ -574,10 +440,10 @@ static void* removal_thread(void* arg)
 
 static int test_map_remove_at_concurrent(void)
 {
-    ASKL_LinkedMap *map = NULL;
+    Map *map = NULL;
     pthread_t threads[3];
     removal_test_args args[3] = {{0}};
-    variant val;
+    Variant val;
     int total_removed = 0;
     int total_iterations = 0;
     int remaining = 0;
@@ -629,7 +495,7 @@ static int test_map_remove_at_concurrent(void)
     printf("(-) Total iterations: %d\n", total_iterations);
 
     /* Count remaining items */
-    for (ASKL_MapIterator *it = map_each(map); it; it = map_next(it))
+    for (Map_Iterator *it = map_each(map); it; it = map_next(it))
         remaining ++;
 
     printf("(-) Remaining items: %d\n", remaining);
@@ -680,7 +546,7 @@ static int test_map_remove_at_concurrent(void)
 #define STARVATION_WRITER_THREADS 2
 
 typedef struct {
-    ASKL_LinkedMap *map;
+    Map *map;
     int thread_id;
     volatile int stop;
 
@@ -710,7 +576,7 @@ static void* starvation_reader_thread(void* arg) {
 
         /* Read operation (acquires read lock) */
         uint64_t start = get_time_ns();
-        variant val = map_get(args->map, keybuf, strlen(keybuf));
+        Variant val = map_get(args->map, keybuf, strlen(keybuf));
         uint64_t latency = get_time_ns() - start;
 
         args->operations ++;
@@ -776,7 +642,7 @@ static void *starvation_writer_thread(void *arg) {
 }
 
 static int test_writer_starvation(void) {
-    ASKL_LinkedMap *map = NULL;
+    Map *map = NULL;
     pthread_t reader_threads[STARVATION_READER_THREADS];
     pthread_t writer_threads[STARVATION_WRITER_THREADS];
     starvation_test_args reader_args[STARVATION_READER_THREADS] = {{0}};
@@ -913,16 +779,14 @@ static int test_writer_starvation(void) {
 
 int test_hashtable(void)
 {
-    ASKL_LinkedMap *h = NULL, *h2 = NULL;
-    ASKL_MapIterator *it = NULL;
+    Map *h = NULL, *h2 = NULL;
+    Map_Iterator *it = NULL;
     uintptr_t i = 0, j = 0;
-    variant val = { 0 };
+    Variant val = { 0 };
     int missing = 0;
     size_t len = 0;
     char key[BUFSIZ];
     clock_t start, stop;
-    hashtable *x = NULL;
-    _item *z = NULL, tmp;
 
     signal(SIGALRM, _timeout);
 
@@ -1149,102 +1013,6 @@ int test_hashtable(void)
     if (test_writer_starvation() == -1) {
         return -1;
     }
-
-    printf("(-) Testing C.B. Falconer Hashlib for comparison.\n");
-    if (! (x = hashlib_alloc(_hash, _rehash, _hashcmp, _hashdup, _hashfree, 0)) ) {
-        printf("(!) Allocating hash table: FAILURE\n");
-        return -1;
-    } else printf("(*) Allocating hash table: SUCCESS\n");
-
-    tmp.key = key;
-
-    printf("(*) Inserting key-value pairs.\n");
-    start = clock();
-    for (i = 1; i <= _CACHE_ITEMS; i ++) {
-        tmp.len = snprintf(tmp.key, sizeof(key), _CACHE_KEYFM, i);
-        tmp.val = (void *) (uintptr_t) i;
-        hashlib_insert(x, & tmp);
-    }
-    stop = clock();
-    printf("(-) Time elapsed = ");
-    printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
-    printf(" s\n");
-
-    printf("(-) Memory footprint (keys and data not included): %zu bytes.\n",
-            hashlib_footprint(x));
-
-    missing = 0;
-
-    printf("(*) Getting back values from keys.\n");
-    start = clock();
-    for (i = 1; i <= _CACHE_ITEMS; i ++) {
-        tmp.len = snprintf(tmp.key, sizeof(key), _CACHE_KEYFM, i);
-        if (! (z = hashlib_find(x, & tmp)) ) {
-            missing ++;
-            printf("(!) Key %" PRIuPTR " is missing !\n", i);
-        }
-    }
-    stop = clock();
-    printf("(-) Time elapsed = ");
-    printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
-    printf(" s\n");
-    printf("(-) %i missing keys\n", missing);
-
-    missing = 0;
-
-    timeout = 0;
-
-    alarm(2);
-    printf("(*) Randomly deleting 100k keys.\n");
-    while (! timeout && missing < _CACHE_RNDDL) {
-        i = rand() % _CACHE_ITEMS;
-        tmp.len = snprintf(tmp.key, sizeof(key), _CACHE_KEYFM, i);
-        if (hashlib_remove(x, & tmp)) missing ++;
-    }
-    timeout = 1;
-
-    missing = 0;
-
-    printf("(*) Replacing all keys values.\n");
-    start = clock();
-    for (i = 1; i <= _CACHE_ITEMS; i ++) {
-        tmp.len = snprintf(tmp.key, sizeof(key), _CACHE_KEYFM, i);
-        tmp.val = (void *) (uintptr_t) (i + 1);
-        hashlib_insert(x, & tmp);
-    }
-    stop = clock();
-    printf("(-) Time elapsed = ");
-    printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
-    printf(" s\n");
-    printf("(-) %i missing keys\n", missing);
-
-    /* remove all the keys */
-    printf("(*) Removing all the data from the table.\n");
-    start = clock();
-    for (i = 1; i <= _CACHE_ITEMS; i ++) {
-        tmp.len = snprintf(tmp.key, sizeof(key), _CACHE_KEYFM, i);
-        hashlib_remove(x, & tmp);
-    }
-    stop = clock();
-    printf("(-) Time elapsed = ");
-    printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
-    printf(" s\n");
-
-    missing = 0;
-
-    printf("(*) Checking that all the keys have been deleted.\n");
-    start = clock();
-    for (i = 1; i <= _CACHE_ITEMS; i ++) {
-        tmp.len = snprintf(tmp.key, sizeof(key), _CACHE_KEYFM, i);
-        if (! (hashlib_find(x, & tmp)) ) missing ++;
-    }
-    stop = clock();
-    printf("(-) Time elapsed = ");
-    printf("%.3f", (double)( stop - start ) / CLOCKS_PER_SEC);
-    printf(" s\n");
-    printf("(-) %i missing keys\n", missing);
-
-    hashlib_free(x);
 
     return 0;
 }

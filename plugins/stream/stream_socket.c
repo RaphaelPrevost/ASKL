@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -39,17 +39,17 @@
 static int master_streams = 0;
 
 /* MASTER: list of available workers */
-static ASKL_SocketQueue **_workers = NULL;
+static Socket_Queue **_workers = NULL;
 
 /* MASTER: list of available connections */
-static ASKL_SocketQueue **_pending = NULL;
+static Socket_Queue **_pending = NULL;
 
 /* MASTER: list of connections waiting for a worker */
-static ASKL_SocketQueue **_waiting = NULL;
+static Socket_Queue **_waiting = NULL;
 
 /* MASTER: pending packets */
 static pthread_mutex_t _packets_lock = PTHREAD_MUTEX_INITIALIZER;
-static ASKL_Queue *_packets[SOCKET_MAX];
+static Queue *_packets[SOCKET_MAX];
 
 /* ALL: link status */
 static pthread_mutex_t _status_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -57,7 +57,7 @@ static char _status[SOCKET_MAX];
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_socket_init(void)
+INTERNAL int stream_socket_init(void)
 {
     int i = 0;
 
@@ -87,7 +87,7 @@ private int stream_socket_init(void)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_set_status(uint16_t socket_id, int status)
+INTERNAL int stream_set_status(uint16_t socket_id, int status)
 {
     int ret = 0, mask = 0;
 
@@ -109,7 +109,7 @@ private int stream_set_status(uint16_t socket_id, int status)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_get_status(uint16_t socket_id)
+INTERNAL int stream_get_status(uint16_t socket_id)
 {
     int status = 0;
 
@@ -127,7 +127,7 @@ private int stream_get_status(uint16_t socket_id)
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_add_worker(int stream_id, uint16_t worker)
+INTERNAL void stream_add_worker(int stream_id, uint16_t worker)
 {
     if (worker < 1 || worker >= SOCKET_MAX) {
         debug("stream_add_worker(): bad parameters.\n");
@@ -144,7 +144,7 @@ private void stream_add_worker(int stream_id, uint16_t worker)
 
 /* -------------------------------------------------------------------------- */
 
-private uint16_t stream_borrow_worker(int stream_id)
+INTERNAL uint16_t stream_borrow_worker(int stream_id)
 {
     uint16_t worker = 0;
 
@@ -161,7 +161,7 @@ private uint16_t stream_borrow_worker(int stream_id)
 
 /* -------------------------------------------------------------------------- */
 
-private uint16_t stream_release_worker(int stream_id, uint16_t worker)
+INTERNAL uint16_t stream_release_worker(int stream_id, uint16_t worker)
 {
     if (worker < 1 || worker >= SOCKET_MAX) {
         debug("stream_release_worker(): bad parameters.\n");
@@ -181,7 +181,7 @@ private uint16_t stream_release_worker(int stream_id, uint16_t worker)
 
 /* -------------------------------------------------------------------------- */
 
-private uint16_t stream_enqueue_connection(int stream_id, uint16_t conn)
+INTERNAL uint16_t stream_enqueue_connection(int stream_id, uint16_t conn)
 {
     if (conn < 1 || conn >= SOCKET_MAX) {
         debug("stream_enqueue_connection(): bad parameters.\n");
@@ -201,7 +201,7 @@ private uint16_t stream_enqueue_connection(int stream_id, uint16_t conn)
 
 /* -------------------------------------------------------------------------- */
 
-private uint16_t stream_dequeue_connection(int stream_id)
+INTERNAL uint16_t stream_dequeue_connection(int stream_id)
 {
     uint16_t conn = 0;
 
@@ -218,7 +218,7 @@ private uint16_t stream_dequeue_connection(int stream_id)
 
 /* -------------------------------------------------------------------------- */
 
-private uint16_t stream_enqueue_waiting(int stream_id, uint16_t conn)
+INTERNAL uint16_t stream_enqueue_waiting(int stream_id, uint16_t conn)
 {
     if (conn < 1 || conn >= SOCKET_MAX) {
         debug("stream_enqueue_waiting(): bad parameters.\n");
@@ -237,7 +237,7 @@ private uint16_t stream_enqueue_waiting(int stream_id, uint16_t conn)
 
 /* -------------------------------------------------------------------------- */
 
-private uint16_t stream_dequeue_waiting(int stream_id)
+INTERNAL uint16_t stream_dequeue_waiting(int stream_id)
 {
     uint16_t conn = 0;
 
@@ -254,7 +254,7 @@ private uint16_t stream_dequeue_waiting(int stream_id)
 
 /* -------------------------------------------------------------------------- */
 
-private m_string *stream_enqueue_packet(uint16_t socket_id, m_string *data)
+INTERNAL String *stream_enqueue_packet(uint16_t socket_id, String *data)
 {
     if (socket_id < 1 || socket_id >= SOCKET_MAX || ! data) {
         debug("stream_enqueue_packet(): bad parameters.\n");
@@ -266,7 +266,7 @@ private m_string *stream_enqueue_packet(uint16_t socket_id, m_string *data)
         if (! _packets[socket_id]) _packets[socket_id] = queue_alloc();
 
         if (_packets[socket_id])
-            queue_enqueue(_packets[socket_id], string_dup(data));
+            queue_enqueue(_packets[socket_id], string_clone(data));
 
     pthread_mutex_unlock(& _packets_lock);
 
@@ -275,9 +275,9 @@ private m_string *stream_enqueue_packet(uint16_t socket_id, m_string *data)
 
 /* -------------------------------------------------------------------------- */
 
-private m_string *stream_dequeue_packet(uint16_t socket_id)
+INTERNAL String *stream_dequeue_packet(uint16_t socket_id)
 {
-    m_string *data = NULL;
+    String *data = NULL;
 
     if (socket_id < 1 || socket_id >= SOCKET_MAX) {
         debug("stream_dequeue_packet(): bad parameters.\n");
@@ -295,7 +295,7 @@ private m_string *stream_dequeue_packet(uint16_t socket_id)
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_drop_packets(uint16_t socket_id)
+INTERNAL void stream_drop_packets(uint16_t socket_id)
 {
     if (socket_id < 1 || socket_id >= SOCKET_MAX) {
         debug("stream_drop_packets(): bad parameters.\n");
@@ -312,9 +312,9 @@ private void stream_drop_packets(uint16_t socket_id)
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_flush_packets(uint16_t socket_id, uint16_t egress)
+INTERNAL void stream_flush_packets(uint16_t socket_id, uint16_t egress)
 {
-    m_string *data = NULL;
+    String *data = NULL;
     int packets = 0;
 
     if (socket_id < 1 || socket_id >= SOCKET_MAX) {
@@ -330,8 +330,8 @@ private void stream_flush_packets(uint16_t socket_id, uint16_t egress)
                 module_get_token(),
                 egress,
                 queue_empty(_packets[socket_id]) ? SERVER_MSG_END : 0x0,
-                DATA(data),
-                SIZE(data)
+                data->data,
+                data->len
             );
             packets ++;
         }
@@ -345,7 +345,7 @@ private void stream_flush_packets(uint16_t socket_id, uint16_t egress)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_get_connection(int stream_id)
+INTERNAL int stream_get_connection(int stream_id)
 {
     uint16_t worker = 0;
 
@@ -356,7 +356,7 @@ private int stream_get_connection(int stream_id)
     }
 
     /* ask the worker to connect */
-    server_send_response(
+    server_send(
         module_get_token(),
         worker,
         0x0,
@@ -371,10 +371,10 @@ private int stream_get_connection(int stream_id)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_get_pipe(int stream_id, uint16_t socket_id)
+INTERNAL int stream_get_pipe(int stream_id, uint16_t socket_id)
 {
     uint16_t worker = 0;
-    m_string *packet = NULL;
+    String *packet = NULL;
 
     if (socket_id < 1 || socket_id >= SOCKET_MAX) {
         debug("stream_get_pipe(): bad parameters.\n");
@@ -405,7 +405,7 @@ private int stream_get_pipe(int stream_id, uint16_t socket_id)
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_open_pipe(int stream_id)
+INTERNAL void stream_open_pipe(int stream_id)
 {
     int master_id = 0, server_id = 0, ingress_id = 0;
     const char *host = NULL;
@@ -423,7 +423,7 @@ private void stream_open_pipe(int stream_id)
         INGRESS(ingress_id)
     );
 
-    server_send_response(
+    server_send(
         module_get_token(),
         master_id,
         0x0,
@@ -455,7 +455,7 @@ private void stream_open_pipe(int stream_id)
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_socket_exit(void)
+INTERNAL void stream_socket_exit(void)
 {
     int i = 0;
 

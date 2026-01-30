@@ -1,6 +1,6 @@
 /*******************************************************************************
  *  ASKL.                                                                      *
- *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -55,7 +55,7 @@ static char *module_name[_STREAMS_MAX];
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_config_init(int argc, char **argv)
+INTERNAL int stream_config_init(int argc, char **argv)
 {
     const char *opt_personality = NULL;
     const char *_master_streams = NULL;
@@ -239,28 +239,28 @@ private int stream_config_init(int argc, char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_personality(void)
+INTERNAL int stream_personality(void)
 {
     return personality;
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_master_streams(void)
+INTERNAL int stream_master_streams(void)
 {
     return master_streams;
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_worker_streams(void)
+INTERNAL int stream_worker_streams(void)
 {
     return worker_streams;
 }
 
 /* -------------------------------------------------------------------------- */
 
-private const char *stream_config_host(int stream, int target)
+INTERNAL const char *stream_config_host(int stream, int target)
 {
     if (stream < 0 || stream >= _STREAMS_MAX) {
         debug("stream_config_host(): bad parameters.\n");
@@ -276,7 +276,7 @@ private const char *stream_config_host(int stream, int target)
 
 /* -------------------------------------------------------------------------- */
 
-private const char *stream_config_port(int stream, int target)
+INTERNAL const char *stream_config_port(int stream, int target)
 {
     if (stream < 0 || stream >= _STREAMS_MAX) {
         debug("stream_config_port(): bad parameters.\n");
@@ -294,7 +294,7 @@ private const char *stream_config_port(int stream, int target)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_config_destination(int stream)
+INTERNAL int stream_config_destination(int stream)
 {
     if (stream < 0 || stream >= _STREAMS_MAX) {
         debug("stream_config_destination(): bad parameters.\n");
@@ -306,7 +306,7 @@ private int stream_config_destination(int stream)
 
 /* -------------------------------------------------------------------------- */
 
-private const char *stream_config_module_name(int stream)
+INTERNAL const char *stream_config_module_name(int stream)
 {
     if (stream < 0 || stream >= _STREAMS_MAX) {
         debug("stream_config_module_name(): bad parameters.\n");
@@ -318,7 +318,7 @@ private const char *stream_config_module_name(int stream)
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_config_exit(void)
+INTERNAL void stream_config_exit(void)
 {
     unsigned int i = 0;
 

@@ -38,7 +38,7 @@
 
 static pthread_mutex_t _id_lock = PTHREAD_MUTEX_INITIALIZER;
 static uint16_t _id = 1;
-static ASKL_SocketQueue *_free_ids = NULL;
+static Socket_Queue *_free_ids = NULL;
 
 /**
  * @var _socket
@@ -53,12 +53,12 @@ static pthread_rwlock_t _socket_lock;
 static _Socket *_socket[SOCKET_MAX];
 
 /* hooks */
-static int (*_socket_listen_hook)(ASKL_Socket *) = NULL;
-static int (*_socket_accept_hook)(ASKL_Socket *) = NULL;
-static int (*_socket_opened_hook)(ASKL_Socket *) = NULL;
-static int (*_socket_reinit_hook)(ASKL_Socket *) = NULL;
-static int (*_socket_urgent_hook)(ASKL_Socket *) = NULL;
-static int (*_socket_closed_hook)(ASKL_Socket *) = NULL;
+static int (*_socket_listen_hook)(Socket *) = NULL;
+static int (*_socket_accept_hook)(Socket *) = NULL;
+static int (*_socket_opened_hook)(Socket *) = NULL;
+static int (*_socket_reinit_hook)(Socket *) = NULL;
+static int (*_socket_urgent_hook)(Socket *) = NULL;
+static int (*_socket_closed_hook)(Socket *) = NULL;
 
 #ifdef _ENABLE_SSL
 
@@ -75,15 +75,15 @@ static void _socket_ssl_init(void);
 static int password_cb(char *buf, int len, int rwflag,void *userdata);
 #endif
 static void _socket_ssl_exit(void);
-static ASKL_Socket *_socket_ssl_open(ASKL_Socket *s);
-static ssize_t _socket_ssl_write(ASKL_Socket *s, const char *data, size_t len);
-static ssize_t _socket_ssl_read(ASKL_Socket *s, char *out, size_t len);
+static Socket *_socket_ssl_open(Socket *s);
+static ssize_t _socket_ssl_write(Socket *s, const char *data, size_t len);
+static ssize_t _socket_ssl_read(Socket *s, char *out, size_t len);
 
 #endif
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_api_init(void)
+ASKL_API int socket_api_init(void)
 {
     if (pthread_rwlock_init(& _socket_lock, NULL) == -1) {
         perror(ERR(socket_api_init, pthread_rwlock_init));
@@ -225,7 +225,7 @@ static void _socket_ssl_exit(void)
 
 /* -------------------------------------------------------------------------- */
 
-static ASKL_Socket *_socket_ssl_open(_Socket *s)
+static Socket *_socket_ssl_open(_Socket *s)
 {
     SSL_CTX *ctx = NULL;
     BIO *bio = NULL;
@@ -481,7 +481,7 @@ static _Socket *_socket_dereg(_Socket *s)
 /* Private, regular socket locking primitives */
 /* -------------------------------------------------------------------------- */
 
-private int socket_lock(ASKL_Socket *socket)
+INTERNAL int socket_lock(Socket *socket)
 {
     int ret = 0;
     _Socket *s = socket_private_interface(socket);
@@ -503,7 +503,7 @@ private int socket_lock(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-private void socket_unlock(ASKL_Socket *socket)
+INTERNAL void socket_unlock(Socket *socket)
 {
     _Socket *s = socket_private_interface(socket);
 
@@ -521,7 +521,7 @@ private void socket_unlock(ASKL_Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_exists(uint16_t id)
+ASKL_API int socket_exists(uint16_t id)
 {
     if (! id || id >= SOCKET_MAX) {
         debug("socket_exists(): bad parameters.\n");
@@ -533,9 +533,9 @@ public int socket_exists(uint16_t id)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_acquire(uint16_t id)
+ASKL_API Socket *socket_acquire(uint16_t id)
 {
-    ASKL_Socket *s = NULL;
+    Socket *s = NULL;
 
     if (! id || id >= SOCKET_MAX) {
         debug("socket_acquire(): bad parameters.\n");
@@ -554,8 +554,8 @@ public ASKL_Socket *socket_acquire(uint16_t id)
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_remote_host(
-    ASKL_Socket *sock,
+INTERNAL int socket_remote_host(
+    Socket *sock,
     char *h,
     size_t hl,
     char *srv,
@@ -590,9 +590,9 @@ private int socket_remote_host(
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_ip(uint16_t id, char *host, size_t hostlen, uint16_t *port)
+ASKL_API int socket_ip(uint16_t id, char *host, size_t hostlen, uint16_t *port)
 {
-    ASKL_Socket *s = NULL;
+    Socket *s = NULL;
     char serv[NI_MAXSERV];
     int err = 0;
 
@@ -617,7 +617,7 @@ public int socket_ip(uint16_t id, char *host, size_t hostlen, uint16_t *port)
 
 /* -------------------------------------------------------------------------- */
 
-public uint64_t socket_sentbytes(uint16_t id)
+ASKL_API uint64_t socket_sentbytes(uint16_t id)
 {
     _Socket *s = NULL;
     uint64_t ret = 0;
@@ -638,7 +638,7 @@ public uint64_t socket_sentbytes(uint16_t id)
 
 /* -------------------------------------------------------------------------- */
 
-public uint64_t socket_recvbytes(uint16_t id)
+ASKL_API uint64_t socket_recvbytes(uint16_t id)
 {
     _Socket *s = NULL;
     uint64_t ret = 0;
@@ -659,7 +659,7 @@ public uint64_t socket_recvbytes(uint16_t id)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_release(ASKL_Socket *s)
+ASKL_API Socket *socket_release(Socket *s)
 {
     socket_unlock(s);
 
@@ -685,7 +685,7 @@ static void _socket_break_lock(_Socket *s)
 /* Private socket allocation code */
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_open(const char *ip, const char *port, int type)
+ASKL_API Socket *socket_open(const char *ip, const char *port, int type)
 {
     _Socket *new = NULL;
     struct addrinfo *info = NULL;
@@ -805,7 +805,7 @@ _err_sock:
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_connect(ASKL_Socket *sock)
+ASKL_API int socket_connect(Socket *sock)
 {
     int ret = 0;
     /* XXX ioctl() param must be unsigned long for portability */
@@ -898,7 +898,7 @@ _err_connect:
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_listen(ASKL_Socket *sock)
+ASKL_API int socket_listen(Socket *sock)
 {
     int r = 1;
     _Socket *s = socket_private_interface(sock);
@@ -972,9 +972,9 @@ public int socket_listen(ASKL_Socket *sock)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_accept(ASKL_Socket *sock)
+ASKL_API Socket *socket_accept(Socket *sock)
 {
-    ASKL_Socket *newsock = NULL;
+    Socket *newsock = NULL;
     _Socket *new = NULL, *s = socket_private_interface(sock);
     struct sockaddr *remote = NULL;
     socklen_t rlen = sizeof(*remote);
@@ -1060,7 +1060,7 @@ _err_alloc:
 /* -------------------------------------------------------------------------- */
 
 static ssize_t _socket_write(
-    ASKL_Socket *sock,
+    Socket *sock,
     const char *data,
     size_t len,
     int flags
@@ -1117,14 +1117,14 @@ static ssize_t _socket_write(
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_write(ASKL_Socket *s, const char *data, size_t len)
+ASKL_API ssize_t socket_write(Socket *s, const char *data, size_t len)
 {
     return _socket_write(s, data, len, 0x0);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_oob_write(ASKL_Socket *s, const char *data, size_t len)
+ASKL_API ssize_t socket_oob_write(Socket *s, const char *data, size_t len)
 {
     return _socket_write(s, data, len, MSG_OOB);
 }
@@ -1133,8 +1133,8 @@ public ssize_t socket_oob_write(ASKL_Socket *s, const char *data, size_t len)
 #ifdef _ENABLE_FILE
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_sendfile(
-    ASKL_Socket *sockout,
+ASKL_API ssize_t socket_sendfile(
+    Socket *sockout,
     m_file *in,
     off_t *off,
     size_t len
@@ -1168,8 +1168,8 @@ public ssize_t socket_sendfile(
                 out->_tx += written;
                 return written;
             }
-        } else if (in->data && (*off + len) <= SIZE(in->data)) {
-            buffer = (char *) DATA(in->data) + *off;
+        } else if (in->data && (*off + len) <= in->data->len) {
+            buffer = (char *) in->data->data + *off;
             written = socket_write(sockout, buffer, len);
             if (written > 0) { *off += written; out->_tx += written; }
             return written;
@@ -1207,7 +1207,7 @@ public ssize_t socket_sendfile(
 #endif
 /* -------------------------------------------------------------------------- */
 
-static ssize_t _socket_read(ASKL_Socket *sock, char *out, size_t len, int flags)
+static ssize_t _socket_read(Socket *sock, char *out, size_t len, int flags)
 {
     _Socket *s = socket_private_interface(sock);
     ssize_t ret = 0;
@@ -1261,28 +1261,28 @@ static ssize_t _socket_read(ASKL_Socket *sock, char *out, size_t len, int flags)
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_read(ASKL_Socket *s, char *out, size_t len)
+ASKL_API ssize_t socket_read(Socket *s, char *out, size_t len)
 {
     return _socket_read(s, out, len, 0x0);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_oob_read(ASKL_Socket *s, char *out, size_t len)
+ASKL_API ssize_t socket_oob_read(Socket *s, char *out, size_t len)
 {
     return _socket_read(s, out, len, MSG_OOB);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public ssize_t socket_peek(ASKL_Socket *s, char *out, size_t len)
+ASKL_API ssize_t socket_peek(Socket *s, char *out, size_t len)
 {
     return _socket_read(s, out, len, MSG_PEEK);
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_persist(ASKL_Socket *sock)
+INTERNAL int socket_persist(Socket *sock)
 {
     _Socket *s = socket_private_interface(sock);
 
@@ -1306,7 +1306,7 @@ private int socket_persist(ASKL_Socket *sock)
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_Socket *socket_close(ASKL_Socket *sock)
+ASKL_API Socket *socket_close(Socket *sock)
 {
     _Socket *s = NULL;
 
@@ -1349,7 +1349,7 @@ public ASKL_Socket *socket_close(ASKL_Socket *sock)
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_hook(ASKL_SocketHook hook, int (*fn)(ASKL_Socket *s))
+INTERNAL int socket_hook(Socket_Hook hook, int (*fn)(Socket *s))
 {
     if (! hook || ! fn) return -1;
 
@@ -1370,11 +1370,11 @@ private int socket_hook(ASKL_SocketHook hook, int (*fn)(ASKL_Socket *s))
 /* Socket queues */
 /* -------------------------------------------------------------------------- */
 
-public ASKL_SocketQueue *socket_queue_alloc(void)
+ASKL_API Socket_Queue *socket_queue_alloc(void)
 {
     pthread_condattr_t attr;
 
-    ASKL_SocketQueue *ret = malloc(sizeof(*ret));
+    Socket_Queue *ret = malloc(sizeof(*ret));
 
     if (! ret) {
         perror(ERR(socket_queue_alloc, malloc));
@@ -1395,7 +1395,7 @@ public ASKL_SocketQueue *socket_queue_alloc(void)
 
     pthread_condattr_init(& attr);
 
-    #if ! defined(WIN32) && ! defined(__APPLE__)
+    #if (! defined(WIN32) && ! defined(__APPLE__))
     /* use the monotonic clock on POSIX compliant systems */
     pthread_condattr_setclock(& attr, CLOCK_MONOTONIC);
     #endif
@@ -1429,7 +1429,7 @@ _err_head_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public ASKL_SocketQueue *socket_queue_free(ASKL_SocketQueue *q)
+ASKL_API Socket_Queue *socket_queue_free(Socket_Queue *q)
 {
     if (! q) return NULL;
 
@@ -1443,7 +1443,7 @@ public ASKL_SocketQueue *socket_queue_free(ASKL_SocketQueue *q)
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_enqueue(ASKL_SocketQueue *q, uint16_t id)
+ASKL_API int socket_enqueue(Socket_Queue *q, uint16_t id)
 {
     if (! q || ! id || id >= SOCKET_MAX) {
         debug("socket_enqueue(): bad parameters.\n");
@@ -1465,7 +1465,7 @@ public int socket_enqueue(ASKL_SocketQueue *q, uint16_t id)
 
 /* -------------------------------------------------------------------------- */
 
-public uint16_t socket_dequeue(ASKL_SocketQueue *q)
+ASKL_API uint16_t socket_dequeue(Socket_Queue *q)
 {
     uint16_t ret = 0;
 
@@ -1488,7 +1488,7 @@ public uint16_t socket_dequeue(ASKL_SocketQueue *q)
 
 /* -------------------------------------------------------------------------- */
 
-public int socket_queue_empty(ASKL_SocketQueue *q)
+ASKL_API int socket_queue_empty(Socket_Queue *q)
 {
     int ret = 1;
 
@@ -1508,7 +1508,7 @@ public int socket_queue_empty(ASKL_SocketQueue *q)
 
 /* -------------------------------------------------------------------------- */
 
-public void socket_queue_wait(ASKL_SocketQueue *q, unsigned int duration)
+ASKL_API void socket_queue_wait(Socket_Queue *q, unsigned int duration)
 {
     struct timespec ts = { 0, 0 };
 
@@ -1519,7 +1519,7 @@ public void socket_queue_wait(ASKL_SocketQueue *q, unsigned int duration)
     gettimeofday(& tv, NULL);
     ts.tv_sec = tv.tv_sec;
     ts.tv_nsec = tv.tv_usec * 1000;
-    #elif ! defined(__APPLE__)
+    #elif (! defined(__APPLE__))
     clock_gettime(CLOCK_MONOTONIC, & ts);
     #endif
 
@@ -1543,9 +1543,9 @@ public void socket_queue_wait(ASKL_SocketQueue *q, unsigned int duration)
 
 /* -------------------------------------------------------------------------- */
 
-private int socket_queue_poll(
-    ASKL_SocketQueue *q,
-    ASKL_Socket **s,
+INTERNAL int socket_queue_poll(
+    Socket_Queue *q,
+    Socket **s,
     size_t len,
     int timeout
 )
@@ -1694,7 +1694,7 @@ _empty_queue:
 
 /* -------------------------------------------------------------------------- */
 
-public void socket_api_exit(void)
+ASKL_API void socket_api_exit(void)
 {
     unsigned int i = 0;
 

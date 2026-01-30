@@ -33,154 +33,132 @@
  *                                                                             *
  ******************************************************************************/
 
-#include "askl_variant.h"
+#ifndef ASKL_PARSER_H
+
+#define ASKL_PARSER_H
+
+/* -------------------------------------------------------------------------- */
+#if (defined(_ENABLE_JSON))
+/* -------------------------------------------------------------------------- */
+
+#include "../askl.h"
+#include "../askl_string.h"
+
+typedef struct JSON_Parser {
+    void *context;
+    struct {
+        const char *current;
+        size_t len;
+    } key;
+    union {
+        struct {
+            uint8_t type;
+            uint8_t neg;
+            uint8_t rad;
+            uint8_t exp;
+        } current;
+        uint32_t data;
+    } primitive;
+    int strict;
+    int parent;
+    int (CALLBACK *init)(int, struct JSON_Parser *);
+    int (CALLBACK *data)(String *, struct JSON_Parser *);
+    int (CALLBACK *exit)(int, struct JSON_Parser *);
+} JSON_Parser;
+
+#define JSON_OBJECT         0x1000
+#define JSON_ARRAY          0x2000
+#define JSON_STRING         0x4000
+#define JSON_PRIMITIVE      0x8000
+#define JSON_TYPE           0xf000
+
+#define JSON_PRIMITIVE_NUMBER  0x1
+#define JSON_PRIMITIVE_NULL    0x2
+#define JSON_PRIMITIVE_BOOL    0x4
+#define JSON_PRIMITIVE_TRUE   0x10
+#define _JSON_PRIMITIVE_HEX   0x20
+
+#define IS_OBJECT(x) ((x)->internal.flags & JSON_OBJECT)
+#define IS_ARRAY(x) ((x)->internal.flags & JSON_ARRAY)
+#define IS_STRING(x) ((x)->internal.flags & JSON_STRING)
+#define IS_PRIMITIVE(x) ((x)->internal.flags & JSON_PRIMITIVE)
+#define IS_TYPE(x, type) ((x)->internal.flags & (type))
+
+#define JSON_QUIRKS         0
+#define JSON_STRICT         1
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API Variant variant_from_pointer(void *ptr)
-{
-    Variant v = { 0 };
-    v.metadata.fields.type = VALUE_POINTER;
-    v.value.pointer = ptr;
-    return v;
-}
+ASKL_API int string_parse_json(String *s, char strict, JSON_Parser *ctx);
+
+/**
+ * @ingroup string
+ * @fn m_string *string_parse_json(m_string *s, int strict, m_json_parser *ctx)
+ * @param s the string to be parsed
+ * @param strict boolean - enable or disable strict parsing
+ * @param ctx optional parser context
+ * @return -1 if an error occurred, 0 otherwise
+ *
+ * This function creates tokens for each JSON element in the provided string.
+ *
+ * In STRICT mode, the function rigorously follows RFC 7159 and will reject
+ * any non-compliant or malformed input.
+ *
+ * In QUIRKS mode, the function loosely follows the JSON5 guidelines and will
+ * accept several popular extensions to the JSON specification:
+ * - unquoted keys in objects (ECMAScript 5.1 IdentifierName),
+ * - single quoted strings,
+ * - single- and multi-line comments,
+ * - unsigned hexadecimal numbers,
+ * - real numbers without fractional part (e.g.: 123. ) (ActionScript3),
+ * - extra commas and missing values in objects and arrays,
+ * - escaped and unescaped tabs and CRLF in strings.
+ * Unsupported:
+ * - leading decimal point,
+ * - leading plus sign,
+ * - NaN, Infinity, -Infinity.
+ * 
+ * This function tokenizes the input and checks for correctness but will not
+ * interpret the data. This task is left to the parser. The builtin parser
+ * performs UTF-8 validation, escape sequences conversions and turns JSON
+ * numbers into native IEEE754 double-precision floating-point numbers.
+ *
+ * The function is designed to handle streaming and partial input. If several
+ * JSON messages are concatenated, each will be parsed as distinct tokens.
+ * Partial input will not trigger an error, but will be flagged, so that
+ * valid tokens can be processed first, and parsing resumed later when more
+ * data become available.
+ *
+ * @note Use the macro @ref IS_ERROR to test if a token is incomplete.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+#if (defined(_ENABLE_PARSER) && defined(_ENABLE_TRIE))
+/* -------------------------------------------------------------------------- */
+
+#include "../askl_cbtrie.h"
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API Variant variant_from_integer(uint64_t i)
-{
-    Variant v = { 0 };
-    v.metadata.fields.type = VALUE_INTEGER;
-    v.value.integer = i;
-    return v;
-}
+ASKL_API int jsonpath_init(JSON_Parser *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API Variant variant_from_decimal(double d)
-{
-    Variant v = { 0 };
-    v.metadata.fields.type = VALUE_DECIMAL;
-    v.value.decimal = d;
-    return v;
-}
+ASKL_API int jsonpath_print(JSON_Parser *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API Variant variant_from_boolean(int b)
-{
-    Variant v = { 0 };
-    v.metadata.fields.type = VALUE_BOOLEAN;
-    v.value.integer = !! b;
-    return v;
-}
+ASKL_API int jsonpath_free(JSON_Parser *ctx);
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API Variant variant_from_string(String *s)
-{
-    Variant v = { 0 };
-    v.metadata.fields.type = VALUE_STRING;
-    v.value.pointer = s;
-    return v;
-}
-
+/* -------------------------------------------------------------------------- */
+#endif /* _ENABLE_PARSER && _ENABLE_TRIE */
 /* -------------------------------------------------------------------------- */
 
-ASKL_API Variant variant_null(void)
-{
-    Variant v = { 0 };
-    v.metadata.fields.type = VALUE_NULL;
-    v.value.pointer = NULL;
-    return v;
-}
-
+/* -------------------------------------------------------------------------- */
+#endif /* _ENABLE_JSON */
 /* -------------------------------------------------------------------------- */
 
-ASKL_API Variant variant_true(void)
-{
-    Variant v = { 0 };
-    v.metadata.fields.type = VALUE_BOOLEAN;
-    v.value.integer = 1;
-    return v;
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API Variant variant_false(void)
-{
-    Variant v = { 0 };
-    v.metadata.fields.type = VALUE_BOOLEAN;
-    return v;
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API void *variant_to_pointer(Variant v)
-{
-    if (! is_pointer(v)) {
-        /* tolerate VALUE_NULL and _VALUE_OBJECT */
-        if (! _is_object(v) && v.metadata.fields.type != VALUE_NULL)
-            die("type error");
-    }
-    return v.value.pointer;
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API uint64_t variant_to_integer(Variant v)
-{
-    if (! is_integer(v)) die("type error");
-
-    return v.value.integer;
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API double variant_to_decimal(Variant v)
-{
-    if (! is_decimal(v)) die("type error");
-    return v.value.decimal;
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API int variant_to_boolean(Variant v)
-{
-    if (! is_boolean(v)) die("type error");
-    return (v.value.integer);
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API String *variant_to_string(Variant v)
-{
-    if (! is_string(v)) die("type error");
-    return v.value.pointer;
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API int variant_equal(Variant a, Variant b)
-{
-    if (a.metadata.fields.type != b.metadata.fields.type) return 0;
-
-    switch (a.metadata.fields.type) {
-    case VALUE_NULL: return 1;
-    case VALUE_STRING: return (a.value.pointer == b.value.pointer);
-    case VALUE_INTEGER:
-    case VALUE_BOOLEAN: return (a.value.integer == b.value.integer);
-    case VALUE_DECIMAL: {
-        return memcmp(
-            & a.value.decimal,
-            & b.value.decimal,
-            sizeof(a.value.decimal)
-        ) == 0;
-    }
-    case VALUE_POINTER:
-    case _VALUE_OBJECT: return (a.value.pointer == b.value.pointer);
-    default: return 0;
-    }
-}
-
-/* -------------------------------------------------------------------------- */
+#endif

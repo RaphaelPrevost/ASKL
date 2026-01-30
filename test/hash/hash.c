@@ -8,11 +8,11 @@
 
 int main(UNUSED int argc, UNUSED char **argv)
 {
-    ASKL_LinkedMap *h = NULL;
+    Map *h = NULL;
     uintptr_t i = 0, j = 0;
-    variant val = { 0 };
-    int missing = 0;
+    Variant val = { 0 };
     size_t len = 0;
+    int missing = 0;
     char key[BUFSIZ];
 
     if (! (h = map_alloc(NULL)) ) {
@@ -22,7 +22,7 @@ int main(UNUSED int argc, UNUSED char **argv)
 
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
-        map_set(h, key, len, variant_from_integer(i));
+        map_insert(h, key, len, variant_from_integer(i));
     }
 
     for (i = 1; i <= _CACHE_ITEMS; i ++) {

@@ -40,7 +40,7 @@
 /* -------------------------------------------------------------------------- */
 
 typedef struct _Module {
-    struct ASKL_Module interface;
+    struct Module interface;
     handle_t _handle;
     pthread_rwlock_t *_lock;
     int32_t _status;
@@ -54,16 +54,16 @@ STATIC_ASSERT(offsetof(_Module, interface) == 0, interface_must_be_first);
 /* Module Helpers */
 /* -------------------------------------------------------------------------- */
 
-static inline _Module *module_private_interface(ASKL_Module *module)
+static inline _Module *module_private_interface(Module *module)
 {
     return (_Module *) module;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static inline ASKL_Module *module_public_interface(_Module *module)
+static inline Module *module_public_interface(_Module *module)
 {
-    return (ASKL_Module *) module;
+    return (Module *) module;
 }
 
 /* -------------------------------------------------------------------------- */

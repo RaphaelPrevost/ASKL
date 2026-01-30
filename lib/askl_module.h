@@ -40,7 +40,7 @@
 #ifdef _ENABLE_SERVER
 
 #include "askl.h"
-#include "m_string.h"
+#include "askl_string.h"
 #include "m_file.h"
 #include "askl_random.h"
 #include "askl_htable.h"
@@ -57,17 +57,17 @@ typedef enum {
     MODULE_EVENT_REQUEST_UNDELIVERED = 0x20,
     MODULE_EVENT_OUT_OF_BAND_MESSAGE = 0x40,
     MODULE_EVENT_SERVER_SHUTTINGDOWN = 0x80
-} ASKL_ModuleEvent;
+} Module_Event;
 
-typedef struct ASKL_Module {
+typedef struct Module {
     int (*init)(uint32_t, int, char **);
-    void (*input)(uint16_t, uint16_t, m_string *);
-    void (*event)(uint16_t, uint16_t, ASKL_ModuleEvent, void *);
+    void (*input)(uint16_t, uint16_t, String *);
+    void (*event)(uint16_t, uint16_t, Module_Event, void *);
     void *(*suspend)(unsigned int *);
     int (*restore)(unsigned int, void *);
     void (*exit)(void);
     const char *name;
-} ASKL_Module;
+} Module;
 
 #define __MODULE_BUILTIN__ NULL
 
@@ -76,7 +76,7 @@ typedef struct ASKL_Module {
 
 /* -------------------------------------------------------------------------- */
 
-private int module_api_init(void);
+INTERNAL int module_api_init(void);
 
 /**
  * @ingroup module
@@ -92,7 +92,7 @@ private int module_api_init(void);
 
 /* -------------------------------------------------------------------------- */
 
-private uint32_t module_open(const char *path, const char *name);
+INTERNAL uint32_t module_open(const char *path, const char *name);
 
  /**
  * @ingroup module
@@ -136,7 +136,7 @@ private uint32_t module_open(const char *path, const char *name);
 
 /* -------------------------------------------------------------------------- */
 
-private uint32_t module_getid(const char *name);
+INTERNAL uint32_t module_getid(const char *name);
 
 /**
  * @ingroup module
@@ -153,7 +153,7 @@ private uint32_t module_getid(const char *name);
 
 /* -------------------------------------------------------------------------- */
 
-private int module_start(uint32_t id, int argc, char **argv);
+INTERNAL int module_start(uint32_t id, int argc, char **argv);
 
 /**
  * @ingroup module
@@ -174,7 +174,7 @@ private int module_start(uint32_t id, int argc, char **argv);
 
 /* -------------------------------------------------------------------------- */
 
-private void module_call(const char* name, int call, ...);
+INTERNAL void module_call(const char* name, int call, ...);
 
 /**
  * @ingroup module
@@ -192,7 +192,7 @@ private void module_call(const char* name, int call, ...);
 
 /* -------------------------------------------------------------------------- */
 
-private int module_setpath(const char *path, size_t len);
+INTERNAL int module_setpath(const char *path, size_t len);
 
 /**
  * @ingroup module
@@ -214,7 +214,7 @@ private int module_setpath(const char *path, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-private char *module_getpath(const char *module, size_t len);
+INTERNAL char *module_getpath(const char *module, size_t len);
 
  /**
  * @ingroup module
@@ -240,7 +240,7 @@ private char *module_getpath(const char *module, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
-public const char *module_getopt(const char *opt, int argc, char **argv);
+ASKL_API const char *module_getopt(const char *opt, int argc, char **argv);
 
 /**
  * @ingroup module
@@ -263,7 +263,7 @@ public const char *module_getopt(const char *opt, int argc, char **argv);
 
 /* -------------------------------------------------------------------------- */
 
-public const char *module_getarrayopt(
+ASKL_API const char *module_getarrayopt(
     const char *opt,
     int index,
     int argc,
@@ -302,7 +302,7 @@ public const char *module_getarrayopt(
 
 /* -------------------------------------------------------------------------- */
 
-public int module_getboolopt(const char *opt, int argc, char **argv);
+ASKL_API int module_getboolopt(const char *opt, int argc, char **argv);
 
 /**
  * @ingroup module
@@ -328,7 +328,7 @@ public int module_getboolopt(const char *opt, int argc, char **argv);
 
 /* -------------------------------------------------------------------------- */
 
-private int module_exists(uint32_t id);
+INTERNAL int module_exists(uint32_t id);
 
 /**
  * @fn int module_exists(uint32_t id)
@@ -345,11 +345,11 @@ private int module_exists(uint32_t id);
 
 /* -------------------------------------------------------------------------- */
 
-private ASKL_Module *module_acquire(uint32_t id);
+INTERNAL Module *module_acquire(uint32_t id);
 
 /**
  * @ingroup module
- * @fn ASKL_Module *module_acquire(uint32_t id)
+ * @fn Module *module_acquire(uint32_t id)
  *
  * @param id a module id
  * @return a pointer to the acquired module, or NULL if none is available
@@ -365,11 +365,11 @@ private ASKL_Module *module_acquire(uint32_t id);
 
 /* -------------------------------------------------------------------------- */
 
-private ASKL_Module *module_release(ASKL_Module *mod);
+INTERNAL Module *module_release(Module *mod);
 
 /**
  * @ingroup module
- * @fn ASKL_Module *module_release(ASKL_Module *mod)
+ * @fn Module *module_release(Module *mod)
  *
  * @param mod an acquired module
  * @return always NULL
@@ -386,7 +386,7 @@ private ASKL_Module *module_release(ASKL_Module *mod);
 
 /* -------------------------------------------------------------------------- */
 
-private void module_api_shutdown(void);
+INTERNAL void module_api_shutdown(void);
 
 /**
  * @ingroup module
@@ -403,7 +403,7 @@ private void module_api_shutdown(void);
 
 /* -------------------------------------------------------------------------- */
 
-private void module_api_exit(void);
+INTERNAL void module_api_exit(void);
 
 /**
  * @ingroup module

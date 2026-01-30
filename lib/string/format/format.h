@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,92 +33,72 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef M_FLOAT_H
+#ifndef ASKL_FORMAT_H
 
-#define M_FLOAT_H
+#define ASKL_FORMAT_H
 
-#include "m_util_def.h"
-
-/** @defgroup float util::float */
-
-/** Read or write a big endian floating point value */
-#define FLOAT_BIG    0x08
-/** Read or write a little endian floating point value */
-#define FLOAT_LITTLE 0x10
+#include "../../askl.h"
+#include "../../askl_string.h"
+#include "scanf.h"
+#include "printf.h"
 
 /* -------------------------------------------------------------------------- */
 
-public float float_read_single(const char *buffer, int flags);
+ASKL_API String *string_vfmt(String *str, const char *fmt, va_list args);
 
 /**
- * @ingroup float
- * @fn float float_read_single(const char *buffer, int flags)
- * @param buffer the buffer to read the float from.
- * @param flags apply a specific treatment to the data read.
- * @return NAN if an error occurs, the float read otherwise.
+ * @ingroup string
+ * @fn String *string_vfmt(String *str, const char *fmt, ...)
+ * @param str the string to be overwritten, may be NULL.
+ * @param fmt printf(3) compatible format.
+ * @param args arguments matching the format.
+ * @return NULL if an error occurred, a pointer to the @b str string otherwise.
  *
- * This function reads a binary single precision float from a buffer, using
- * the IEEE754 standard. The flags FLOAT_BIG or FLOAT_LITTLE indicate the
- * endianness of the binary data to the function.
+ * This function overwrites the given string (or a newly allocated one if the
+ * @b str parameter was NULL) with a formatted output.
  *
- * The function returns a float in the system endianness.
+ * @ref string_fmt() uses its own printf() implementation, which provides
+ * various extensions to support writing binary data. Please see the
+ * @ref m_vsnprintf() documentation for more details.
+ *
+ * Since this function allocates a string and returns it if the @b str
+ * parameter is NULL, it is recommended to always check its return value to
+ * avoid memory leaks.
+ *
+ * If an error occurs, the original string will be left unchanged and the
+ * function will return NULL.
  *
  */
 
 /* -------------------------------------------------------------------------- */
 
-public double float_read_double(const char *buffer, int flags);
+ASKL_API String *string_fmt(String *str, const char *fmt, ...);
 
 /**
- * @ingroup float
- * @fn double float_read_double(const char *buffer, int flags)
- * @param buffer the buffer to read the float from.
- * @param flags apply a specific treatment to the data read.
- * @return NAN if an error occurs, the double read otherwise.
+ * @ingroup string
+ * @fn String *string_fmt(String *str, const char *fmt, ...)
+ * @param str the string to be overwritten, may be NULL.
+ * @param fmt the printf(3) compatible format.
+ * @param ... the arguments matching the format.
+ * @return NULL if an error occurred, a pointer to the @b str string otherwise.
  *
- * This function reads a binary double precision float from a buffer, using
- * the IEEE754 standard. The flags FLOAT_BIG or FLOAT_LITTLE indicate the
- * endianness of the binary data to the function.
+ * This function is a wrapper around @ref string_vfmt().
  *
- * The function returns a double in the system endianness.
+ * @see string_vfmt
  *
  */
 
 /* -------------------------------------------------------------------------- */
 
-public int float_write_single(char *buffer, const void *f, int flags);
-
-/**
- * @ingroup float
- * @fn int float_write_single(const char *buffer, float f, int flags)
- * @param buffer the buffer write the float to.
- * @param f the float to write.
- * @param flags apply a specific treatment to the data written.
- * @return -1 if an error occurs, 0 otherwise.
- *
- * This function writes a binary single precision float to the given buffer,
- * using the IEEE754 standard. The flags FLOAT_BIG or FLOAT_LITTLE indicate
- * the endianness with which the data should be written.
- *
- */
+ASKL_API String *string_catfmt(String *str, const char *fmt, ...);
 
 /* -------------------------------------------------------------------------- */
 
-public int float_write_double(char *buffer, const void *f, int flags);
+ASKL_API int string_peek_fmt(String *string, const char *fmt, ...);
 
-/**
- * @ingroup float
- * @fn int float_write_double(const char *buffer, double f, int flags)
- * @param buffer the buffer write the double to.
- * @param f the double to write.
- * @param flags apply a specific treatment to the data written.
- * @return -1 if an error occurs, 0 otherwise.
- *
- * This function writes a binary double precision float to the given buffer,
- * using the IEEE754 standard. The flags FLOAT_BIG or FLOAT_LITTLE indicate
- * the endianness with which the data should be written.
- *
- */
+/* -------------------------------------------------------------------------- */
+
+ASKL_API int string_fetch_fmt(String *string, const char *fmt, ...);
 
 /* -------------------------------------------------------------------------- */
 
