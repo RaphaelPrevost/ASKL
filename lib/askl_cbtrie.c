@@ -46,6 +46,9 @@ typedef struct _Node {
     uint16_t pos;
     uint8_t val;
     uint8_t bit;
+    #if (UINTPTR_MAX > 0xffffffffU)
+    uint32_t idx; /* reclaim 32 bits of padding and cache the node index */
+    #endif
 } _Node;
 
 struct _Trie {
@@ -95,7 +98,7 @@ static inline unsigned _max63(unsigned pos)
 
 static void **_insert(void **root, const uint8_t *k, size_t l, Trie_Leaf *new)
 {
-    uint8_t *p = NULL, byte = 0;
+    uint8_t *p = NULL;
     int branch = 0, newbranch = 0;
     _Node *node = NULL;
     Trie_Leaf *leaf = NULL;
@@ -115,26 +118,30 @@ static void **_insert(void **root, const uint8_t *k, size_t l, Trie_Leaf *new)
     for (p = *root; (uintptr_t) p & 0x1; p = node->child[branch]) {
         node = (void *) (p - 1);
         if (likely(node->pos < l)) {
-            prefix_len = __ctzll(~bitmap);
-            byte = k[node->pos];
+            uint8_t byte = k[node->pos];
             branch = (1 + (node->bit | byte)) >> 8;
 
             if (likely(node->pos > prefix_len)) continue;
 
-            if (likely(node->val != byte)) {
-                critbit = __msb(node->val ^ byte) ^ 0xff;
-                if (likely(critbit > node->bit)) {
-                    /* XXX bytes up to the current node position all matched
-                       but the critical bit is higher for the current index.
-                       the current node is therefore a suitable parent. */
-                    parent = current_node;
-                } else if (critbit < node->bit) {
-                    /* XXX there was no previous divergence and the critical
-                       bit is lower: new byte for this position. */
-                    pos = node->pos;
-                    goto _newbyte;
-                }
-            } else bitmap |= (1 << _max63(node->pos));
+            if (node->val == byte) {
+                bitmap |= (1ULL << _max63(node->pos));
+                prefix_len = __ctzll(~bitmap);
+                continue;
+            }
+
+            critbit = __msb(node->val ^ byte) ^ 0xff;
+
+            if (likely(critbit > node->bit)) {
+                /* XXX bytes up to the current node position all matched
+                   but the critical bit is higher for the current index.
+                   the current node is therefore a suitable parent. */
+                parent = current_node;
+            } else if (critbit < node->bit) {
+                /* XXX there was no previous divergence and the critical
+                   bit is lower: new byte for this position. */
+                pos = node->pos;
+                goto _newbyte;
+            }
         } else branch = 0;
         current_node = node->child + branch;
     }
@@ -189,7 +196,11 @@ _newbyte:
     for (p = *parent; (uintptr_t) p & 0x1; p = *parent) {
         node = (void *) (p - 1);
         /* enforce lexicographic order */
+        #if (UINTPTR_MAX > 0xffffffffU)
+        if (node->idx > n) break;
+        #else
         if ((((uint32_t) node->pos << 8) | node->bit) > n) break;
+        #endif
         branch = (1 + (node->bit | k[node->pos])) >> 8;
         parent = node->child + branch;
     }
@@ -202,6 +213,9 @@ _newbyte:
     node->pos = pos;
     node->val = k[pos];
     node->bit = critbit;
+    #if (UINTPTR_MAX > 0xffffffffU)
+    node->idx = n;
+    #endif
     node->child[newbranch] = new->key;
     node->child[1 - newbranch] = *parent;
 
@@ -295,18 +309,14 @@ ASKL_API int trie_insert_prefix_list(
 
         /* try to find a safe insertion point */
         if (prefix_len && count > 2) {
-            if (top == & t->_root) {
-                uint8_t *p = NULL;
-                void **next = top;
-                for (p = *top; (uintptr_t) p & 0x1; p = *next) {
-                    _Node *node = (void *) (p - 1);
-                    int branch;
-                    if (node->pos < prefix_len) {
-                        top = next;
-                    } else break;
-                    branch = (1 + (node->bit | list[1]->key[node->pos])) >> 8;
-                    next = node->child + branch;
-                }
+            uint8_t *p = NULL;
+            void **next = top;
+            for (p = *top; (uintptr_t) p & 0x1; p = *next) {
+                int branch;
+                _Node *node = (void *) (p - 1);
+                if (unlikely(node->pos >= prefix_len)) break;
+                branch = (1 + (node->bit | list[1]->key[node->pos])) >> 8;
+                top = next; next = node->child + branch;
             }
         }
 
