@@ -1,39 +1,38 @@
-Concrete Server version 0.3.8
-=============================
+ASKL version 0.3.9
+==================
 
-Copyright (c) 2005-2022 Raphael Prevost <raph@el.bzh>
+Askell - Savenn Kehentiñ Liesprotokol
+
+Copyright (c) 2026 Raphael Prevost <raph@el.bzh>
 
 Description
 ===========
 
-    Concrete Server is a server framework, providing all the necessary
-building blocks to design and implement efficient TCP or UDP services.
+    ASKL is a server framework, providing all the necessary building blocks to
+design and implement efficient TCP or UDP services.
 
-    The scope of this framework is not limited to networking functionalities,
-it also provides a database access API, a string library, and a plugin system
-to host various services on top of the Concrete Server.
+    The scope of this framework is not limited to networking functionalities;
+it also provides a database access API, a string library, and a module system
+to host various services on top of ASKL.
 
-    The Concrete Server can be either embedded, by linking to the Concrete
-Server Framework Library and implementing a builtin plugin, or extended, by
-using the Concrete Server with a custom external plugin.
+    ASKL can be embedded by linking against libaskl and implementing a builtin
+module, or extended using custom modules.
 
 Requirements
 ============
 
-    Concrete Server should compile and run on most POSIX-compliant operating
-systems providing POSIX threads support and the GNU C Compiler.
+    ASKL should compile and run on most POSIX-compliant operating systems
+providing POSIX threads support and the GNU C Compiler.
 
-    Concrete Server can also compile and run on Microsoft Windows 2000 and
-above.
+    ASKL can also compile and run on Microsoft Windows 2000 and above.
 
 Installation
 ============
 
-    * POSIX-compliant Operating Systems (GNU/Linux, Mac OS X)
-      -------------------------------------------------------
+    * POSIX-compliant Operating Systems
+      ---------------------------------
 
-    To compile the Concrete Server Framework Library, the Concrete Server and
-    the shipped plugins, simply run the following command:
+    To compile ASKL and the shipped modules simply run the following command:
 
         make -j3
 
@@ -44,49 +43,47 @@ Installation
     Once the compilation is over, you can run the server in interactive mode
     with this command:
 
-        LD_LIBRARY_PATH=. ./concrete
+        LD_LIBRARY_PATH=. ./askl
 
     Or start it as a daemon:
 
-        LD_LIBRARY_PATH=. ./concrete -d
+        LD_LIBRARY_PATH=. ./askl -d
 
     Don't hesitate to see the different options available, using:
 
-        LD_LIBRARY_PATH=. ./concrete --help
+        LD_LIBRARY_PATH=. ./askl --help
 
     * Microsoft Windows 2000 and above
       --------------------------------
 
-    To compile the Concrete Server Framework Library, the Concrete Server and
-    the shipped plugins, you will need to use the free Dev-C++ development
-    environment available at this address:
+    To compile ASKL and the shipped modules, you will need to use the free
+    Dev-C++ development environment available at this address:
 
-        http://www.bloodshed.net/devcpp.html
+        https://dev-cpp.com/Dev-Cpp-5/
 
     Once Dev-C++ is installed and working, just go to the folder win32/ and
-    compile the libconcrete.dev project, then the ConcreteServer.dev
-    project.
+    compile the libaskl.dev project, then the askl.dev project.
 
     The projects come with the required dynamic link libraries, which are
     freely redistributable.
 
-    You can run Concrete Server in interactive mode with this command:
+    You can run ASKL in interactive mode with this command:
 
-        ConcreteServer.exe
+        askl.exe
 
     You can also install it as an NT Service using:
 
-        ConcreteServer.exe /i
+        askl.exe /i
 
     and uninstall it with:
 
-        ConcreteServer.exe /u
+        askl.exe /u
 
     Don't hesitate to see the different options available using:
 
-        ConcreteServer.exe /h
+        askl.exe /h
 
 Thanks
 ======
 
-    Thank you for using Concrete Server !
+    Thank you for using ASKL!

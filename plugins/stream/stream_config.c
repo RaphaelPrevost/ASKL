@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,7 +33,7 @@
  *                                                                             *
  ******************************************************************************/
 
-#include "stream_plugin.h"
+#include "stream.h"
 
 static int personality = 0;
 
@@ -51,11 +51,11 @@ static short destination[_STREAMS_MAX];
 
 static char *server_host[_STREAMS_MAX];
 static char *server_port[_STREAMS_MAX];
-static char *plugin_name[_STREAMS_MAX];
+static char *module_name[_STREAMS_MAX];
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_config_init(int argc, char **argv)
+INTERNAL int stream_config_init(int argc, char **argv)
 {
     const char *opt_personality = NULL;
     const char *_master_streams = NULL;
@@ -67,11 +67,11 @@ private int stream_config_init(int argc, char **argv)
     const char *opt_destination = NULL;
     const char *opt_server_host = NULL;
     const char *opt_server_port = NULL;
-    const char *opt_plugin_name = NULL;
+    const char *opt_module_name = NULL;
 
     unsigned int i = 0;
 
-    if (! (opt_personality = plugin_getopt("personality", argc, argv)) ) {
+    if (! (opt_personality = module_getopt("personality", argc, argv)) ) {
         fprintf(stderr, "Stream: missing option: \"personality\".\n");
         return -1;
     }
@@ -83,29 +83,37 @@ private int stream_config_init(int argc, char **argv)
     else if (! strcmp(opt_personality, "hybrid"))
         personality = PERSONALITY_HYBRID;
     else {
-        fprintf(stderr, "Stream: incorrect value for option: \"personality\".\n");
+        fprintf(
+            stderr,
+            "Stream: incorrect value for option: \"personality\".\n"
+        );
         return -1;
     }
 
     if (personality & PERSONALITY_MASTER) {
         /* number of streams to configure */
-        if (! (_master_streams = plugin_getopt("master_streams", argc, argv)) ) {
+        if (! (_master_streams = module_getopt("master_streams", argc, argv)) ) {
             /* default to single stream */
             master_streams = 1;
         } else master_streams = atoi(_master_streams);
 
-        if (master_streams > _STREAMS_MAX) {
-            fprintf(stderr, "Stream: too many streams defined "
-                    "in the master configuration.\n");
-            fprintf(stderr, "Stream: a maximum of %i streams per instance "
-                    "can be defined.\n", _STREAMS_MAX);
+        if (master_streams >= _STREAMS_MAX) {
+            fprintf(
+                stderr,
+                "Stream: too many streams defined in the master configuration.\n"
+            );
+            fprintf(
+                stderr,
+                "Stream: a maximum of %i streams per instance can be defined.\n",
+                _STREAMS_MAX
+            );
             return -1;
         }
 
         for (i = 0; i < master_streams; i ++) {
 
             /* incoming traffic will flow through this port */
-            opt_ingress_end = plugin_getarrayopt("ingress_end", i, argc, argv);
+            opt_ingress_end = module_getarrayopt("ingress_end", i, argc, argv);
             if (! opt_ingress_end) {
                 fprintf(stderr, "Stream: missing option: \"ingress_end\".\n");
                 return -1;
@@ -113,10 +121,10 @@ private int stream_config_init(int argc, char **argv)
 
             /* TODO check ingress_end is numeric */
 
-            ingress_end[i] = string_dups(opt_ingress_end, strlen(opt_ingress_end));
+            ingress_end[i] = strndup(opt_ingress_end, strlen(opt_ingress_end));
 
             /* the workers will connect through this port */
-            opt_workers_end = plugin_getarrayopt("workers_end", i, argc, argv);
+            opt_workers_end = module_getarrayopt("workers_end", i, argc, argv);
             if (! opt_workers_end) {
                 fprintf(stderr, "Stream: missing option: \"workers_end\".\n");
                 return -1;
@@ -124,23 +132,28 @@ private int stream_config_init(int argc, char **argv)
 
             /* TODO check workers_end is numeric */
 
-            workers_end[i] = string_dups(opt_workers_end, strlen(opt_workers_end));
+            workers_end[i] = strndup(opt_workers_end, strlen(opt_workers_end));
         }
     }
 
     if (personality & PERSONALITY_WORKER) {
         /* number of streams to configure */
-        if (! (_worker_streams = plugin_getopt("worker_streams", argc, argv)) ) {
+        if (! (_worker_streams = module_getopt("worker_streams", argc, argv)) ) {
             /* default to single stream */
             worker_streams = 1;
         } else worker_streams = atoi(_worker_streams);
 
         /* the limit is shared for hybrid instances */
-        if (worker_streams > _STREAMS_MAX - master_streams) {
-            fprintf(stderr, "Stream: too many streams defined "
-                    "in the worker configuration.\n");
-            fprintf(stderr, "Stream: a maximum of %i streams per instance "
-                    "can be defined.\n", _STREAMS_MAX);
+        if (worker_streams >= _STREAMS_MAX - master_streams) {
+            fprintf(
+                stderr,
+                "Stream: too many streams defined in the worker configuration.\n"
+            );
+            fprintf(
+                stderr,
+                "Stream: a maximum of %i streams per instance can be defined.\n",
+                _STREAMS_MAX
+            );
             if (master_streams)
                 fprintf(stderr, "Stream: %i master streams already configured.\n",
                         master_streams);
@@ -149,24 +162,24 @@ private int stream_config_init(int argc, char **argv)
 
         for (i = 0; i < worker_streams; i ++) {
             /* master's address */
-            opt_master_host = plugin_getarrayopt("master_host", i, argc, argv);
+            opt_master_host = module_getarrayopt("master_host", i, argc, argv);
             if (! opt_master_host) {
                 fprintf(stderr, "Stream: missing option: \"master_host\".\n");
                 return -1;
             }
 
-            master_host[i] = string_dups(opt_master_host, strlen(opt_master_host));
+            master_host[i] = strndup(opt_master_host, strlen(opt_master_host));
 
-            opt_master_port = plugin_getarrayopt("master_port", i, argc, argv);
+            opt_master_port = module_getarrayopt("master_port", i, argc, argv);
             if (! opt_master_port) {
                 fprintf(stderr, "Stream: missing option: \"master_port\".\n");
                 return -1;
             }
 
-            master_port[i] = string_dups(opt_master_port, strlen(opt_master_port));
+            master_port[i] = strndup(opt_master_port, strlen(opt_master_port));
 
-            /* traffic can be forwarded to another service or handled by a plugin */
-            opt_destination = plugin_getarrayopt("destination", i, argc, argv);
+            /* traffic can be forwarded to another service or handled by a module */
+            opt_destination = module_getarrayopt("destination", i, argc, argv);
             if (! opt_destination) {
                 fprintf(stderr, "Stream: missing option: \"destination\".\n");
                 return -1;
@@ -176,38 +189,46 @@ private int stream_config_init(int argc, char **argv)
                 destination[i] = DESTINATION_SERVER;
 
                 /* third party service host and port */
-                opt_server_host = plugin_getarrayopt("server_host", i, argc, argv);
+                opt_server_host = module_getarrayopt("server_host", i, argc, argv);
                 if (! opt_server_host) {
                     fprintf(stderr, "Stream: missing option: \"server_host\".\n");
                     return -1;
                 }
 
-                server_host[i] = string_dups(opt_server_host,
-                                             strlen(opt_server_host));
+                server_host[i] = strndup(
+                    opt_server_host,
+                    strlen(opt_server_host)
+                );
 
-                opt_server_port = plugin_getarrayopt("server_port", i, argc, argv);
+                opt_server_port = module_getarrayopt("server_port", i, argc, argv);
                 if (! opt_server_port) {
                     fprintf(stderr, "Stream: missing option: \"server_port\".\n");
                     return -1;
                 }
 
-                server_port[i] = string_dups(opt_server_port,
-                                             strlen(opt_server_port));
-            } else if (! strcmp(opt_destination, "plugin")) {
-                destination[i] = DESTINATION_PLUGIN;
+                server_port[i] = strndup(
+                    opt_server_port,
+                    strlen(opt_server_port)
+                );
+            } else if (! strcmp(opt_destination, "module")) {
+                destination[i] = DESTINATION_MODULE;
 
-                /* plugin name */
-                opt_plugin_name = plugin_getarrayopt("plugin_name", i, argc, argv);
-                if (! opt_plugin_name) {
-                    fprintf(stderr, "Stream: missing option: \"plugin_name\".\n");
+                /* module name */
+                opt_module_name = module_getarrayopt("module_name", i, argc, argv);
+                if (! opt_module_name) {
+                    fprintf(stderr, "Stream: missing option: \"module_name\".\n");
                     return -1;
                 }
 
-                plugin_name[i] = string_dups(opt_plugin_name,
-                                             strlen(opt_plugin_name));
+                module_name[i] = strndup(
+                    opt_module_name,
+                    strlen(opt_module_name)
+                );
             } else {
-                fprintf(stderr, "Stream: incorrect value for option: "
-                        "\"destination\".\n");
+                fprintf(
+                    stderr,
+                    "Stream: incorrect value for option: \"destination\".\n"
+                );
                 return -1;
             }
         }
@@ -218,28 +239,28 @@ private int stream_config_init(int argc, char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_personality(void)
+INTERNAL int stream_personality(void)
 {
     return personality;
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_master_streams(void)
+INTERNAL int stream_master_streams(void)
 {
     return master_streams;
 }
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_worker_streams(void)
+INTERNAL int stream_worker_streams(void)
 {
     return worker_streams;
 }
 
 /* -------------------------------------------------------------------------- */
 
-private const char *stream_config_host(int stream, int target)
+INTERNAL const char *stream_config_host(int stream, int target)
 {
     if (stream < 0 || stream >= _STREAMS_MAX) {
         debug("stream_config_host(): bad parameters.\n");
@@ -255,7 +276,7 @@ private const char *stream_config_host(int stream, int target)
 
 /* -------------------------------------------------------------------------- */
 
-private const char *stream_config_port(int stream, int target)
+INTERNAL const char *stream_config_port(int stream, int target)
 {
     if (stream < 0 || stream >= _STREAMS_MAX) {
         debug("stream_config_port(): bad parameters.\n");
@@ -273,7 +294,7 @@ private const char *stream_config_port(int stream, int target)
 
 /* -------------------------------------------------------------------------- */
 
-private int stream_config_destination(int stream)
+INTERNAL int stream_config_destination(int stream)
 {
     if (stream < 0 || stream >= _STREAMS_MAX) {
         debug("stream_config_destination(): bad parameters.\n");
@@ -285,19 +306,19 @@ private int stream_config_destination(int stream)
 
 /* -------------------------------------------------------------------------- */
 
-private const char *stream_config_plugin_name(int stream)
+INTERNAL const char *stream_config_module_name(int stream)
 {
     if (stream < 0 || stream >= _STREAMS_MAX) {
-        debug("stream_config_plugin_name(): bad parameters.\n");
+        debug("stream_config_module_name(): bad parameters.\n");
         return NULL;
     }
 
-    return plugin_name[stream];
+    return module_name[stream];
 }
 
 /* -------------------------------------------------------------------------- */
 
-private void stream_config_fini(void)
+INTERNAL void stream_config_exit(void)
 {
     unsigned int i = 0;
 
@@ -311,7 +332,7 @@ private void stream_config_fini(void)
     for (i = 0; i < worker_streams; i ++) {
         free(master_host[i]); free(master_port[i]);
         free(server_host[i]); free(server_port[i]);
-        free(plugin_name[i]);
+        free(module_name[i]);
     }
 }
 

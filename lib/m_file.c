@@ -92,20 +92,20 @@ static void _fs_refcount_breaklock(m_file *ref)
 
 /* -------------------------------------------------------------------------- */
 
-static void * CALLBACK _fs_refcount_acquire(void *ptr)
+static Variant CALLBACK _fs_refcount_acquire(Variant v)
 {
-    m_file *ref = ptr;
+    m_file *ref = variant_to_pointer(v);
 
-    if (! ref || _fs_refcount_lock(ref) == -1) return NULL;
+    if (! ref || _fs_refcount_lock(ref) == -1) return variant_null();
 
-    return ref;
+    return v;
 }
 
 /* -------------------------------------------------------------------------- */
 
-static void _fs_orphan(void *entry)
+static void _fs_orphan(Variant v)
 {
-    m_file *file = entry;
+    m_file *file = variant_to_pointer(v);
 
     if ((int) file->_refcount >= 0) {
         file->_view = NULL;
@@ -149,7 +149,7 @@ static void *_fs_io_worker(UNUSED void *dummy)
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_api_setup(void)
+ASKL_API int fs_api_setup(void)
 {
     /* add a default physical view */
     if (! (default_view = fs_openview(NULL, 0)) ) {
@@ -162,7 +162,7 @@ public int fs_api_setup(void)
 
 /* -------------------------------------------------------------------------- */
 
-public m_view *fs_openview(const char *root, size_t rootlen)
+ASKL_API m_view *fs_openview(const char *root, size_t rootlen)
 {
     m_view *new = NULL;
 
@@ -214,7 +214,7 @@ _err_cache:
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_mkpath(m_view **v, const char *p, size_t l, char *out, size_t len)
+ASKL_API int fs_mkpath(m_view **v, const char *p, size_t l, char *out, size_t len)
 {
     size_t pathlen = 0;
     m_view *view = NULL;
@@ -274,7 +274,7 @@ static m_file *_fs_openfile(m_view *v, unsigned int flags, const char *p,
     struct stat info;
     int fd = -1;
     int retry = 0;
-    m_string *data = NULL;
+    String *data = NULL;
 
     if (! p || ! l) {
         debug("_fs_openfile(): bad parameters.\n");
@@ -293,7 +293,10 @@ _try_again:
     retry = 0;
 
     /* check if the file exists in the cache */
-    new = trie_findexec(v->_cache, fullpath, len, _fs_refcount_acquire);
+    new = variant_to_pointer(
+        trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
+    );
+
     if (new) {
         if (~flags & FILE_OPEN_SHARED ||
             new->flags & FILE_PRIVATE ||
@@ -415,7 +418,7 @@ _try_again:
     /* XXX should use different records depending on access rights */
 
     /* try to insert the new record in the cache */
-    if (trie_insert(v->_cache, new->path, len, new)) {
+    if (trie_insert(v->_cache, new->path, len, variant_from_pointer(new))) {
         debug("_fs_openfile(): cannot insert the new cache record.\n");
         goto _err_hash;
     }
@@ -455,7 +458,7 @@ _err_file:
 
 /* -------------------------------------------------------------------------- */
 
-public m_file *fs_openfile(m_view *v, const char *p, size_t l, m_auth *a)
+ASKL_API m_file *fs_openfile(m_view *v, const char *p, size_t l, m_auth *a)
 {
     /** @brief this function opens a file within a view, if it already exists */
 
@@ -464,14 +467,18 @@ public m_file *fs_openfile(m_view *v, const char *p, size_t l, m_auth *a)
 
 /* -------------------------------------------------------------------------- */
 
-public m_file *fs_reopenfile(m_file *f)
+ASKL_API m_file *fs_reopenfile(m_file *f)
 {
+    Variant var = { 0 };
+
     if (! f) {
         debug("fs_reopenfile(): bad parameters.\n");
         return NULL;
     }
 
-    if ( (f = _fs_refcount_acquire(f)) ) {
+    var = _fs_refcount_acquire(variant_from_pointer(f));
+
+    if ( (f = variant_to_pointer(var)) ) {
         if (f->flags & FILE_PRIVATE || f->flags & FILE_DELETED) {
             /* if the initial opener didn't allow the use of a shared copy,
                or a private copy is already in use, or the mapping is
@@ -489,7 +496,7 @@ public m_file *fs_reopenfile(m_file *f)
 
 /* -------------------------------------------------------------------------- */
 
-public m_file *fs_createfile(m_view *v, const char *p, size_t l)
+ASKL_API m_file *fs_createfile(m_view *v, const char *p, size_t l)
 {
     /** @brief this function creates a file within a view if it doesn't exist */
 
@@ -498,11 +505,11 @@ public m_file *fs_createfile(m_view *v, const char *p, size_t l)
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_mkdir(m_view *v, const char *p, size_t l)
+ASKL_API int fs_mkdir(m_view *v, const char *p, size_t l)
 {
     char fullpath[PATH_MAX];
     int len = 0;
-    m_string *path = NULL, *folder = NULL;
+    String *path = NULL, *folder = NULL;
     unsigned int i = 0;
     char *end = NULL;
 
@@ -522,18 +529,17 @@ public int fs_mkdir(m_view *v, const char *p, size_t l)
         goto _err_mkdir;
 
     /* split it using the directory separator */
-    if (string_splits(folder, DIR_SEP_STR, 1) == -1) goto _err_mkdir;
+    if (string_split(folder, DIR_SEP_STR, 1) == -1) goto _err_mkdir;
 
-    for (i = 0; i < PARTS(folder); i ++) {
+    for (i = 0; i < folder->count; i ++) {
+        if (! folder->tokens[i].len) continue;
 
-        if (! TOKEN_SIZE(folder, i)) continue;
-
-        *(end = (char *) TOKEN_END(folder, i)) = 0;
+        *(end = (char *) string_end(& folder->tokens[i])) = 0;
 
         /* create the directory if it does not already exist */
-        if (access(DATA(path), F_OK) == -1) {
+        if (access(path->data, F_OK) == -1) {
             /* use default permissions */
-            if (mkdir(DATA(path), 0777) == -1) {
+            if (mkdir(path->data, 0777) == -1) {
                 perror(ERR(fs_mkdir, mkdir));
                 goto _err_mkdir;
             }
@@ -551,7 +557,7 @@ _err_mkdir:
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_isopened(m_view *v, const char *p, size_t l)
+ASKL_API int fs_isopened(m_view *v, const char *p, size_t l)
 {
     /** @brief this function checks if a file is already openened */
 
@@ -567,12 +573,14 @@ public int fs_isopened(m_view *v, const char *p, size_t l)
         return 0;
 
     /* check if the file exists in the cache */
-    return (trie_findexec(v->_cache, fullpath, len, NULL) != NULL);
+    return (
+        variant_to_pointer(trie_lookup(v->_cache, fullpath, len, NULL)) != NULL
+    );
 }
 
 /* -------------------------------------------------------------------------- */
 
-public void fs_settime(m_file *f, int which, time_t timestamp)
+ASKL_API void fs_settime(m_file *f, int which, time_t timestamp)
 {
     if (! f) return;
 
@@ -585,7 +593,7 @@ public void fs_settime(m_file *f, int which, time_t timestamp)
 
 /* -------------------------------------------------------------------------- */
 
-public void fs_getpath(const char *path, size_t len, char *out, size_t outlen)
+ASKL_API void fs_getpath(const char *path, size_t len, char *out, size_t outlen)
 {
     if (! path || ! len || ! out || ! outlen) {
         debug("fs_getpath(): bad parameters.\n");
@@ -605,7 +613,7 @@ public void fs_getpath(const char *path, size_t len, char *out, size_t outlen)
 
 /* -------------------------------------------------------------------------- */
 
-public void fs_getfilename(const char *path, size_t l, char *out, size_t outlen)
+ASKL_API void fs_getfilename(const char *path, size_t l, char *out, size_t outlen)
 {
     size_t len = l;
 
@@ -629,7 +637,7 @@ public void fs_getfilename(const char *path, size_t l, char *out, size_t outlen)
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_isrelativepath(const char *path, size_t len)
+ASKL_API int fs_isrelativepath(const char *path, size_t len)
 {
     /** @brief simple routine to check if a path is a proper relative path */
 
@@ -657,10 +665,11 @@ public int fs_isrelativepath(const char *path, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
+static int _fs_map(m_view *v, const char *p, size_t l, String *data, int r)
 {
     char fullpath[PATH_MAX];
     int len = 0, flags = 0;
+    Variant val = { 0 };
     m_file *new = NULL, *prev = NULL;
 
     if (! p || ! l || ! data) {
@@ -679,7 +688,10 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
     }
 
     /* check if there is a previous mapping */
-    prev = trie_findexec(v->_cache, fullpath, len, _fs_refcount_acquire);
+    prev = variant_to_pointer(
+        trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
+    );
+
     if (prev) {
         /* check if the previous mapping is physical */
         flags = prev->flags; _fs_refcount_unlock(prev);
@@ -747,7 +759,7 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
     new->pathlen = len;
     new->fd = -1;
     new->data = data;
-    new->len = SIZE(data);
+    new->len = data->len;
     new->_last_modified = 0;
     new->_last_accessed = 0;
     new->flags = FILE_VIRTUAL;
@@ -755,9 +767,13 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
     new->_lockstate = 1;
     new->_refcount = 0;
 
+    val = variant_from_pointer(new);
+
     if (prev) {
         /* replace the old virtual mapping by the new one */
-        prev = trie_update(v->_cache, new->path, new->pathlen, new);
+        prev = variant_to_pointer(
+            trie_update(v->_cache, new->path, new->pathlen, val)
+        );
 
         if (prev == new) {
             debug("_fs_map(): cannot replace the existing mapping.\n");
@@ -770,7 +786,7 @@ static int _fs_map(m_view *v, const char *p, size_t l, m_string *data, int r)
         }
     } else {
         /* we only create the mapping if it does not already exist */
-        if (trie_insert(v->_cache, new->path, new->pathlen, new)) {
+        if (trie_insert(v->_cache, new->path, new->pathlen, val)) {
             debug("_fs_map(): cannot insert the new mapping.\n");
             goto _err_hash;
         }
@@ -798,21 +814,21 @@ _err_lock:
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_map(m_view *v, const char *p, size_t l, m_string *s)
+ASKL_API int fs_map(m_view *v, const char *p, size_t l, String *s)
 {
     return (_fs_map(v, p, l, s, 0));
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_remap(m_view *v, const char *p, size_t l, m_string *s)
+ASKL_API int fs_remap(m_view *v, const char *p, size_t l, String *s)
 {
     return _fs_map(v, p, l, s, 1);
 }
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_onevent(m_view *v, unsigned int event, void (*function)())
+ASKL_API int fs_onevent(m_view *v, unsigned int event, void (*function)(void))
 {
     return 0;
 }
@@ -844,7 +860,7 @@ static int _fs_utime(const char *path, time_t mtime, time_t atime)
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_rename(m_view *v, const char *old, size_t oldlen,
+ASKL_API int fs_rename(m_view *v, const char *old, size_t oldlen,
                      const char *new, size_t newlen)
 {
     char oldpath[PATH_MAX];
@@ -871,7 +887,11 @@ public int fs_rename(m_view *v, const char *old, size_t oldlen,
 
     if (! physical) {
         /* get the old mapping data */
-        if (! (f = trie_findexec(v->_cache, oldpath, oldlen, _fs_refcount_acquire)) ) {
+        f = variant_to_pointer(
+            trie_lookup(v->_cache, oldpath, oldlen, _fs_refcount_acquire)
+        );
+
+        if (! f) {
             debug("fs_rename(): mapping not found.\n");
             return -1;
         }
@@ -908,7 +928,7 @@ public int fs_rename(m_view *v, const char *old, size_t oldlen,
 
 /* -------------------------------------------------------------------------- */
 
-public int fs_delete(m_view *v, const char *p, size_t l)
+ASKL_API int fs_delete(m_view *v, const char *p, size_t l)
 {
     char fullpath[PATH_MAX];
     int len = 0, physical = 0;
@@ -933,7 +953,11 @@ public int fs_delete(m_view *v, const char *p, size_t l)
             return -1;
         }
     } else {
-        if (! (f = trie_findexec(v->_cache, fullpath, len, _fs_refcount_acquire)) ) {
+        f = variant_to_pointer(
+            trie_lookup(v->_cache, fullpath, len, _fs_refcount_acquire)
+        );
+
+        if (! f) {
             debug("fs_delete(): mapping not found.\n");
             return -1;
         }
@@ -949,7 +973,7 @@ public int fs_delete(m_view *v, const char *p, size_t l)
 
 /* -------------------------------------------------------------------------- */
 
-public m_file *fs_closefile(m_file *file)
+ASKL_API m_file *fs_closefile(m_file *file)
 {
     m_file *ret = NULL;
 
@@ -972,7 +996,9 @@ public m_file *fs_closefile(m_file *file)
 
         if (file->_view) {
             /* the file is not orphaned */
-            ret = trie_remove(file->_view->_cache, file->path, file->pathlen);
+            ret = variant_to_pointer(
+                trie_remove(file->_view->_cache, file->path, file->pathlen)
+            );
         } else ret = file;
 
         if (ret) {
@@ -1002,7 +1028,7 @@ public m_file *fs_closefile(m_file *file)
 
 /* -------------------------------------------------------------------------- */
 
-public m_view *fs_closeview(m_view *view)
+ASKL_API m_view *fs_closeview(m_view *view)
 {
     trie_free(view->_cache);
     trie_free(view->_handlers);
@@ -1012,7 +1038,7 @@ public m_view *fs_closeview(m_view *view)
 
 /* -------------------------------------------------------------------------- */
 
-public void fs_api_cleanup(void)
+ASKL_API void fs_api_cleanup(void)
 {
     fs_closeview(default_view);
 }

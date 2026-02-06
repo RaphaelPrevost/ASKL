@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,14 +33,14 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifndef M_SECURITY_H
+#ifndef ASKL_SECURITY_H
 
-#define M_SECURITY_H
+#define ASKL_SECURITY_H
 
 #ifdef HAS_LIBXML
 
-#include "m_core_def.h"
-#include "m_trie.h"
+#include "askl.h"
+#include "askl_cbtrie.h"
 
 /** @defgroup security core::security */
 

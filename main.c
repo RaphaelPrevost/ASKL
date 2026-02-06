@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2023 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2025 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -33,9 +33,8 @@
  *                                                                             *
  ******************************************************************************/
 
-#include "m_core_def.h"
-#include "m_socket.h"
-#include "m_plugin.h"
+#include "askl.h"
+#include "askl_server.h"
 
 /* -------------------------------------------------------------------------- */
 #ifndef WIN32 /* UNIX */
@@ -48,15 +47,15 @@ static void daemonize(int forcefork);
 static void _sigusr1_handler(UNUSED int _dummy);
 
 #ifdef __APPLE__
-#define CONCRETE_OS " for Mac OS X"
+#define ASKL_OS " for Mac OS X"
 #else
-#define CONCRETE_OS ""
+#define ASKL_OS ""
 #endif
 
 #define MAIN_PRINTVER \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"]"CONCRETE_OS"\n" \
-"Copyright (c) 2005-2023 Raphael Prevost, all rights reserved.\n\n"
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"]"ASKL_OS"\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n"
 
 #define MAIN_OPTSHRT_DAEMON "-d"
 #define MAIN_OPTLONG_DAEMON "--daemon"
@@ -71,11 +70,11 @@ static void _sigusr1_handler(UNUSED int _dummy);
 
 #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
 #define MAIN_PRINTHLP \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"]"CONCRETE_OS"\n" \
-"Copyright (c) 2005-2023 Raphael Prevost, all rights reserved.\n\n" \
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"]"ASKL_OS"\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n" \
 "Usage: %s [OPTION]\n" \
-"Start the Concrete Server.\n" \
+"Start ASKL.\n" \
 "\nOptions:\n\n" \
 "\t"MAIN_OPTSHRT_DAEMON", "MAIN_OPTLONG_DAEMON \
 "\t\tstart the server as a background process\n" \
@@ -89,11 +88,11 @@ static void _sigusr1_handler(UNUSED int _dummy);
 "\t\tforcefully select the production configuration\n\n"
 #else
 #define MAIN_PRINTHLP \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"]"CONCRETE_OS"\n" \
-"Copyright (c) 2005-2023 Raphael Prevost, all rights reserved.\n\n" \
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"]"ASKL_OS"\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n" \
 "Usage: %s [OPTION]\n" \
-"Start the Concrete Server.\n" \
+"Start ASKL.\n" \
 "\nOptions:\n\n" \
 "\t"MAIN_OPTSHRT_DAEMON", "MAIN_OPTLONG_DAEMON \
 "\t\tstart the server as a background process\n" \
@@ -113,9 +112,9 @@ static void _sigusr1_handler(UNUSED int _dummy);
 #endif
 
 #define WINMAIN_SERVICENAME \
-"Concrete"
+"ASKL"
 #define WINMAIN_REGISTRYKEY \
-"SYSTEM\\CurrentControlSet\\Services\\Concrete\\Parameters"
+"SYSTEM\\CurrentControlSet\\Services\\ASKL\\Parameters"
 
 typedef BOOL(WINAPI * fpCreateRestrictedToken) (HANDLE, DWORD, DWORD,
                                                 PSID_AND_ATTRIBUTES,
@@ -139,9 +138,9 @@ static void WINAPI _service_ctl(DWORD cmd);
 static VOID WINAPI _service_main(DWORD argc, LPSTR *argv);
 
 #define MAIN_PRINTVER \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"] for Windows NT\n" \
-"Copyright (c) 2005-2023 Raphael Prevost, all rights reserved.\n\n"
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"] for Windows NT\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n"
 
 #define MAIN_OPTSHRT_DAEMON "/d"
 #define MAIN_OPTLONG_DAEMON "/daemon"
@@ -167,11 +166,11 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv);
 
 #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
 #define MAIN_PRINTHLP \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"] for Windows NT\n" \
-"Copyright (c) 2005-2023 Raphael Prevost, all rights reserved.\n\n" \
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"] for Windows NT\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n" \
 "Usage: %s [OPTION]\n" \
-"Start the Concrete Server.\n" \
+"Start ASKL.\n" \
 "\nOptions:\n\n" \
 "\t"MAIN_OPTSHRT_INSTAL", "MAIN_OPTLONG_INSTAL \
 "\t\tinstall the NT service\n" \
@@ -191,11 +190,11 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv);
 "\t\tforcefully select the production configuration\n\n"
 #else
 #define MAIN_PRINTHLP \
-"\nConcrete Server\n" \
-"version "CONCRETE_VERSION" ["__DATE__"] for Windows NT\n" \
-"Copyright (c) 2005-2023 Raphael Prevost, all rights reserved.\n\n" \
+"\nASKL.\n" \
+"version "ASKL_VERSION" ["__DATE__"] for Windows NT\n" \
+"Copyright (c) 2025 Raphael Prevost, all rights reserved.\n\n" \
 "Usage: %s [OPTION]\n" \
-"Start the Concrete Server.\n" \
+"Start the ASKL.\n" \
 "\nOptions:\n\n" \
 "\t"MAIN_OPTSHRT_INSTAL", "MAIN_OPTLONG_INSTAL \
 "\t\tinstall the NT service\n" \
@@ -227,7 +226,7 @@ static VOID _spawn_child(UNUSED VOID *dummy);
 static void main_process(int option_daemon, int argc, char **argv);
 
 /* -------------------------------------------------------------------------- */
-/* CONCRETE SERVER MAIN */
+/* ASKL SERVER MAIN */
 /* -------------------------------------------------------------------------- */
 
 int main(int argc, char **argv)
@@ -458,7 +457,7 @@ static void main_process(int option_daemon, UNUSED int argc, UNUSED char **argv)
             }
         }
 
-        server_fini();
+        server_exit();
 
         if (option_daemon) {
             /* give enough time to logger to print the
@@ -582,19 +581,38 @@ static void main_process(int option_daemon, int argc, char **argv)
     WSAStartup(MAKEWORD(2, 0), & winsock);
 
     /* get the working directory */
-    error = RegOpenKeyEx(HKEY_LOCAL_MACHINE, WINMAIN_REGISTRYKEY,
-                         0, KEY_QUERY_VALUE, & key);
+    error = RegOpenKeyEx(
+        HKEY_LOCAL_MACHINE,
+        WINMAIN_REGISTRYKEY,
+        0,
+        KEY_QUERY_VALUE,
+        & key
+    );
+
     if (error != ERROR_SUCCESS) {
         working_directory = ".";
-        fprintf(stderr, ERR(main_process, RegOpenKeyEx)": %s\n",
-                strerror(error));
+        fprintf(
+            stderr,
+            ERR(main_process, RegOpenKeyEx)": %s\n",
+            strerror(error)
+        );
     } else {
-        error = RegQueryValueEx(key, "ConcretePath", 0, & type,
-                                _working_directory, & len);
+        error = RegQueryValueEx(
+            key,
+            "ASKLPath",
+            0,
+            & type,
+            _working_directory,
+            & len
+        );
+
         if (error != ERROR_SUCCESS) {
             working_directory = ".";
-            fprintf(stderr, ERR(main_process, RegQueryValueEx)": %s\n",
-                    strerror(error));
+            fprintf(
+                stderr,
+                ERR(main_process, RegQueryValueEx)": %s\n",
+                strerror(error)
+            );
         } else working_directory = (type == REG_SZ) ? _working_directory : ".";
 
         RegCloseKey(key);
@@ -618,7 +636,7 @@ static void main_process(int option_daemon, int argc, char **argv)
             CloseHandle(termination_event);
         }
 
-        server_fini();
+        server_exit();
 
         /* tell the NT service we are shutting down */
         server_privileged_call(OP_EXIT, NULL, 0);
@@ -627,8 +645,10 @@ static void main_process(int option_daemon, int argc, char **argv)
         closesocket(sockpair[1]);
 
         #else
-        printf("Please start the " WINMAIN_SERVICENAME " service "
-               "using the Microsoft Windows Administrative Tools.\n");
+        printf(
+            "Please start the " WINMAIN_SERVICENAME " service "
+            "using the Microsoft Windows Administrative Tools.\n"
+        );
         #endif
 
     } else if (option_daemon == 2) {
@@ -644,8 +664,10 @@ static void main_process(int option_daemon, int argc, char **argv)
         /* close the privileged end of the connection */
         closesocket(sockpair[0]);
         #else
-        printf("Please start the " WINMAIN_SERVICENAME " service "
-               "using the Microsoft Windows Administrative Tools.\n");
+        printf(
+            "Please start the " WINMAIN_SERVICENAME " service "
+            "using the Microsoft Windows Administrative Tools.\n"
+        );
         #endif
     } else if (! StartServiceCtrlDispatcher(service_table)) {
         if (GetLastError() == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT) {
@@ -669,7 +691,7 @@ static void main_process(int option_daemon, int argc, char **argv)
                 fprintf(stderr, "-- End of the interactive session\n");
             }
 
-            server_fini();
+            server_exit();
 
             /* tell the NT service we are shutting down */
             server_privileged_call(OP_EXIT, NULL, 0);
@@ -685,7 +707,7 @@ static void main_process(int option_daemon, int argc, char **argv)
                 fprintf(stderr, "-- End of the interactive session\n");
             }
 
-            server_fini();
+            server_exit();
             #endif
         }
     }
@@ -718,23 +740,29 @@ static VOID _spawn_child(UNUSED VOID *dummy)
     }
 
     /* build the command, passing the event and privileged socket */
-    _snprintf(command, sizeof(command), "\"%s\" %i /p",
-              buffer, child.in);
+    _snprintf(
+        command,
+        sizeof(command),
+        "\"%s\" %i /p",
+        buffer, child.in
+    );
 
     memset(& startup_info, 0, sizeof(startup_info));
     memset(& process_info, 0, sizeof(process_info));
     startup_info.cb = sizeof(startup_info);
 
-    if (! CreateProcess(buffer,                               /* module name */
-                        command,                             /* command line */
-                        NULL,                                /* process attr */
-                        NULL,                                 /* thread attr */
-                        TRUE,                             /* inherit handles */
-                        CREATE_NO_WINDOW | DEBUG_PROCESS,  /* creation flags */
-                        NULL,                                 /* environment */
-                        NULL,                           /* current directory */
-                        & startup_info,                      /* startup info */
-                        & process_info)) {                   /* process info */
+    if (! CreateProcess(
+        buffer,                            /* module name */
+        command,                           /* command line */
+        NULL,                              /* process attr */
+        NULL,                              /* thread attr */
+        TRUE,                              /* inherit handles */
+        CREATE_NO_WINDOW | DEBUG_PROCESS,  /* creation flags */
+        NULL,                              /* environment */
+        NULL,                              /* current directory */
+        & startup_info,                    /* startup info */
+        & process_info                     /* process info */
+    )) {
         debug("main_process(): cannot create privileged process.\n");
         closesocket(child.in); closesocket(child.out);
         _endthread();
@@ -779,19 +807,21 @@ static BOOL _service_install(VOID)
     }
 
     /* try to register the new service */
-    service = CreateService(manager,
-                            WINMAIN_SERVICENAME,
-                            WINMAIN_SERVICENAME,
-                            GENERIC_READ | GENERIC_EXECUTE,
-                            SERVICE_WIN32_OWN_PROCESS,
-                            SERVICE_AUTO_START,
-                            SERVICE_ERROR_IGNORE,
-                            buffer,
-                            NULL,
-                            NULL,
-                            NULL,
-                            NULL,
-                            NULL);
+    service = CreateService(
+        manager,
+        WINMAIN_SERVICENAME,
+        WINMAIN_SERVICENAME,
+        GENERIC_READ | GENERIC_EXECUTE,
+        SERVICE_WIN32_OWN_PROCESS,
+        SERVICE_AUTO_START,
+        SERVICE_ERROR_IGNORE,
+        buffer,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        NULL
+    );
 
     if (! service) {
         const char *err = NULL;
@@ -1047,30 +1077,39 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
     }
 
     /* get the current process token to build a restricted one */
-    if (! OpenProcessToken(GetCurrentProcess(),
-                           TOKEN_ALL_ACCESS,
-                           & process_token)) {
+    if (! OpenProcessToken(
+        GetCurrentProcess(),
+        TOKEN_ALL_ACCESS,
+        & process_token
+    )) {
         debug("_service_main(): cannot get process token.\n");
         goto _error_0;
     }
 
     memset(& drop_sids, 0, sizeof(drop_sids));
 
-    ret = AllocateAndInitializeSid(& nt, 2,
-                                   SECURITY_BUILTIN_DOMAIN_RID,
-                                   DOMAIN_ALIAS_RID_ADMINS,
-                                   0, 0, 0, 0, 0, 0,
-                                   & drop_sids[0].Sid);
+    ret = AllocateAndInitializeSid(
+        & nt,
+        2,
+        SECURITY_BUILTIN_DOMAIN_RID,
+        DOMAIN_ALIAS_RID_ADMINS,
+        0, 0, 0, 0, 0, 0,
+        & drop_sids[0].Sid
+    );
+
     if (! ret) {
         debug("_service_main(): cannot allocate SIDs.\n");
         goto _error_1;
     }
 
-    ret = AllocateAndInitializeSid(& nt, 2,
-                                   SECURITY_BUILTIN_DOMAIN_RID,
-                                   DOMAIN_ALIAS_RID_POWER_USERS,
-                                   0, 0, 0, 0, 0, 0,
-                                   & drop_sids[1].Sid);
+    ret = AllocateAndInitializeSid(
+        & nt,
+        2,
+        SECURITY_BUILTIN_DOMAIN_RID,
+        DOMAIN_ALIAS_RID_POWER_USERS,
+        0, 0, 0, 0, 0, 0,
+        & drop_sids[1].Sid
+    );
 
     if (! ret) {
         debug("_service_main(): cannot allocate SIDs.\n");
@@ -1078,11 +1117,17 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
     }
 
     /* drop privileges */
-    ret = _CreateRestrictedToken(process_token, DISABLE_MAX_PRIVILEGE,
-                                 sizeof(drop_sids) / sizeof(drop_sids[0]),
-                                 drop_sids,
-                                 0, NULL, 0, NULL,
-                                 & restricted_token);
+    ret = _CreateRestrictedToken(
+        process_token,
+        DISABLE_MAX_PRIVILEGE,
+        sizeof(drop_sids) / sizeof(drop_sids[0]),
+        drop_sids,
+        0,
+        NULL,
+        0,
+        NULL,
+        & restricted_token
+    );
 
     if (! ret) {
         debug("_service_main(): cannot create a restricted token.\n");
@@ -1100,24 +1145,30 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
     }
 
     /* build the command, passing the event and pipe descriptors on the CLI */
-    _snprintf(command, sizeof(command), "\"%s\" %i %i /d",
-              buffer, termination_event, sockpair[0]);
+    _snprintf(
+        command,
+        sizeof(command),
+        "\"%s\" %i %i /d",
+        buffer, termination_event, sockpair[0]
+    );
 
     memset(& startup_info, 0, sizeof(startup_info));
     memset(& process_info, 0, sizeof(process_info));
     startup_info.cb = sizeof(startup_info);
 
-    if (! CreateProcessAsUser(restricted_token,  /* unprivileged token */
-                              buffer,            /* module name */
-                              command,           /* command line */
-                              NULL,              /* process attr */
-                              NULL,              /* thread attr */
-                              TRUE,              /* inherit handles */
-                              CREATE_NO_WINDOW,  /* creation flags */
-                              NULL,              /* environment */
-                              NULL,              /* current directory */
-                              & startup_info,    /* startup info */
-                              & process_info)) { /* process info */
+    if (! CreateProcessAsUser(
+        restricted_token,  /* unprivileged token */
+        buffer,            /* module name */
+        command,           /* command line */
+        NULL,              /* process attr */
+        NULL,              /* thread attr */
+        TRUE,              /* inherit handles */
+        CREATE_NO_WINDOW,  /* creation flags */
+        NULL,              /* environment */
+        NULL,              /* current directory */
+        & startup_info,    /* startup info */
+        & process_info     /* process info */
+    )) {
         debug("_service_main(): cannot create unprivileged process.\n");
         CloseHandle(process_token); CloseHandle(restricted_token);
         closesocket(sockpair[0]); closesocket(sockpair[1]);
@@ -1141,7 +1192,7 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
 
     WaitForSingleObject(termination_event, INFINITE);
 
-    server_fini();
+    server_exit();
     #endif
 
     CloseHandle(termination_event);
@@ -1166,60 +1217,68 @@ _error_0:
 #endif
 /* -------------------------------------------------------------------------- */
 
-/* This is a really simple example of builtin plugin. It simply listens on port
+/* This is a really simple example of builtin module. It simply listens on port
    8888 and echoes back what is sent to it. */
 
 /* -------------------------------------------------------------------------- */
-#ifdef _BUILTIN_PLUGIN
+#ifdef _BUILTIN_MODULE
 /* -------------------------------------------------------------------------- */
 
 #define BUILTIN_PORT "8888"
 
-/* plugin identifier */
-static uint32_t plugin_token = 0;
+/* module identifier */
+static uint32_t module_token = 0;
 
 /* -------------------------------------------------------------------------- */
 
-export unsigned int plugin_api(void)
+ASKL_API unsigned int module_api(void)
 {
-    unsigned int required_api_revision = 1300;
+    unsigned int required_api_revision = 1390;
     return required_api_revision;
 }
 
 /* -------------------------------------------------------------------------- */
 
-export int plugin_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
+ASKL_API int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 {
     /* XXX
-       It is possible to check if a plugin has already been loaded once by
-       inspecting the value of plugin_token. Loading the same plugin twice
+       It is possible to check if a module has already been loaded once by
+       inspecting the value of module_token. Loading the same module twice
        without checking may lead to memory corruptions if some pointers are
-       blindly clobbered by plugin_init(), since all instances of the same
-       plugin share the same address space.
+       blindly clobbered by module_init(), since all instances of the same
+       module share the same address space.
     */
-    if (plugin_token) {
-        fprintf(stderr, "BUILTIN: plugin already loaded.\n");
+    if (module_token) {
+        fprintf(stderr, "BUILTIN: module already started.\n");
         return -1;
     }
 
-    plugin_token = id;
+    module_token = id;
 
-    fprintf(stderr, "BUILTIN: loading builtin plugin...\n");
-    fprintf(stderr, "BUILTIN: Copyright (c) 2008-2020 ");
+    fprintf(stderr, "BUILTIN: starting builtin module...\n");
+    fprintf(stderr, "BUILTIN: Copyright (c) 2025 ");
     fprintf(stderr, "Raphael Prevost, all rights reserved.\n");
-    fprintf(stderr, "BUILTIN: version "CONCRETE_VERSION" ["__DATE__"]\n");
+    fprintf(stderr, "BUILTIN: version "ASKL_VERSION" ["__DATE__"]\n");
 
     fprintf(stderr, "BUILTIN: listening on port "BUILTIN_PORT".\n");
 
-    if (server_open_managed_socket(id, NULL, BUILTIN_PORT,
-                                   SOCKET_SERVER) == -1) {
+    if (server_open_managed_socket(
+        id,
+        NULL,
+        BUILTIN_PORT,
+        SOCKET_SERVER) == -1
+    ) {
         fprintf(stderr, "BUILTIN: cannot listen to TCP port "BUILTIN_PORT".\n");
         return -1;
     }
 
     #ifdef _ENABLE_UDP
-    if (server_open_managed_socket(id, NULL, BUILTIN_PORT,
-                                   SOCKET_UDP | SOCKET_SERVER) == -1) {
+    if (server_open_managed_socket(
+        id,
+        NULL,
+        BUILTIN_PORT,
+        SOCKET_UDP | SOCKET_SERVER
+    ) == -1) {
         fprintf(stderr, "BUILTIN: cannot listen to UDP port "BUILTIN_PORT".\n");
         return -1;
     }
@@ -1230,37 +1289,45 @@ export int plugin_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-export void plugin_main(uint16_t socket_id, UNUSED uint16_t ingress_id,
-                        m_string *data)
+ASKL_API void module_input_handler(
+    uint16_t socket_id,
+    UNUSED uint16_t ingress_id,
+    String *data
+)
 {
     /* send back the incoming data and close the connection */
     server_send_buffer(
-        plugin_token, socket_id,
-        SERVER_TRANS_END,
-        DATA(data), SIZE(data)
+        module_token,
+        socket_id,
+        SERVER_MSG_END,
+        data->data,
+        data->len
     );
 }
 
 /* -------------------------------------------------------------------------- */
 
-export void plugin_intr(UNUSED uint16_t socket_id, UNUSED uint16_t ingress_id,
-                        int event)
+ASKL_API void module_event_handler(
+    UNUSED uint16_t socket_id,
+    UNUSED uint16_t ingress_id,
+    int event
+)
 {
     switch (event) {
 
-    case PLUGIN_EVENT_INCOMING_CONNECTION:
+    case MODULE_EVENT_INCOMING_CONNECTION:
         /* new connection */ break;
 
-    case PLUGIN_EVENT_OUTGOING_CONNECTION:
+    case MODULE_EVENT_OUTGOING_CONNECTION:
         /* connected to remote host */ break;
 
-    case PLUGIN_EVENT_SOCKET_DISCONNECTED:
+    case MODULE_EVENT_SOCKET_DISCONNECTED:
         /* connection closed */ break;
 
-    case PLUGIN_EVENT_REQUEST_TRANSMITTED:
+    case MODULE_EVENT_REQUEST_TRANSMITTED:
         /* request sent */ break;
 
-    case PLUGIN_EVENT_SERVER_SHUTTINGDOWN:
+    case MODULE_EVENT_SERVER_SHUTTINGDOWN:
         /* server shutting down */ break;
 
     default: fprintf(stderr, "BUILTIN: spurious event.\n");
@@ -1270,7 +1337,7 @@ export void plugin_intr(UNUSED uint16_t socket_id, UNUSED uint16_t ingress_id,
 
 /* -------------------------------------------------------------------------- */
 
-export void plugin_fini(void)
+ASKL_API void module_exit(void)
 {
     fprintf(stderr, "BUILTIN: successfully unloaded.\n");
 }

@@ -56,11 +56,11 @@ struct _db_conf {
 
 #ifdef _ENABLE_DB
 /* database connection pools */
-static m_cache *db_pool = NULL;
+static ASKL_LinkedMap *db_pool = NULL;
 #endif
 
 #ifdef _ENABLE_SSL
-static m_cache *ssl_ctx = NULL;
+static ASKL_LinkedMap *ssl_ctx = NULL;
 #endif
 
 /* default configuration: profile="any" threads="SERVER_CONCURRENCY" */
@@ -106,7 +106,7 @@ static int _config_load(const char *fullpath)
 
 /* -------------------------------------------------------------------------- */
 
-public void config_force_profile(int profile)
+ASKL_API void config_force_profile(int profile)
 {
     if (server_conf.force) {
         debug("config_force_profile(): configuration profile "
@@ -128,7 +128,7 @@ public void config_force_profile(int profile)
 
 /* -------------------------------------------------------------------------- */
 
-private int configure(const char *path, const char *configfile)
+INTERNAL int configure(const char *path, const char *configfile)
 {
     char fullpath[PATH_MAX];
     size_t pathlen = 0;
@@ -146,7 +146,7 @@ private int configure(const char *path, const char *configfile)
             fprintf(stderr, "configure(): wrong path to configuration file.\n");
             return -1;
         } else {
-            strncpy(fullpath, path, sizeof(fullpath));
+            strncpy(fullpath, path, sizeof(fullpath) - 1);
             pathlen = strlen(fullpath) + 1;
             strncat(fullpath, DIR_SEP_STR, sizeof(fullpath) - pathlen);
         }
@@ -177,14 +177,14 @@ private int configure(const char *path, const char *configfile)
 
 /* -------------------------------------------------------------------------- */
 
-private void configure_cleanup(void)
+INTERNAL void configure_cleanup(void)
 {
     #ifdef _ENABLE_SSL
-    cache_free(ssl_ctx);
+    map_free(ssl_ctx);
     #endif
 
     #ifdef _ENABLE_DB
-    cache_free(db_pool);
+    map_free(db_pool);
     #endif
 
     return;
@@ -192,7 +192,7 @@ private void configure_cleanup(void)
 
 /* -------------------------------------------------------------------------- */
 
-public unsigned int config_get_concurrency(void)
+ASKL_API unsigned int config_get_concurrency(void)
 {
     return server_conf.threads;
 }
@@ -200,18 +200,18 @@ public unsigned int config_get_concurrency(void)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_DB
-public m_dbpool *config_get_db(const char *id)
+ASKL_API m_dbpool *config_get_db(const char *id)
 {
-    return cache_find(db_pool, id, strlen(id));
+    return map_get(db_pool, id, strlen(id));
 }
 #endif
 
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_SSL
-private SSL_CTX *config_get_ssl(unsigned int id)
+INTERNAL SSL_CTX *config_get_ssl(unsigned int id)
 {
-    return cache_find(ssl_ctx, (void *) & id, sizeof(id));
+    return map_get(ssl_ctx, (void *) & id, sizeof(id));
 }
 #endif
 
@@ -265,7 +265,7 @@ static int _config_ssl(unsigned int id, xmlNode *ssl)
     }
 
     /* check if there is an existing SSL context */
-    if (! (ctx = cache_find(ssl_ctx, (void *) & id, sizeof(id))) ) {
+    if (! (ctx = map_get(ssl_ctx, (void *) & id, sizeof(id))) ) {
         /* create and initialize a new SSL context */
         if (! (meth = SSLv23_method()) ) {
             sslerror(ERR(_config_ssl, SSLv23_method));
@@ -311,7 +311,7 @@ static int _config_ssl(unsigned int id, xmlNode *ssl)
         }
 
         /* store the context */
-        cache_push(ssl_ctx, (void *) & id, sizeof(id), ctx);
+        map_set(ssl_ctx, (void *) & id, sizeof(id), ctx);
         debug("_config_ssl(): successfully added SSL context.");
     }
 
@@ -434,14 +434,14 @@ static int _config_load_plugin(xmlNode *plugin)
     }
 
     /* check if the plugin id is properly unique */
-    if ( (plugin_id = plugin_getid(id)) != -1) {
+    if ( (plugin_id = module_getid(id)) != 0) {
         fprintf(stderr, "_config_load_plugin(): "
                 "there is already a loaded plugin with id %s\n", id);
         ret = -1; goto _err_load;
     }
 
     /* load the plugin */
-    if ( (plugin_id = plugin_open(image, id)) == -1) {
+    if ( (plugin_id = module_open(image, id)) == -1) {
         fprintf(stderr, "_config_load_plugin(): "
                 "failed to load plugin %s (%s)\n", id, image);
         ret = -1; goto _err_load;
@@ -451,7 +451,7 @@ static int _config_load_plugin(xmlNode *plugin)
     argv = _config_load_plugin_opt(plugin_id, plugin->children, & argc, argv);
 
     /* initialize the plugin */
-    if (plugin_start(plugin_id, argc, argv) == -1) {
+    if (module_start(plugin_id, argc, argv) == -1) {
         fprintf(stderr, "_config_load_plugin(): "
                 "failed to initialize plugin %s (%s)\n", id, image);
         ret = -1;
@@ -558,11 +558,11 @@ static int _config_open_db(xmlNode *db)
 
     if ( (ret = _config_load_db_opt(db->children, & conf)) == 0) {
         /* check if the database was already open */
-        if (! (pool = cache_find(db_pool, id, strlen(id))) ) {
+        if (! (pool = map_get(db_pool, id, strlen(id))) ) {
             if ( (pool = dbpool_open(conf.drv, conf.con, conf.user, conf.pass,
                                      dbname, conf.host, atoi(conf.port), 0)) ) {
                 /* register the pool in the hashtable */
-                cache_push(db_pool, id, strlen(id), pool);
+                map_set(db_pool, id, strlen(id), pool);
             } else {
                 fprintf(stderr, "_config_open_db(): "
                         "failed to open database %s.\n", id);
@@ -717,7 +717,7 @@ static int _config_apply(xmlNode *root)
             }
 
             if (! strcmp(nodename, "plugins") && pluginpath) {
-                if (plugin_setpath(pluginpath, strlen(pluginpath)) == -1) {
+                if (module_setpath(pluginpath, strlen(pluginpath)) == -1) {
                     fprintf(stderr, "configure(): error: "
                             "wrong PLUGIN path "
                             "(\"%s\") at line %i.\n"
@@ -734,7 +734,7 @@ static int _config_apply(xmlNode *root)
                            MIN(sizeof(path) - strlen(path),
                                strlen(pluginpath) + 1));
                     /* try again */
-                    if (plugin_setpath(path, strlen(path)) == -1) {
+                    if (module_setpath(path, strlen(path)) == -1) {
                         xmlFree(pluginpath); return -1;
                     }
                 }
@@ -750,7 +750,7 @@ static int _config_apply(xmlNode *root)
 
 /* -------------------------------------------------------------------------- */
 
-private int config_process(const char *config, size_t len)
+INTERNAL int config_process(const char *config, size_t len)
 {
     xmlDoc *xml = NULL;
     xmlDtd *dtd = NULL;
@@ -798,11 +798,11 @@ private int config_process(const char *config, size_t len)
     }
 
     #ifdef _ENABLE_DB
-    if (! db_pool) db_pool = cache_alloc((void (*)(void *)) dbpool_close);
+    if (! db_pool) db_pool = map_alloc((void *(*)(void *)) dbpool_close);
     #endif
 
     #ifdef _ENABLE_SSL
-    if (! ssl_ctx) ssl_ctx = cache_alloc((void (*)(void *)) SSL_CTX_free);
+    if (! ssl_ctx) ssl_ctx = map_alloc((void *(*)(void *)) SSL_CTX_free);
     #endif
 
     /* the configuration file is valid, process it */
@@ -817,10 +817,10 @@ private int config_process(const char *config, size_t len)
 
 _err_cnf:
     #ifdef _ENABLE_SSL
-    ssl_ctx = cache_free(ssl_ctx);
+    ssl_ctx = map_free(ssl_ctx);
     #endif
     #ifdef _ENABLE_DB
-    db_pool = cache_free(db_pool);
+    db_pool = map_free(db_pool);
     #endif
 _err_val:
     xmlFreeDtd(dtd);

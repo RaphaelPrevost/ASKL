@@ -41,7 +41,7 @@
             <option name="plugin_name" value="xxxx" /-->
             <option name="destination" value="server" />
             <option name="server_host" value="127.0.0.1" />
-            <option name="server_port" value="9099" />
+            <option name="server_port" value="8888" />
             <option name="master_host[1]" value="127.0.0.1" />
             <option name="master_port[1]" value="3001" />
             <!--option name="filter_hook" value="plugin:function" /-->

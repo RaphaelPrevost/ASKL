@@ -48,7 +48,7 @@ static void *_db_open_mysql(const char *user, const char *pwd, const char *db,
 {
     MYSQL *c = NULL;
 
-    my_bool enabled = 1;
+    int enabled = 1; /* XXX my_bool type has been removed by MySQL */
 
     if (! (c = mysql_init(NULL)) ) {
         fprintf(stderr, "db_open(): mysql_init() failed!\n");
@@ -64,8 +64,11 @@ static void *_db_open_mysql(const char *user, const char *pwd, const char *db,
     npflags |= CLIENT_MULTI_RESULTS;
 
     if (! mysql_real_connect(c, host, user, pwd, db, port, NULL, npflags)) {
-        fprintf(stderr,
-                ERR(db_open, mysql_real_connect)": %s\n", mysql_error(c));
+        fprintf(
+            stderr,
+            ERR(db_open, mysql_real_connect)": %s\n",
+            mysql_error(c)
+        );
         mysql_close(c);
         return NULL;
     }
@@ -89,17 +92,22 @@ static int __db_sql_mysql(m_db *con, m_recordset *r, const char *query_text,
     while (mysql_more_results(con->_con)) {
         mysql_free_result(mysql_use_result(con->_con));
         if (mysql_next_result(con->_con) > 0) {
-            fprintf(stderr,
-                    ERR(_db_sql, mysql_next_result)": %s\n",
-                    mysql_error(con->_con));
+            fprintf(
+                stderr,
+                ERR(_db_sql, mysql_next_result)": %s\n",
+                mysql_error(con->_con)
+            );
             return -1;
         }
     }
 
     /* perform the query */
     if (mysql_real_query(con->_con, query_text, query_size)) {
-        fprintf(stderr,
-                ERR(_db_sql, mysql_query)": %s\n", mysql_error(con->_con));
+        fprintf(
+            stderr,
+            ERR(_db_sql, mysql_query)": %s\n",
+            mysql_error(con->_con)
+        );
         return -1;
     }
 
@@ -107,9 +115,11 @@ static int __db_sql_mysql(m_db *con, m_recordset *r, const char *query_text,
     if (! (set = mysql_store_result(con->_con)) ) {
         /* the query does not generate results, or an error occured */
         if (mysql_errno(con->_con)) {
-            fprintf(stderr,
-                    ERR(_db_sql, mysql_store_result)": %s\n",
-                    mysql_error(con->_con));
+            fprintf(
+                stderr,
+                ERR(_db_sql, mysql_store_result)": %s\n",
+                mysql_error(con->_con)
+            );
             return -1;
         }
     }
@@ -220,13 +230,21 @@ static int __db_sql_sqlite(m_db *con, m_recordset *r, const char *query_text,
     char **res = NULL, *err = NULL;
     int ret = 0;
 
-    ret = sqlite3_get_table(con->_con, query_text, & res,
-                            (int *) & r->rows, (int *) & r->cols, & err);
+    ret = sqlite3_get_table(
+        con->_con,
+        query_text,
+        & res,
+        (int *) & r->rows,
+        (int *) & r->cols,
+        & err
+    );
 
     if (ret != SQLITE_OK) {
-        fprintf(stderr,
-                ERR(_db_sql, sqlite3_get_table)": %s\n",
-                err);
+        fprintf(
+            stderr,
+            ERR(_db_sql, sqlite3_get_table)": %s\n",
+            err
+        );
         sqlite3_free(err);
         return -1;
     }
@@ -539,8 +557,11 @@ static m_recordset *_db_sql(m_db *con, const char *query, va_list params)
     }
 
     #ifdef DEBUG_SQL
-    fprintf(stderr, "_db_sql(): processing the request: %.*s\n",
-            query_size, query_text);
+    fprintf(
+        stderr,
+        "_db_sql(): processing the request: %.*s\n",
+        (int) query_size, query_text
+    );
     #endif
 
     /* ensure atomicity */
@@ -789,13 +810,13 @@ public m_dbpool *dbpool_open(int drv, unsigned int n, const char *user,
 
     do {
         connection = db_open(drv, user, pwd, db, host, port, npflags);
-        ret = queue_add(pool->_pool, connection);
+        ret = queue_enqueue(pool->_pool, connection);
     } while (n -- && connection && ret != -1);
 
     if (ret == -1 || ! connection) {
         debug("dbpool_open(): error filling the pool.\n");
         db_close(pool->_safe);
-        queue_free_nodes(pool->_pool, (void (*)(void *)) db_close);
+        queue_free_nodes(pool->_pool, (void *(*)(void *)) db_close);
         pool->_pool = queue_free(pool->_pool);
         free(pool);
         return NULL;
@@ -815,7 +836,7 @@ public m_db *dbpool_borrow(m_dbpool *pool)
         return NULL;
     }
 
-    if (! (con = queue_get(pool->_pool)) )
+    if (! (con = queue_pop(pool->_pool)) )
         return pool->_safe;
 
     return con;
@@ -829,7 +850,7 @@ public m_db *dbpool_return(m_dbpool *pool, m_db *connection)
 
     if (connection == pool->_safe) return NULL;
 
-    if (queue_add(pool->_pool, connection) == -1) {
+    if (queue_enqueue(pool->_pool, connection) == -1) {
         debug("dbpool_return(): failed to return the connection!\n");
         return NULL;
     }
@@ -844,7 +865,7 @@ public m_dbpool *dbpool_close(m_dbpool *pool)
     if (! pool) return NULL;
 
     /* destroy the connections pool and the safe connection */
-    queue_free_nodes(pool->_pool, (void (*)(void *)) db_close);
+    queue_free_nodes(pool->_pool, (void *(*)(void *)) db_close);
     queue_free(pool->_pool);
     db_close(pool->_safe);
 

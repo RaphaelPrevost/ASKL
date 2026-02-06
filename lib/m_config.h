@@ -1,6 +1,6 @@
 /*******************************************************************************
- *  Concrete Server                                                            *
- *  Copyright (c) 2005-2019 Raphael Prevost <raph@el.bzh>                      *
+ *  ASKL.                                                                      *
+ *  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                           *
  *                                                                             *
  *  This software is a computer program whose purpose is to provide a          *
  *  framework for developing and prototyping network services.                 *
@@ -39,15 +39,15 @@
 
 #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
 
-#include "m_core_def.h"
-#include "m_server.h"
+#include "askl.h"
+#include "askl_server.h"
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <libxml/valid.h>
 
 #if  defined(_ENABLE_DB) || defined(_ENABLE_SSL)
 #ifndef _ENABLE_HASHTABLE
-    #error "Concrete: the configuration module requires the builtin hashtable."
+    #error "ASKL: the configuration module requires the builtin hashtable."
 #endif
 #ifdef _ENABLE_DB
 #include "m_db.h"
@@ -62,7 +62,7 @@
 
 /* -------------------------------------------------------------------------- */
 
-private int configure(const char *path, const char *configfile);
+INTERNAL int configure(const char *path, const char *configfile);
 
 /**
  * @ingroup config
@@ -71,7 +71,7 @@ private int configure(const char *path, const char *configfile);
  * @param configfile the name of the configuration file
  * @return 0 if everything went fine, -1 otherwise
  *
- * This function loads the Concrete XML configuration file, validates it
+ * This function loads the naer XML configuration file, validates it
  * against the DTD and applies the configuration.
  *
  * This function is private and should only be called by Concrete.
@@ -80,11 +80,11 @@ private int configure(const char *path, const char *configfile);
 
 /* -------------------------------------------------------------------------- */
 
-public void config_force_profile(int profile);
+ASKL_API void config_force_profile(int profile);
 
 /* -------------------------------------------------------------------------- */
 
-private void configure_cleanup(void);
+INTERNAL void configure_cleanup(void);
 
 /**
  * @ingroup config
@@ -96,7 +96,7 @@ private void configure_cleanup(void);
 
 /* -------------------------------------------------------------------------- */
 
-public unsigned int config_get_concurrency(void);
+ASKL_API unsigned int config_get_concurrency(void);
 
 /**
  * @ingroup config
@@ -123,7 +123,7 @@ public m_dbpool *config_get_db(const char *id);
 
 #ifdef _ENABLE_SSL
 
-private SSL_CTX *config_get_ssl(unsigned int id);
+INTERNAL SSL_CTX *config_get_ssl(unsigned int id);
 
 /**
  * @ingroup config
@@ -136,7 +136,7 @@ private SSL_CTX *config_get_ssl(unsigned int id);
 
 /* -------------------------------------------------------------------------- */
 
-private int config_process(const char *config, size_t len);
+INTERNAL int config_process(const char *config, size_t len);
 
 /**
  * @ingroup config
