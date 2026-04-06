@@ -170,11 +170,12 @@ static int _probe(Map *h, unsigned int i, _Item *new, int replace)
                NUL terminator of the key to inspect them */
             if (! memcmp(new->key.str, slot->key.str, new->key.len + 1)) {
                 if (unlikely(! slot->key.len)) {
+                    if (replace == CREATE_ONLY) return INT_MAX;
                     if (unlikely(replace == MODIFY_ONLY)) return -1;
                     /* resurrect the key */
                     slot->key.len = new->key.len;
                     slot->val = variant_null();
-                }
+                } else if (replace == CREATE_ONLY) return -1;
                 /* replace */
                 return 1;
             }
@@ -404,6 +405,13 @@ static inline Variant _insert(
         lock_wrlock, lock_wrlock, lock_rdlock
     };
 
+    #ifdef DEBUG
+    if (unlikely(len >= UINT16_MAX)) {
+        debug("_insert(): key is too long.\n");
+        return val;
+    }
+    #endif
+
     /* replace the key by a dynamically allocated one */
     if (! (bucket = malloc(sizeof(*bucket) + len + 1)) ) {
         perror(ERR(_insert, malloc));
@@ -421,11 +429,8 @@ static inline Variant _insert(
     if (! _set_item(h, & bucket->item, replace, & val, on_insert, on_update)) {
         bucket->next = h->_index; h->_index = bucket;
         val = variant_null();
-    } else free(bucket);
-
-    /* try to expand the hashtable if the load is too important */
-    if (h->_basket && h->_basket->ptr)
         _resize(h, h->_bucket_size + 1);
+    } else free(bucket);
 
     lock_unlock(h->_lock);
 
@@ -589,6 +594,13 @@ static _Item *_get_item(Map *h, const char *k, size_t l, Variant *v)
     uintptr_t h0, hash, mask = h->_bucket_size - 1;
     _Item *ptr = NULL;
 
+    #ifdef DEBUG
+    if (unlikely(l >= UINT16_MAX)) {
+        debug("_get_item(): key is too long.\n");
+        return NULL;
+    }
+    #endif
+
     h0 = hash = _hash(k, l, h->_seed[0]);
     #if (UINTPTR_MAX == 0xffffffffffffffffULL)
     PREFETCH(& h->_bucket[(hash >> 32) & mask], 0, L1_CACHE);
@@ -711,6 +723,11 @@ ASKL_API int map_merge(
         return -1;
     }
 
+    if (unlikely(dest == src)) {
+        debug("map_merge(): source and destination are the same map.\n");
+        return -1;
+    }
+
     /* pry both maps open */
     if (lock_wrlock(dest->_lock) == -1) return -1;
     if (lock_wrlock(src->_lock) == -1) {
@@ -790,9 +807,10 @@ ASKL_API int map_sort(
     unsigned int order,
     int (*cmp)(
         const char *key0,
-        const char *key1,
-        size_t len,
+        size_t len0,
         Variant value0,
+        const char *key1,
+        size_t len1,
         Variant value1
     )
 )
@@ -826,13 +844,17 @@ ASKL_API int map_sort(
                 if (l[1] && c[1]) {
 
                     if (c[0]) {
+                        int res = 0;
+
                         a = & l[0]->item;
                         b = & l[1]->item;
-                        i = (a->key.len < b->key.len) ? a->key.len : b->key.len;
-                        if (cmp(a->key.str, b->key.str, i, a->val, b->val) <= 0)
-                            i = 0 + order;
-                        else
-                            i = 1 - order;
+
+                        res = cmp(
+                            a->key.str, a->key.len, a->val,
+                            b->key.str, b->key.len, b->val
+                        );
+
+                        i = (order == MAP_ASC) ? (res > 0) : (res < 0);
                     } else i = 1; /* 1st list is empty */
 
                 } else i = 0; /* 2nd list is empty */
@@ -859,13 +881,20 @@ ASKL_API int map_sort(
 
 ASKL_API int map_sort_keys(
     const char *key0,
-    const char *key1,
-    size_t l,
+    size_t len0,
     UNUSED Variant val0,
+    const char *key1,
+    size_t len1,
     UNUSED Variant val1
 )
 {
-    return memcmp(key0, key1, l);
+    int ret;
+    size_t len = (len0 < len1) ? len0 : len1;
+
+    if ( (ret = memcmp(key0, key1, len)) )
+        return ret;
+
+    return (len0 > len1) - (len0 < len1);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1073,7 +1102,7 @@ ASKL_API Map_Iterator *map_at(Map *h, const char *key, size_t len)
     Map_Iterator *iterator = NULL;
     uint8_t *ptr = NULL;
 
-    if (! h) {
+    if (! h || ! key || ! len) {
         debug("map_at(): bad parameters.\n");
         return NULL;
     }

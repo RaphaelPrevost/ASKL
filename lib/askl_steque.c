@@ -89,12 +89,12 @@ ASKL_API Queue *queue_alloc(void)
         return NULL;
     }
 
-    if (pthread_mutex_init(& ret->_head_lock, NULL) == -1) {
+    if (pthread_mutex_init(& ret->_head_lock, NULL)) {
         perror(ERR(queue_alloc, pthread_mutex_init));
         goto _err_head_lock;
     }
 
-    if (pthread_mutex_init(& ret->_tail_lock, NULL) == -1) {
+    if (pthread_mutex_init(& ret->_tail_lock, NULL)) {
         perror(ERR(queue_alloc, pthread_mutex_init));
         goto _err_tail_lock;
     }
@@ -106,7 +106,7 @@ ASKL_API Queue *queue_alloc(void)
     pthread_condattr_setclock(& attr, CLOCK_MONOTONIC);
     #endif
 
-    if (pthread_cond_init(& ret->_empty, & attr) == -1) {
+    if (pthread_cond_init(& ret->_empty, & attr)) {
         perror(ERR(queue_alloc, pthread_cond_init));
         goto _err_cond_init;
     }

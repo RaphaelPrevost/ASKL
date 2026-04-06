@@ -85,7 +85,7 @@ static ssize_t _socket_ssl_read(Socket *s, char *out, size_t len);
 
 ASKL_API int socket_api_init(void)
 {
-    if (pthread_rwlock_init(& _socket_lock, NULL) == -1) {
+    if (pthread_rwlock_init(& _socket_lock, NULL)) {
         perror(ERR(socket_api_init, pthread_rwlock_init));
         return -1;
     }
@@ -752,14 +752,14 @@ _skip_fd:
         goto _err_init;
     }
 
-    if (pthread_mutex_init(new->_lock, NULL) == -1) {
+    if (pthread_mutex_init(new->_lock, NULL)) {
         perror(ERR(socket_open, pthread_mutex_init));
         goto _err_lock;
     }
 
     new->_cond = (void *) (((char *) new->_lock) + sizeof(*new->_lock));
 
-    if (pthread_cond_init(new->_cond, NULL) == -1) {
+    if (pthread_cond_init(new->_cond, NULL)) {
         perror(ERR(socket_open, pthread_cond_init));
         goto _err_cond;
     }
@@ -1383,12 +1383,12 @@ ASKL_API Socket_Queue *socket_queue_alloc(void)
 
     ret->_head_index = ret->_tail_index = 0;
 
-    if (pthread_mutex_init(& ret->_head_lock, NULL) == -1) {
+    if (pthread_mutex_init(& ret->_head_lock, NULL)) {
         perror(ERR(socket_queue_alloc, pthread_mutex_init));
         goto _err_head_lock;
     }
 
-    if (pthread_mutex_init(& ret->_tail_lock, NULL) == -1) {
+    if (pthread_mutex_init(& ret->_tail_lock, NULL)) {
         perror(ERR(socket_queue_alloc, pthread_mutex_init));
         goto _err_tail_lock;
     }
@@ -1400,7 +1400,7 @@ ASKL_API Socket_Queue *socket_queue_alloc(void)
     pthread_condattr_setclock(& attr, CLOCK_MONOTONIC);
     #endif
 
-    if (pthread_cond_init(& ret->_empty, & attr) == -1) {
+    if (pthread_cond_init(& ret->_empty, & attr)) {
         perror(ERR(socket_queue_alloc, pthread_cond_init));
         goto _err_cond_init;
     }

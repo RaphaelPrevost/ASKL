@@ -491,9 +491,10 @@ ASKL_API int map_sort(
     unsigned int order,
     int (*cmp)(
         const char *,
-        const char *,
         size_t,
         Variant,
+        const char *,
+        size_t,
         Variant
     )
 );
@@ -501,8 +502,8 @@ ASKL_API int map_sort(
 /**
  * @ingroup map
  * @fn int map_sort(Map *h, unsigned int order,
- *                  int (*cmp)(const char *, const char *, size_t,
- *                             Variant, Variant))
+ *                  int (*cmp)(const char *, size_t, Variant,
+ *                             const char *, size_t, Variant))
  * @param h     a pointer to a map
  * @param order sort order: @ref MAP_ASC or @ref MAP_DESC
  * @param cmp   comparison callback
@@ -513,7 +514,7 @@ ASKL_API int map_sort(
  *
  * The comparator receives:
  *  - @p key0, @p key1: pointers to NUL-terminated keys;
- *  - @p len:           length of the shorter key in bytes;
+ *  - @p len0, @p len1: length of the keys in bytes;
  *  - @p value0, @p value1: associated values.
  *
  * It must return:
@@ -536,26 +537,27 @@ ASKL_API int map_sort(
 
 ASKL_API int map_sort_keys(
     const char *key0,
-    const char *key1,
-    size_t l,
+    size_t len0,
     UNUSED Variant val0,
+    const char *key1,
+    size_t len1,
     UNUSED Variant val1
 );
 
 /**
  * @ingroup map
- * @fn int map_sort_keys(const char *key0, const char *key1, size_t l,
- *                       variant val0, variant val1)
+ * @fn int map_sort_keys(const char *key0, size_t len0, Variant val0,
+ *                       const char *key1, size_t len1, Variant val1)
  * @param key0 first key
- * @param key1 second key
- * @param l    number of bytes to compare
+ * @param len0 first key length
  * @param val0 unused
+ * @param key1 second key
+ * @param len1 second key length
  * @param val1 unused
  * @return an integer less than, equal to, or greater than zero
  *
- * This is a convenience comparator suitable for use with @ref map_sort().
- * It performs a simple @c memcmp() of the first @p l bytes of @p key0 and
- * @p key1 and ignores the values.
+ * This is a convenience comparator suitable for use with @ref map_sort(),
+ * it compares @p key0 and @p key1 lexicographically and ignores the values.
  */
 
 /* -------------------------------------------------------------------------- */

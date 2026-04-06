@@ -117,7 +117,7 @@ ASKL_API int string_parse_json(String *s, char strict, JSON_Parser *ctx);
  * - leading decimal point,
  * - leading plus sign,
  * - NaN, Infinity, -Infinity.
- * 
+ *
  * This function tokenizes the input and checks for correctness but will not
  * interpret the data. This task is left to the parser. The builtin parser
  * performs UTF-8 validation, escape sequences conversions and turns JSON

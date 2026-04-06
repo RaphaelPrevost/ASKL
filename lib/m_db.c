@@ -509,7 +509,7 @@ public m_db *db_open(int drv, const char *user, const char *pwd, const char *db,
         goto _err_init;
     }
 
-    if (pthread_mutex_init(ret->_lock, NULL) == -1) {
+    if (pthread_mutex_init(ret->_lock, NULL)) {
         perror(ERR(db_open, pthread_mutex_init));
         free(ret->_lock);
         goto _err_init;

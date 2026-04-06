@@ -374,14 +374,14 @@ _try_again:
         goto _err_lock;
     }
 
-    if (pthread_mutex_init(new->_lock, NULL) != 0) {
+    if (pthread_mutex_init(new->_lock, NULL)) {
         perror(ERR(_fs_openfile, pthread_mutex_init));
         goto _err_lck2;
     }
 
     new->_cond = (void *) (((char *) new->_lock) + sizeof(*new->_lock));
 
-    if (pthread_cond_init(new->_cond, NULL) != 0) {
+    if (pthread_cond_init(new->_cond, NULL)) {
         perror(ERR(_fs_openfile, pthread_cond_init));
         goto _err_cond;
     }
@@ -391,7 +391,7 @@ _try_again:
         goto _err_rwlk;
     }
 
-    if (pthread_rwlock_init(new->_rwlock, NULL) == -1) {
+    if (pthread_rwlock_init(new->_rwlock, NULL)) {
         perror(ERR(_fs_openfile, pthread_rwlock_init));
         goto _err_rwl2;
     }
@@ -725,14 +725,14 @@ static int _fs_map(m_view *v, const char *p, size_t l, String *data, int r)
         goto _err_lock;
     }
 
-    if (pthread_mutex_init(new->_lock, NULL) != 0) {
+    if (pthread_mutex_init(new->_lock, NULL)) {
         perror(ERR(_fs_map, pthread_mutex_init));
         goto _err_lck2;
     }
 
     new->_cond = (void *) (((char *) new->_lock) + sizeof(*new->_lock));
 
-    if (pthread_cond_init(new->_cond, NULL) != 0) {
+    if (pthread_cond_init(new->_cond, NULL)) {
         perror(ERR(_fs_map, pthread_cond_init));
         goto _err_cond;
     }
@@ -742,7 +742,7 @@ static int _fs_map(m_view *v, const char *p, size_t l, String *data, int r)
         goto _err_rwlk;
     }
 
-    if (pthread_rwlock_init(new->_rwlock, NULL) == -1) {
+    if (pthread_rwlock_init(new->_rwlock, NULL)) {
         perror(ERR(_fs_map, pthread_rwlock_init));
         goto _err_rwl2;
     }

@@ -150,12 +150,12 @@ INTERNAL RW_Lock *lock_alloc(void)
 
 INTERNAL int lock_init(RW_Lock *lock)
 {
-    if (pthread_mutex_init(& lock->mutex, NULL) == -1) {
+    if (pthread_mutex_init(& lock->mutex, NULL)) {
         perror(ERR(lock_init, pthread_mutex_init));
         return -1;
     }
 
-    if (pthread_cond_init(& lock->cond, NULL) == -1) {
+    if (pthread_cond_init(& lock->cond, NULL)) {
         perror(ERR(lock_init, pthread_cond_init));
         goto _err_cond;
     }
@@ -228,12 +228,13 @@ INTERNAL int lock_wrlock(RW_Lock *lock)
 
     pthread_mutex_lock(& lock->mutex);
 
+        _LOCKWFLAG_SET(lock, 1);
+
         #ifdef HAS_ATOMICS
         while (1) {
         #endif
             /* wait for unlock */
             while ( (x = _LOCKSTATE_GET(lock)) != UNLOCKED) {
-                _LOCKWFLAG_SET(lock, 1);
                 if (unlikely(x == -1)) {
                     ret = -1; goto _err_lock;
                 }
@@ -246,12 +247,13 @@ INTERNAL int lock_wrlock(RW_Lock *lock)
             #else
             _LOCKSTATE_SET(lock, 0);
             #endif
-            _LOCKWFLAG_SET(lock, 0);
         #ifdef HAS_ATOMICS
         }
         #endif
 
 _err_lock:
+        _LOCKWFLAG_SET(lock, 0);
+
     pthread_mutex_unlock(& lock->mutex);
 
     return ret;
@@ -292,7 +294,7 @@ static int _cooperate(RW_Lock *lock)
                 if (_LOCKSTATE_CAS(lock, state, state + LOCKSTEP))
                     return 0;
             } else if (unlikely(state == -1)) return -1;
-            usleep(1);
+            sched_yield();
         }
         #else
         _LOCKSTATE_INC(lock);
@@ -323,7 +325,7 @@ INTERNAL int lock_upgrade(RW_Lock *lock)
                 while (! _LOCKSTATE_CAS(lock, CLAIMANT, UPGRADED)) {
                     if (unlikely(_LOCKSTATE_GET(lock) == -1))
                         return -1;
-                    usleep(1);
+                    sched_yield();
                 }
                 return 0;
             }
