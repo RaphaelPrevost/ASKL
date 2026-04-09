@@ -166,18 +166,15 @@ static int _probe(Map *h, unsigned int i, _Item *new, int replace)
     if (replace >= 0 && unlikely(GET_TAG(h->_bucket[i]) == HASHTAG(new->ptr))) {
         _Item *slot = GET_PTR(h->_bucket[i]);
         if (new->ptr == slot->ptr) {
-            /* XXX tombstones have a zero length but we can rely on the
-               NUL terminator of the key to inspect them */
-            if (! memcmp(new->key.str, slot->key.str, new->key.len + 1)) {
-                if (unlikely(! slot->key.len)) {
-                    if (replace == CREATE_ONLY) return INT_MAX;
-                    if (unlikely(replace == MODIFY_ONLY)) return -1;
-                    /* resurrect the key */
-                    slot->key.len = new->key.len;
-                    slot->val = variant_null();
-                } else if (replace == CREATE_ONLY) return -1;
-                /* replace */
-                return 1;
+            if (new->key.len == slot->key.len) {
+                if (! memcmp(new->key.str, slot->key.str, slot->key.len)) {
+                    if (replace == CREATE_ONLY) {
+                        new->val = slot->val;
+                        return -1;
+                    }
+                    /* update */
+                    return 1;
+                }
             }
         }
     }
@@ -254,8 +251,13 @@ _loop:  index = hash & mask;
     if (replace != REHASH_ONLY) {
         for (slot = h->_basket; slot; slot = slot->ptr) {
             if (likely(item->key.len == slot->key.len)) {
-                if (! memcmp(item->key.str, slot->key.str, item->key.len))
+                if (! memcmp(item->key.str, slot->key.str, item->key.len)) {
+                    if (replace == CREATE_ONLY) {
+                        item->val = slot->val;
+                        goto _failure;
+                    }
                     goto _replace;
+                }
             }
         }
 
@@ -802,75 +804,158 @@ ASKL_API void map_foreach(Map *h, int (*f)(const char *, size_t, Variant))
 
 /* -------------------------------------------------------------------------- */
 
+static inline _Bucket *_select_run(
+    _Bucket **src,
+    _Bucket **run_tail,
+    _Bucket ***tombstones,
+    unsigned int order,
+    int (*cmp)(
+        const char *, size_t, Variant,
+        const char *, size_t, Variant
+    )
+)
+{
+    _Bucket *head = NULL, *tail = NULL, *cur;
+    _Bucket **link = & head;
+
+    while ( (cur = *src) ) {
+        if (unlikely(! cur->item.key.len)) {
+            **tombstones = cur;
+            *tombstones = & cur->next;
+            *src = cur->next;
+            cur->next = NULL;
+            continue;
+        }
+
+        if (tail) {
+            int res = cmp(
+                tail->item.key.str, tail->item.key.len, tail->item.val,
+                cur->item.key.str, cur->item.key.len, cur->item.val
+            );
+
+            if (res && ((res > 0) ^ order))
+                break;
+        }
+
+        *link = tail = cur;
+        link = & cur->next;
+        *src = cur->next;
+    }
+
+    if ( (*run_tail = tail) )
+        tail->next = NULL;
+
+    return head;
+}
+
+/* -------------------------------------------------------------------------- */
+
 ASKL_API int map_sort(
     Map *h,
     unsigned int order,
     int (*cmp)(
-        const char *key0,
-        size_t len0,
-        Variant value0,
-        const char *key1,
-        size_t len1,
-        Variant value1
+        const char *, size_t, Variant,
+        const char *, size_t, Variant
     )
 )
 {
-    _Bucket *l[2] = { NULL, NULL }, *bucket = NULL, *tail = NULL;
-    unsigned int size = 1, merge = 0, i = 0;
-    _Item *a = NULL, *b = NULL;
-    unsigned int c[2] = { 0, 0 };
+    _Bucket *dead_head = NULL, *live_tail = NULL;
+    _Bucket **tombstones = & dead_head;
+    int did_merge;
 
-    if (! h || ! cmp || (order != MAP_ASC && order != MAP_DESC) ) {
+    if (! h || ! cmp || (order != MAP_ASC && order != MAP_DESC)) {
         debug("map_sort(): bad parameters.\n");
         return -1;
     }
 
     if (lock_wrlock(h->_lock) == -1) return -1;
 
-    /* simple merge sort */
     do {
-        l[0] = h->_index; h->_index = NULL; tail = NULL;
+        _Bucket *res_head = NULL, *res_tail = NULL, *cur = h->_index;
 
-        for (merge = 0; (l[1] = l[0]); merge ++, l[0] = l[1]) {
+        did_merge = 0;
 
-            /* split the table in 2 sorted lists */
-            for (c[0] = 0; c[0] < size; c[0] ++) {
-                if (! (l[1] = l[1]->next) ) { c[0] ++; break; }
+        while (cur) {
+            _Bucket *run[2], *tail[2], *merged, *merged_tail;
+            int boundary;
+
+            run[0] = _select_run(& cur, & tail[0], & tombstones, order, cmp);
+            if (! run[0]) break;
+
+            run[1] = _select_run(& cur, & tail[1], & tombstones, order, cmp);
+            if (! run[1]) {
+                if (res_tail)
+                    res_tail->next = run[0];
+                else
+                    res_head = run[0];
+                res_tail = tail[0];
+                break;
             }
 
-            /* merge these lists */
-            for (c[1] = size; c[0] || (l[1] && c[1]); tail = bucket) {
+            /* fast path: check boundary between run 0 tail and run 1 head */
+            boundary = cmp(
+                tail[0]->item.key.str, tail[0]->item.key.len, tail[0]->item.val,
+                run[1]->item.key.str, run[1]->item.key.len, run[1]->item.val
+            );
 
-                if (l[1] && c[1]) {
+            if (! boundary || ((boundary < 0) ^ order)) {
+                tail[0]->next = run[1];
+                merged = run[0];
+                merged_tail = tail[1];
+            } else {
+                /* check boundary between run 1 tail and run 0 head */
+                boundary = cmp(
+                    tail[1]->item.key.str, tail[1]->item.key.len, tail[1]->item.val,
+                    run[0]->item.key.str, run[0]->item.key.len, run[0]->item.val
+                );
 
-                    if (c[0]) {
-                        int res = 0;
+                if (boundary && ((boundary < 0) ^ order)) {
+                    tail[1]->next = run[0];
+                    merged = run[1];
+                    merged_tail = tail[0];
+                } else {
+                    _Bucket *merged_head, *a = run[0], *b = run[1];
+                    _Bucket **mlink = & merged_head;
 
-                        a = & l[0]->item;
-                        b = & l[1]->item;
-
-                        res = cmp(
-                            a->key.str, a->key.len, a->val,
-                            b->key.str, b->key.len, b->val
+                    /* merge both runs */
+                    while (a && b) {
+                        _Bucket **pick;
+                        int res = cmp(
+                            a->item.key.str, a->item.key.len, a->item.val,
+                            b->item.key.str, b->item.key.len, b->item.val
                         );
 
-                        i = (order == MAP_ASC) ? (res > 0) : (res < 0);
-                    } else i = 1; /* 1st list is empty */
+                        /* pick a side and preserve stability */
+                        pick = ((order) ? (res >= 0) : (res <= 0)) ? & a : & b;
 
-                } else i = 0; /* 2nd list is empty */
+                        *mlink = *pick;
+                        mlink = & (*pick)->next;
+                        *pick = (*pick)->next;
+                    }
 
-                bucket = l[i];
-
-                if (tail) tail->next = bucket;
-                else h->_index = bucket;
-
-                l[i] = l[i]->next; c[i] --;
+                    *mlink = (a) ? a : b;
+                    merged = merged_head;
+                    merged_tail = (a) ? tail[0] : tail[1];
+                }
             }
+
+            did_merge = 1;
+
+            if (res_tail)
+                res_tail->next = merged;
+            else
+                res_head = merged;
+            res_tail = merged_tail;
         }
 
-        if (tail) tail->next = NULL; size <<= 1;
+        h->_index = res_head;
+        live_tail = res_tail;
+    } while (did_merge);
 
-    } while (merge > 1);
+    if (live_tail)
+        live_tail->next = dead_head;
+    else
+        h->_index = dead_head;
 
     lock_unlock(h->_lock);
 

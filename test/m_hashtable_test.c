@@ -55,6 +55,448 @@ static Variant _merge(
 }
 
 /* -------------------------------------------------------------------------- */
+/* Test: Random differential torture test                                     */
+/* -------------------------------------------------------------------------- */
+
+#define DIFF_KEY_UNIVERSE   256
+#define DIFF_OPS            100000
+#define DIFF_MAX_KEYLEN     16
+
+typedef struct {
+    unsigned char bytes[DIFF_MAX_KEYLEN];
+    size_t len;
+} diff_key_t;
+
+typedef struct {
+    unsigned char *key;
+    size_t len;
+    uint64_t value;
+    int alive;
+} diff_ref_t;
+
+static diff_key_t _diff_keys[DIFF_KEY_UNIVERSE];
+static diff_ref_t _diff_ref[DIFF_KEY_UNIVERSE];
+
+static int _diff_sort_desc = 0;
+
+static int _bytes_cmp(const unsigned char *a, size_t alen,
+                      const unsigned char *b, size_t blen)
+{
+    size_t n = (alen < blen) ? alen : blen;
+    int r = memcmp(a, b, n);
+    if (r) return r;
+    return (alen > blen) - (alen < blen);
+}
+
+static int _diff_ref_cmp_qsort(const void *pa, const void *pb)
+{
+    const diff_ref_t *a = *(const diff_ref_t * const *) pa;
+    const diff_ref_t *b = *(const diff_ref_t * const *) pb;
+    int r = _bytes_cmp(a->key, a->len, b->key, b->len);
+    return _diff_sort_desc ? -r : r;
+}
+
+static void _diff_init_keys(void)
+{
+    for (int i = 0; i < DIFF_KEY_UNIVERSE; i ++) {
+        size_t len = 4 + (rand() % (DIFF_MAX_KEYLEN - 3));
+        _diff_keys[i].len = len;
+
+        /* nasty prefix: repeated prefixes + embedded NULs */
+        _diff_keys[i].bytes[0] = (unsigned char) ('A' + (i % 8));
+        _diff_keys[i].bytes[1] = (unsigned char) ((i % 5) ? 0 : 'x');
+
+        for (size_t j = 2; j < len - 2; j ++) {
+            unsigned char byte;
+            if ((rand() % 5) == 0) byte = 0;
+            else byte = (unsigned char) (rand() & 0xff);
+            _diff_keys[i].bytes[j] = byte;
+        }
+
+        /* unique suffix: encodes i, guarantees uniqueness */
+        _diff_keys[i].bytes[len - 2] = (unsigned char) (i & 0xff);
+        _diff_keys[i].bytes[len - 1] = (unsigned char) ((i >> 8) & 0xff);
+
+        _diff_ref[i].key = _diff_keys[i].bytes;
+        _diff_ref[i].len = _diff_keys[i].len;
+        _diff_ref[i].value = 0;
+        _diff_ref[i].alive = 0;
+    }
+}
+
+static int _diff_ref_live_count(void)
+{
+    int n = 0;
+    for (int i = 0; i < DIFF_KEY_UNIVERSE; i ++)
+        if (_diff_ref[i].alive) n ++;
+    return n;
+}
+
+static int _diff_ref_match(const char *key, size_t len)
+{
+    for (int i = 0; i < DIFF_KEY_UNIVERSE; i ++) {
+        if (_diff_ref[i].alive &&
+            _diff_ref[i].len == len &&
+            memcmp(_diff_ref[i].key, key, len) == 0)
+            return i;
+    }
+    return -1;
+}
+
+static int _diff_validate_membership(Map *h)
+{
+    int seen[DIFF_KEY_UNIVERSE] = { 0 };
+    int count = 0;
+
+    for (Map_Iterator *it = map_each(h); it; it = map_next(it)) {
+        int idx = _diff_ref_match(it->key, it->len);
+        if (idx < 0) {
+            printf("(!) Differential test: iterator returned unknown key\n");
+            map_break(it);
+            return -1;
+        }
+        if (seen[idx]) {
+            printf("(!) Differential test: duplicate key in iteration\n");
+            map_break(it);
+            return -1;
+        }
+        seen[idx] = 1;
+        count ++;
+
+        if (! is_integer(it->val) ||
+            variant_to_integer(it->val) != _diff_ref[idx].value) {
+            printf("(!) Differential test: value mismatch in iteration\n");
+            map_break(it);
+            return -1;
+        }
+    }
+
+    if (count != _diff_ref_live_count()) {
+        printf("(!) Differential test: live-count mismatch (%d vs %d)\n",
+               count, _diff_ref_live_count());
+        return -1;
+    }
+
+    /* verify point lookups too */
+    for (int i = 0; i < DIFF_KEY_UNIVERSE; i ++) {
+        Variant v = map_get(
+            h,
+            (const char *) _diff_keys[i].bytes,
+            _diff_keys[i].len
+        );
+        int has = map_has(
+            h,
+            (const char *) _diff_keys[i].bytes,
+            _diff_keys[i].len
+        );
+
+        if (_diff_ref[i].alive) {
+            if (! is_integer(v) || variant_to_integer(v) != _diff_ref[i].value) {
+                printf("(!) Differential test: lookup mismatch on live key %d\n", i);
+                return -1;
+            }
+            if (! has) {
+                printf("(!) Differential test: map_has false on live key %d\n", i);
+                return -1;
+            }
+        } else {
+            if (has) {
+                printf("(!) Differential test: map_has true on dead key %d\n", i);
+                return -1;
+            }
+            if (is_integer(v)) {
+                printf("(!) Differential test: lookup returned value on dead key %d\n", i);
+                return -1;
+            }
+        }
+    }
+
+    return 0;
+}
+
+static int _diff_validate_sorted(Map *h, int desc)
+{
+    diff_ref_t *live[DIFF_KEY_UNIVERSE];
+    int n = 0, i = 0;
+
+    _diff_sort_desc = desc;
+
+    for (int k = 0; k < DIFF_KEY_UNIVERSE; k ++)
+        if (_diff_ref[k].alive)
+            live[n ++] = & _diff_ref[k];
+
+    qsort(live, n, sizeof(*live), _diff_ref_cmp_qsort);
+
+    for (Map_Iterator *it = map_each(h); it; it = map_next(it), i ++) {
+        if (i >= n) {
+            printf("(!) Differential sort test: iterator too long\n");
+            map_break(it);
+            return -1;
+        }
+
+        if (it->len != live[i]->len ||
+            memcmp(it->key, live[i]->key, it->len) != 0) {
+            printf("(!) Differential sort test: key order mismatch at %d\n", i);
+            map_break(it);
+            return -1;
+        }
+
+        if (! is_integer(it->val) ||
+            variant_to_integer(it->val) != live[i]->value) {
+            printf("(!) Differential sort test: value mismatch at %d\n", i);
+            map_break(it);
+            return -1;
+        }
+    }
+
+    if (i != n) {
+        printf("(!) Differential sort test: iterator too short (%d vs %d)\n", i, n);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int test_random_differential_map(void)
+{
+    Map *h = NULL;
+
+    printf("(-) Testing random differential torture against reference model.\n");
+
+    srand(0xC0FFEE);
+    _diff_init_keys();
+
+    h = map_alloc(NULL);
+    if (! h) {
+        printf("(!) Failed to allocate map\n");
+        return -1;
+    }
+
+    for (int op = 0; op < DIFF_OPS; op ++) {
+        int which = rand() % DIFF_KEY_UNIVERSE;
+        uint64_t newv = ((uint64_t) op << 16) ^ (uint64_t) which;
+        diff_key_t *k = & _diff_keys[which];
+        Variant got;
+
+        switch (rand() % 10) {
+            case 0:
+            case 1:
+            case 2:
+                /* set */
+                map_set(h, (const char *) k->bytes, k->len,
+                        variant_from_integer(newv));
+                _diff_ref[which].alive = 1;
+                _diff_ref[which].value = newv;
+                break;
+
+            case 3:
+                got = map_insert(h, (const char *) k->bytes, k->len,
+                                 variant_from_integer(newv));
+                if (_diff_ref[which].alive) {
+                    if (!is_integer(got) ||
+                        variant_to_integer(got) != _diff_ref[which].value) {
+                        printf("(!) Differential test: map_insert wrong existing value\n");
+                        goto _fail;
+                    }
+                } else {
+                    if (!is_null(got)) {
+                        printf("(!) Differential test: map_insert should have inserted\n");
+                        goto _fail;
+                    }
+                    _diff_ref[which].alive = 1;
+                    _diff_ref[which].value = newv;
+                }
+                break;
+
+            case 4:
+                /* update */
+                got = map_update(h, (const char *) k->bytes, k->len,
+                                 variant_from_integer(newv));
+                if (_diff_ref[which].alive) {
+                    if (! is_integer(got) ||
+                        variant_to_integer(got) != _diff_ref[which].value) {
+                        printf("(!) Differential test: map_update wrong old value\n");
+                        goto _fail;
+                    }
+                    _diff_ref[which].value = newv;
+                } else {
+                    if (! is_integer(got) ||
+                        variant_to_integer(got) != newv) {
+                        printf("(!) Differential test: map_update wrong reject on missing key\n");
+                        goto _fail;
+                    }
+                }
+                break;
+
+            case 5:
+            case 6:
+                /* remove */
+                got = map_remove(h, (const char *) k->bytes, k->len);
+                if (_diff_ref[which].alive) {
+                    if (! is_integer(got) ||
+                        variant_to_integer(got) != _diff_ref[which].value) {
+                        printf("(!) Differential test: map_remove wrong old value\n");
+                        goto _fail;
+                    }
+                    _diff_ref[which].alive = 0;
+                } else {
+                    if (is_integer(got)) {
+                        printf("(!) Differential test: map_remove returned live value for dead key\n");
+                        goto _fail;
+                    }
+                }
+                break;
+
+            case 7:
+            case 8:
+                /* get/has */
+                got = map_get(h, (const char *) k->bytes, k->len);
+                if (_diff_ref[which].alive) {
+                    if (! is_integer(got) ||
+                        variant_to_integer(got) != _diff_ref[which].value) {
+                        printf("(!) Differential test: map_get mismatch\n");
+                        goto _fail;
+                    }
+                    if (! map_has(h, (const char *) k->bytes, k->len)) {
+                        printf("(!) Differential test: map_has mismatch on live key\n");
+                        goto _fail;
+                    }
+                } else {
+                    if (map_has(h, (const char *) k->bytes, k->len)) {
+                        printf("(!) Differential test: map_has mismatch on dead key\n");
+                        goto _fail;
+                    }
+                }
+                break;
+
+            case 9:
+                /* sort */
+                if ((rand() & 1) == 0) {
+                    if (map_sort(h, MAP_ASC, map_sort_keys) == -1) {
+                        printf("(!) Differential test: map_sort asc failed\n");
+                        goto _fail;
+                    }
+                    if (_diff_validate_sorted(h, 0) == -1) goto _fail;
+                } else {
+                    if (map_sort(h, MAP_DESC, map_sort_keys) == -1) {
+                        printf("(!) Differential test: map_sort desc failed\n");
+                        goto _fail;
+                    }
+                    if (_diff_validate_sorted(h, 1) == -1) goto _fail;
+                }
+                break;
+        }
+
+        if ((op % 250) == 0) {
+            if (_diff_validate_membership(h) == -1) goto _fail;
+        }
+    }
+
+    if (_diff_validate_membership(h) == -1) goto _fail;
+
+    if (map_sort(h, MAP_ASC, map_sort_keys) == -1) goto _fail;
+    if (_diff_validate_sorted(h, 0) == -1) goto _fail;
+
+    if (map_sort(h, MAP_DESC, map_sort_keys) == -1) goto _fail;
+    if (_diff_validate_sorted(h, 1) == -1) goto _fail;
+
+    map_free(h);
+    printf("(*) Random differential torture test PASSED!\n");
+    return 0;
+
+_fail:
+    map_free(h);
+    printf("(!) Random differential torture test FAILED!\n");
+    return -1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Test: Embedded NUL bytes in keys                                           */
+/* -------------------------------------------------------------------------- */
+
+static int test_embedded_nul_keys(void)
+{
+    Map *h = NULL;
+    Variant v = { 0 };
+    Map_Iterator *it = NULL;
+    int count = 0;
+
+    static const unsigned char k1[] = { 'a', '\0', 'x' };
+    static const unsigned char k2[] = { 'a', '\0', 'y' };
+    static const unsigned char k3[] = { 'a' };
+    static const unsigned char k4[] = { 'a', '\0' };
+    static const unsigned char k5[] = { '\0', 'z' };
+
+    printf("(-) Testing embedded NUL bytes in keys.\n");
+
+    h = map_alloc(NULL);
+    if (! h) {
+        printf("(!) Allocating map: FAILURE\n");
+        return -1;
+    }
+
+    map_set(h, (const char *) k1, sizeof(k1), variant_from_integer(11));
+    map_set(h, (const char *) k2, sizeof(k2), variant_from_integer(22));
+    map_set(h, (const char *) k3, sizeof(k3), variant_from_integer(33));
+    map_set(h, (const char *) k4, sizeof(k4), variant_from_integer(44));
+    map_set(h, (const char *) k5, sizeof(k5), variant_from_integer(55));
+
+    v = map_get(h, (const char *) k1, sizeof(k1));
+    if (! is_integer(v) || variant_to_integer(v) != 11) goto _fail;
+
+    v = map_get(h, (const char *) k2, sizeof(k2));
+    if (! is_integer(v) || variant_to_integer(v) != 22) goto _fail;
+
+    v = map_get(h, (const char *) k3, sizeof(k3));
+    if (! is_integer(v) || variant_to_integer(v) != 33) goto _fail;
+
+    v = map_get(h, (const char *) k4, sizeof(k4));
+    if (! is_integer(v) || variant_to_integer(v) != 44) goto _fail;
+
+    v = map_get(h, (const char *) k5, sizeof(k5));
+    if (! is_integer(v) || variant_to_integer(v) != 55) goto _fail;
+
+    /* Distinct byte strings must not alias each other */
+    if (map_has(h, (const char *) k1, sizeof(k1)) != 1) goto _fail;
+    if (map_has(h, (const char *) k2, sizeof(k2)) != 1) goto _fail;
+    if (map_has(h, (const char *) k3, sizeof(k3)) != 1) goto _fail;
+    if (map_has(h, (const char *) k4, sizeof(k4)) != 1) goto _fail;
+    if (map_has(h, (const char *) k5, sizeof(k5)) != 1) goto _fail;
+
+    /* Remove one embedded-NUL key and ensure others survive */
+    v = map_remove(h, (const char *) k2, sizeof(k2));
+    if (! is_integer(v) || variant_to_integer(v) != 22) goto _fail;
+
+    if (map_has(h, (const char *) k2, sizeof(k2)) != 0) goto _fail;
+
+    v = map_get(h, (const char *) k1, sizeof(k1));
+    if (! is_integer(v) || variant_to_integer(v) != 11) goto _fail;
+
+    v = map_get(h, (const char *) k4, sizeof(k4));
+    if (! is_integer(v) || variant_to_integer(v) != 44) goto _fail;
+
+    /* Sort should also preserve exact byte-string identity */
+    if (map_sort(h, MAP_ASC, map_sort_keys) == -1) goto _fail;
+
+    count = 0;
+    for (it = map_each(h); it; it = map_next(it)) {
+        count ++;
+        if (! is_integer(it->val)) goto _fail;
+    }
+
+    if (count != 4) goto _fail;
+
+    map_free(h);
+    printf("(*) Embedded NUL key test PASSED!\n");
+    return 0;
+
+_fail:
+    printf("(!) Embedded NUL key test FAILED!\n");
+    map_free(h);
+    return -1;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Test: Concurrent write stress - Tests unlock fast path with real workload  */
 /* -------------------------------------------------------------------------- */
 
@@ -796,6 +1238,16 @@ int test_hashtable(void)
         return -1;
     } else printf("(*) Allocating hash table: SUCCESS\n");
 
+    printf("(*) Insert, delete, insert and read back the same key: ");
+    map_insert(h, "test_key", 8, variant_from_integer(86));
+    map_remove(h, "test_key", 8);
+    map_insert(h, "test_key", 8, variant_from_integer(68));
+    val = map_get(h, "test_key", 8);
+    if (variant_to_integer(val) == 68) {
+        printf("SUCCESS\n");
+    } else printf("FAILURE\n");
+    map_remove(h, "test_key", 8);
+
     printf("(*) Inserting key-value pairs.\n");
     start = clock();
     for (i = 1; i <= _CACHE_ITEMS; i ++) {
@@ -997,6 +1449,14 @@ int test_hashtable(void)
     }
 
     h = map_free(h);
+
+    if (test_random_differential_map() == -1) {
+        return -1;
+    }
+
+    if (test_embedded_nul_keys() == -1) {
+        return -1;
+    }
 
     if (test_iterator_concurrency() == -1) {
         return -1;
