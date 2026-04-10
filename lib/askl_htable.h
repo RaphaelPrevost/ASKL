@@ -461,7 +461,7 @@ ASKL_API int map_merge(
 ASKL_API void map_foreach(Map *h, int (*function)(const char *, size_t, Variant));
 
 /**
- * @ingroup hashtable
+ * @ingroup map
  * @fn void map_foreach(Map *h, int (*function)(const char *, size_t, Variant))
  * @param h        a pointer to a linked hashmap
  * @param function a callback invoked once per key/value pair
@@ -524,10 +524,6 @@ ASKL_API int map_sort(
  *
  * The @p order argument controls whether the resulting order is ascending
  * (MAP_ASC) or descending (MAP_DESC) with respect to @p cmp.
- *
- * @warning The @p len argument may be zero for internal tombstone entries;
- *          comparison functions must tolerate this. Tombstones are not
- *          visible through @ref map_foreach() or iterators.
  *
  * @note Sorting only affects the order in which @ref map_foreach() visits
  *       entries. It does not change lookup semantics.
@@ -730,7 +726,7 @@ ASKL_API Map_Iterator *map_next(Map_Iterator *iterator);
 ASKL_API Variant map_set_at(Map_Iterator *iterator, Variant new);
 
 /**
- * @ingroup hashtable
+ * @ingroup map
  * @fn Variant map_set_at(Map_Iterator *iterator, Variant value)
  * @param iterator  a valid iterator positioned on an existing entry
  * @param value     the new value to store at the current position
