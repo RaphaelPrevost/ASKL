@@ -156,7 +156,6 @@ struct _Map {
 static int _probe(Map *h, unsigned int i, _Item *new, int replace)
 {
     if (! h->_bucket[i]) {
-        if (unlikely(replace == MODIFY_ONLY)) return -1;
         h->_bucket[i] = TAG_PTR(new, new->ptr);
         h->_bucket_count ++;
         /* insert */
@@ -168,12 +167,9 @@ static int _probe(Map *h, unsigned int i, _Item *new, int replace)
         if (new->ptr == slot->ptr) {
             if (new->key.len == slot->key.len) {
                 if (! memcmp(new->key.str, slot->key.str, slot->key.len)) {
-                    if (replace == CREATE_ONLY) {
-                        new->val = slot->val;
-                        return -1;
-                    }
-                    /* update */
-                    return 1;
+                    /* update if allowed */
+                    //return (replace == CREATE_ONLY) ? -1 : 1;
+                    return (replace << 1) - 1;
                 }
             }
         }
@@ -252,16 +248,12 @@ _loop:  index = hash & mask;
         for (slot = h->_basket; slot; slot = slot->ptr) {
             if (likely(item->key.len == slot->key.len)) {
                 if (! memcmp(item->key.str, slot->key.str, item->key.len)) {
-                    if (replace == CREATE_ONLY) {
-                        item->val = slot->val;
+                    if (replace == CREATE_ONLY)
                         goto _failure;
-                    }
                     goto _replace;
                 }
             }
         }
-
-        if (replace == MODIFY_ONLY) goto _failure;
     }
 
     /* no free slot found, the new item will be forcefully inserted */
@@ -309,6 +301,7 @@ _loop:  index = hash & mask;
 _replace:
     if (replace) {
         Variant new = item->val, rejected = slot->val;
+        int aliased = variant_equal(item->val, slot->val);
         if (on_update) {
             new = on_update(item->key.str, item->key.len, slot->val, item->val);
             if (! variant_equal(new, item->val)) {
@@ -321,14 +314,8 @@ _replace:
             }
         }
 
-        if (replace == MODIFY_ONLY)
-            if (lock_upgrade(h->_lock) == -1) goto _failure;
-
-            *val = rejected;
-            slot->val = new;
-
-        if (replace == MODIFY_ONLY)
-            lock_restore(h->_lock);
+        *val = (aliased) ? variant_null() : rejected;
+        slot->val = new;
     } else *val = slot->val; /* return the existing value */
 
     return 1;
@@ -403,9 +390,6 @@ static inline Variant _insert(
 )
 {
     _Bucket *bucket = NULL;
-    int (*lockfn[3])(RW_Lock *) = {
-        lock_wrlock, lock_wrlock, lock_rdlock
-    };
 
     #ifdef DEBUG
     if (unlikely(len >= UINT16_MAX)) {
@@ -426,7 +410,7 @@ static inline Variant _insert(
     bucket->item.val = val;
     bucket->item.ptr = NULL;
 
-    if (lockfn[replace](h->_lock) == -1) goto _err_lock;
+    if (lock_wrlock(h->_lock) == -1) goto _err_lock;
 
     if (! _set_item(h, & bucket->item, replace, & val, on_insert, on_update)) {
         bucket->next = h->_index; h->_index = bucket;
@@ -560,36 +544,6 @@ ASKL_API Variant map_insert(Map *h, const char *k, size_t l, Variant v)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API Variant map_update_with(
-    Map *h,
-    const char *k,
-    size_t l,
-    Variant v,
-    Variant (*function)(const char *k, size_t l, Variant old, Variant new)
-)
-{
-    if (unlikely(! h || ! k || ! l)) {
-        debug("map_update_with(): bad parameters.\n");
-        return v;
-    }
-
-    return _insert(h, k, l, v, MODIFY_ONLY, NULL, function);
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API Variant map_update(Map *h, const char *k, size_t l, Variant v)
-{
-    if (unlikely(! h || ! k || ! l)) {
-        debug("map_update(): bad parameters.\n");
-        return v;
-    }
-
-    return _insert(h, k, l, v, MODIFY_ONLY, NULL, NULL);
-}
-
-/* -------------------------------------------------------------------------- */
-
 static _Item *_get_item(Map *h, const char *k, size_t l, Variant *v)
 {
     unsigned int i = 0;
@@ -647,6 +601,74 @@ _loop:  _MAP_GET(hash & mask);
     }
 
     return NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API Variant map_update_with(
+    Map *h,
+    const char *k,
+    size_t l,
+    Variant new,
+    Variant (*function)(const char *k, size_t l, Variant old, Variant new)
+)
+{
+    Variant old = { 0 }, res = new;
+    _Item *slot = NULL;
+    int aliased = 0;
+
+    if (unlikely(! h || ! k || ! l)) {
+        debug("map_update_with(): bad parameters.\n");
+        return res;
+    }
+
+    if (lock_rdlock(h->_lock) == -1) return res;
+
+        if ( (slot = _get_item(h, k, l, & old) ) ) {
+            if ( (aliased = variant_equal(new, old)) && ! function) {
+                /* no-op, avoid taking the write lock */
+                goto _noop;
+            }
+
+            if (lock_upgrade(h->_lock) == 0) {
+                if (function) {
+                    slot->val = function(k, l, old, new);
+                    if (! variant_equal(slot->val, new)) {
+                        if (! variant_equal(slot->val, old)) {
+                            /* the callback returned a third value,
+                               free the old value and return the
+                               new value to be disposed of */
+                            if (h->_freeval) h->_freeval(old);
+                        }
+                    } else res = old;
+                } else {
+                    slot->val = new;
+                    res = old;
+                }
+
+                lock_restore(h->_lock);
+            } else goto _fail;
+        }
+
+_noop:
+    lock_unlock(h->_lock);
+
+_fail:
+    if (aliased) res = variant_null();
+
+    return res;
+}
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API Variant map_update(Map *h, const char *k, size_t l, Variant v)
+{
+    if (unlikely(! h || ! k || ! l)) {
+        debug("map_update(): bad parameters.\n");
+        return v;
+    }
+
+    return map_update_with(h, k, l, v, NULL);
 }
 
 /* -------------------------------------------------------------------------- */

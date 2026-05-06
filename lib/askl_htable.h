@@ -157,12 +157,14 @@ ASKL_API Variant map_set_with(
  * @param value    the new value (also available to @p function as @p new)
  * @param function optional callback used to resolve replacement
  * @return the previous value associated with @p key, or VARIANT_NULL if the
- *         key was newly inserted
+ *         key was newly inserted or the value is aliased.
  *
  * This function sets @p key to @p value, inserting a new entry if needed.
  *
  * If @p function is NULL, the stored value is replaced unconditionally and
- * the previous value is returned (or VARIANT_NULL if the key was not present).
+ * the previous value is returned. If there was no previous value, i.e. the
+ * key was created, or if the new value is identical to the previous value
+ * (i.e. aliased), the function returns VARIANT_NULL.
  *
  * If @p function is non-NULL and the key already exists, it is invoked with
  * the current value (@p old) and the requested value (@p new).
@@ -175,6 +177,10 @@ ASKL_API Variant map_set_with(
  *                    _freeval callback invoked if defined), the returned value
  *                    is stored in the map, and map_set_with returns @p new
  *                    for the caller to dispose of.
+ *
+ * @note If the new value is identical to the previous value, the function will
+ *       return VARIANT_NULL to prevent unsafe access to an object still owned
+ *       by the map, or its accidental destruction.
  *
  * @note The callback @p function is executed while the map's write lock is
  *       held, ensuring atomicity. The callback must be fast and non-blocking.
@@ -197,6 +203,11 @@ ASKL_API Variant map_set(Map *h, const char *k, size_t l, Variant v);
  * If an entry with the same key already exists, its value is replaced and the
  * previous value is returned. Otherwise, the value is inserted and
  * VARIANT_NULL is returned.
+ *
+ * @note If the new value is identical to the previous value, the function will
+ *       return VARIANT_NULL to prevent unsafe access to an object still owned
+ *       by the map, or its accidental destruction.
+ *
  */
 
 /* -------------------------------------------------------------------------- */
@@ -220,13 +231,13 @@ ASKL_API Variant map_insert_with(
  * @param len      length of the key in bytes
  * @param value    value passed to @p function as @p new
  * @param function optional callback to compute or initialize the inserted value
- * @return the existing value associated with @p key if it already existed,
- *         or VARIANT_NULL if the key was newly inserted
+ * @return VARIANT_NULL if the value was inserted, or @p value if
+ *         the key already existed or the insertion failed.
  *
  * This function performs an insert-only operation with an optional callback.
  *
- * If an entry with @p key already exists, the map is left unchanged and the
- * existing value is returned.
+ * If an entry with @p key already exists, the map is left unchanged,
+ * @p function is not called, and @p value is returned to the caller.
  *
  * If the key does not exist, a new entry is inserted. If @p function is NULL,
  * @p value is stored directly. If @p function is non-NULL, it is invoked with
@@ -248,16 +259,13 @@ ASKL_API Variant map_insert(Map *h, const char *k, size_t l, Variant v);
  * @param k pointer to the key bytes (not necessarily NUL-terminated)
  * @param l length of the key in bytes
  * @param v the value to store
- * @return the existing value associated with @p k if it already existed,
- *         or VARIANT_NULL if the key was newly inserted
+ * @return VARIANT_NULL if the value was inserted, or @p v if
+ *         the key already existed or the insertion failed.
  *
  * This function performs an insert-only operation. If no entry with the given
  * key exists, the key/value pair is inserted and VARIANT_NULL is returned.
- * If an entry already exists, the map is left unchanged and the existing
- * value is returned.
+ * If an entry already exists, the map is left unchanged and @p v is returned.
  *
- * This is useful when the caller wants to create an entry only if it does not
- * already exist, and otherwise reuse the previous value.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -272,7 +280,7 @@ ASKL_API Variant map_update_with(
 
 /**
  * @ingroup map
- * @fn variant map_update_with(Map *h, const char *key, size_t len,
+ * @fn Variant map_update_with(Map *h, const char *key, size_t len,
  *                             Variant value,
  *                             Variant (*function)(const char *key, size_t len,
  *                                                 Variant old, Variant new))
@@ -305,6 +313,10 @@ ASKL_API Variant map_update_with(
  *   discarded (and the map's @c _freeval callback is invoked if defined),
  *   the returned value is stored in the map, and map_update_with() returns
  *   @p new so that the caller may dispose of it if necessary.
+ *
+ * @note If the new value is identical to the previous value, the function will
+ *       return VARIANT_NULL to prevent unsafe access to an object still owned
+ *       by the map, or its accidental destruction.
  *
  * @note The callback @p function is executed only when the key already exists.
  *       It is executed while the map's write lock is held, ensuring atomicity.
@@ -339,6 +351,11 @@ ASKL_API Variant map_update(Map *h, const char *k, size_t l, Variant v);
  * This is the update-only counterpart to @ref map_insert(), and is useful
  * when the caller wants to modify an entry only if it already exists, and
  * do nothing otherwise.
+ *
+ * @note If the new value is identical to the previous value, the function will
+ *       return VARIANT_NULL to prevent unsafe access to an object still owned
+ *       by the map, or its accidental destruction.
+ *
  */
 
 /* -------------------------------------------------------------------------- */

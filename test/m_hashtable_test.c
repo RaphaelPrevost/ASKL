@@ -294,7 +294,7 @@ static int test_random_differential_map(void)
                                  variant_from_integer(newv));
                 if (_diff_ref[which].alive) {
                     if (!is_integer(got) ||
-                        variant_to_integer(got) != _diff_ref[which].value) {
+                        variant_to_integer(got) != newv) {
                         printf("(!) Differential test: map_insert wrong existing value\n");
                         goto _fail;
                     }
@@ -313,14 +313,24 @@ static int test_random_differential_map(void)
                 got = map_update(h, (const char *) k->bytes, k->len,
                                  variant_from_integer(newv));
                 if (_diff_ref[which].alive) {
-                    if (! is_integer(got) ||
-                        variant_to_integer(got) != _diff_ref[which].value) {
-                        printf("(!) Differential test: map_update wrong old value\n");
-                        goto _fail;
+                    uint64_t oldv = _diff_ref[which].value;
+
+                    if (oldv == newv) {
+                        if (!is_null(got)) {
+                            printf("(!) Differential test: map_update should return null on alias\n");
+                            goto _fail;
+                        }
+                    } else {
+                        if (!is_integer(got) ||
+                            variant_to_integer(got) != oldv) {
+                            printf("(!) Differential test: map_update wrong old value\n");
+                            goto _fail;
+                        }
                     }
+
                     _diff_ref[which].value = newv;
                 } else {
-                    if (! is_integer(got) ||
+                    if (!is_integer(got) ||
                         variant_to_integer(got) != newv) {
                         printf("(!) Differential test: map_update wrong reject on missing key\n");
                         goto _fail;
@@ -493,6 +503,111 @@ static int test_embedded_nul_keys(void)
 _fail:
     printf("(!) Embedded NUL key test FAILED!\n");
     map_free(h);
+    return -1;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Test: Return values contract                                               */
+/* -------------------------------------------------------------------------- */
+
+static Variant _keep_old(
+    UNUSED const char *k,
+    UNUSED size_t l,
+    Variant old,
+    UNUSED Variant new
+)
+{
+    return old;
+}
+
+static Variant _take_new(
+    UNUSED const char *k,
+    UNUSED size_t l,
+    UNUSED Variant old,
+    Variant new
+)
+{
+    return new;
+}
+
+static Variant _third_value(
+    UNUSED const char *k,
+    UNUSED size_t l,
+    UNUSED Variant old,
+    UNUSED Variant new
+)
+{
+    return variant_from_integer(333);
+}
+
+static int test_map_return_contracts(void)
+{
+    Map *h = map_alloc(NULL);
+    Variant r, v;
+
+    if (!h) return -1;
+
+    printf("(-) Testing map return-value ownership contracts.\n");
+
+    /* insert success: map retains value, caller gets null */
+    r = map_insert(h, "a", 1, variant_from_integer(1));
+    if (!is_null(r)) goto _fail;
+
+    /* duplicate insert: map rejects proposed value, caller gets proposed */
+    r = map_insert(h, "a", 1, variant_from_integer(2));
+    if (!is_integer(r) || variant_to_integer(r) != 2) goto _fail;
+
+    v = map_get(h, "a", 1);
+    if (!is_integer(v) || variant_to_integer(v) != 1) goto _fail;
+
+    /* set replacement: caller gets displaced old value */
+    r = map_set(h, "a", 1, variant_from_integer(2));
+    if (!is_integer(r) || variant_to_integer(r) != 1) goto _fail;
+
+    /* set same value: no distinct value to return */
+    r = map_set(h, "a", 1, variant_from_integer(2));
+    if (!is_null(r)) goto _fail;
+
+    /* update missing: proposed value was not retained */
+    r = map_update(h, "missing", 7, variant_from_integer(9));
+    if (!is_integer(r) || variant_to_integer(r) != 9) goto _fail;
+
+    /* update existing: caller gets displaced old value */
+    r = map_update(h, "a", 1, variant_from_integer(10));
+    if (!is_integer(r) || variant_to_integer(r) != 2) goto _fail;
+
+    /* update same value: no distinct value to return */
+    r = map_update(h, "a", 1, variant_from_integer(10));
+    if (!is_null(r)) goto _fail;
+
+    /* callback keeps old: proposed value is returned */
+    r = map_set_with(h, "a", 1, variant_from_integer(20), _keep_old);
+    if (!is_integer(r) || variant_to_integer(r) != 20) goto _fail;
+
+    v = map_get(h, "a", 1);
+    if (!is_integer(v) || variant_to_integer(v) != 10) goto _fail;
+
+    /* callback takes new: old value is returned */
+    r = map_set_with(h, "a", 1, variant_from_integer(30), _take_new);
+    if (!is_integer(r) || variant_to_integer(r) != 10) goto _fail;
+
+    v = map_get(h, "a", 1);
+    if (!is_integer(v) || variant_to_integer(v) != 30) goto _fail;
+
+    /* callback returns third value: proposed value is returned */
+    r = map_set_with(h, "a", 1, variant_from_integer(40), _third_value);
+    if (!is_integer(r) || variant_to_integer(r) != 40) goto _fail;
+
+    v = map_get(h, "a", 1);
+    if (!is_integer(v) || variant_to_integer(v) != 333) goto _fail;
+
+    map_free(h);
+    printf("(*) Map return-value contract test PASSED!\n");
+    return 0;
+
+_fail:
+    map_free(h);
+    printf("(!) Map return-value contract test FAILED!\n");
     return -1;
 }
 
@@ -839,7 +954,7 @@ static int test_iterator_concurrency(void)
 }
 
 /* -------------------------------------------------------------------------- */
-/* Test: map_remove_at() - Concurrent removal by multiple iterators          */
+/* Test: map_remove_at() - Concurrent removal by multiple iterators           */
 /* -------------------------------------------------------------------------- */
 
 typedef struct {
@@ -1449,6 +1564,10 @@ int test_hashtable(void)
     }
 
     h = map_free(h);
+
+    if (test_map_return_contracts() == -1) {
+        return -1;
+    }
 
     if (test_random_differential_map() == -1) {
         return -1;
