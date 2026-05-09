@@ -45,6 +45,7 @@
 
 #define MAP_ASC                 0
 #define MAP_DESC                1
+#define MAP_SORT_ONCE           2
 
 /** @defgroup map ASKL::map */
 
@@ -113,6 +114,22 @@ typedef struct Map_Iterator {
  * @note The iterator itself is heap-allocated and is freed automatically when
  *       @ref map_next() reaches the end of the traversal, or manually by
  *       calling @ref map_break().
+ */
+
+typedef int (*Map_Comparator)(
+    const char *, size_t, Variant,
+    const char *, size_t, Variant
+);
+
+/**
+ * @ingroup map
+ * @typedef Map_Comparator
+ *
+ * Comparator used by map_sort().
+ *
+ * The function receives two key/value pairs and must return a negative value
+ * if the first pair should come before the second, zero if they compare equal,
+ * or a positive value if the first pair should come after the second.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -503,47 +520,57 @@ ASKL_API void map_foreach(Map *h, int (*function)(const char *, size_t, Variant)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int map_sort(
-    Map *h,
-    unsigned int order,
-    int (*cmp)(
-        const char *,
-        size_t,
-        Variant,
-        const char *,
-        size_t,
-        Variant
-    )
-);
+ASKL_API int map_sort(Map *h, unsigned int order, Map_Comparator cmp);
 
 /**
  * @ingroup map
- * @fn int map_sort(Map *h, unsigned int order,
- *                  int (*cmp)(const char *, size_t, Variant,
- *                             const char *, size_t, Variant))
+ * @fn int map_sort(Map *h, unsigned int order, Map_Comparator cmp)
  * @param h     a pointer to a map
- * @param order sort order: @ref MAP_ASC or @ref MAP_DESC
+ * @param order sort order: @ref MAP_ASC or @ref MAP_DESC, optionally OR'ed
+ *              with @ref MAP_SORT_ONCE
  * @param cmp   comparison callback
  * @return 0 on success, -1 on error
  *
- * This function sorts the internal index of @p h using the user-provided
- * comparator @p cmp and a stable merge sort.
+ * This function sorts the internal traversal index of @p h using the
+ * user-provided comparator @p cmp and a stable natural merge sort.
  *
  * The comparator receives:
- *  - @p key0, @p key1: pointers to NUL-terminated keys;
+ *  - @p key0, @p key1: pointers to key bytes;
  *  - @p len0, @p len1: length of the keys in bytes;
  *  - @p value0, @p value1: associated values.
  *
- * It must return:
- *  - a negative value if (key0,value0) should come before (key1,value1),
+ * @warning Keys are followed by a trailing NUL byte for convenience, but may
+ * contain embedded NUL bytes. Comparators should use @p len0 and @p len1
+ * rather than treating keys as C strings.
+ *
+ * The comparator must return:
+ *  - a negative value if (key0, value0) should come before (key1, value1),
  *  - zero if they are considered equal for ordering purposes,
- *  - a positive value if (key0,value0) should come after (key1,value1).
+ *  - a positive value if (key0, value0) should come after (key1, value1).
  *
  * The @p order argument controls whether the resulting order is ascending
- * (MAP_ASC) or descending (MAP_DESC) with respect to @p cmp.
+ * (@ref MAP_ASC) or descending (@ref MAP_DESC) with respect to @p cmp.
  *
- * @note Sorting only affects the order in which @ref map_foreach() visits
- *       entries. It does not change lookup semantics.
+ * By default, sorting is persistent. After a successful call without
+ * @ref MAP_SORT_ONCE, @p cmp and @p order become the map's active traversal
+ * ordering policy. Later insertions or updates mark the index stale;
+ * @ref map_foreach(), @ref map_each(), and @ref map_at() will lazily re-sort
+ * the index before traversal when needed.
+ *
+ * If @ref MAP_SORT_ONCE is OR'ed into @p order, the index is sorted
+ * immediately using @p cmp, but @p cmp and @p order are not installed as the
+ * persistent ordering policy. If a persistent ordering policy is already
+ * active, it is left unchanged and will be used again after a later mutation
+ * marks the index stale.
+ *
+ * Example:
+ * @code
+ * map_sort(map, MAP_DESC | MAP_SORT_ONCE, map_sort_keys);
+ * @endcode
+ *
+ * @note Sorting only affects traversal order, including @ref map_foreach()
+ *       and iterators. It does not change lookup, insertion, update, or
+ *       removal semantics.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -675,7 +702,7 @@ ASKL_API Map_Iterator *map_each(Map *h);
  *         if the map is empty or an error occurred
  *
  * This function creates an iterator that allows the caller to traverse all
- * entries of the hashmap in key order as stored in the internal index list.
+ * entries of the hashmap in the current traversal order.
  *
  * The returned iterator holds a read lock on @p h for the duration of the
  * iteration. The iterator must be advanced using @ref map_next and eventually
@@ -747,7 +774,8 @@ ASKL_API Variant map_set_at(Map_Iterator *iterator, Variant new);
  * @fn Variant map_set_at(Map_Iterator *iterator, Variant value)
  * @param iterator  a valid iterator positioned on an existing entry
  * @param value     the new value to store at the current position
- * @return the previous value stored at the iterator’s current key
+ * @return the previous value stored at the iterator's current key, or
+           VARIANT_NULL if the previous value compares equal to @p value
  *
  * This function replaces the value associated with the entry currently pointed
  * to by @p iterator. The key is left unchanged; only the value is updated.
@@ -756,6 +784,10 @@ ASKL_API Variant map_set_at(Map_Iterator *iterator, Variant new);
  * lock for the duration of the update, then restores it back to a read lock.
  * This ensures that the update is atomic with respect to other concurrent
  * map operations and that the iterator remains valid after the call.
+ *
+ * @note If the map has a persistent ordering policy, changing the value marks
+ *       the traversal order stale. The active iterator is not re-sorted; the
+ *       order will be restored before the next fresh traversal.
  *
  * @warning The iterator must currently point to a valid entry (i.e. it must
  *          be the result of a successful call to @ref map_each, @ref map_at

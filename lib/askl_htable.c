@@ -116,6 +116,9 @@ struct _Map {
     size_t _bucket_count;
     void (*_freeval)(Variant);
     uintptr_t _seed[HASH_COUNT];
+    Map_Comparator _cmpfn;
+    int8_t _order;
+    int8_t _stale;
 };
 
 /**
@@ -168,8 +171,7 @@ static int _probe(Map *h, unsigned int i, _Item *new, int replace)
             if (new->key.len == slot->key.len) {
                 if (! memcmp(new->key.str, slot->key.str, slot->key.len)) {
                     /* update if allowed */
-                    //return (replace == CREATE_ONLY) ? -1 : 1;
-                    return (replace << 1) - 1;
+                    return (replace == CREATE_ONLY) ? -1 : 1;
                 }
             }
         }
@@ -418,6 +420,8 @@ static inline Variant _insert(
         _resize(h, h->_bucket_size + 1);
     } else free(bucket);
 
+    if (h->_cmpfn) h->_stale = 1;
+
     lock_unlock(h->_lock);
 
     return val;
@@ -461,6 +465,10 @@ ASKL_API Map *map_alloc(void (*freeval)(Variant))
     h->_bucket_count = h->_bucket_size = 0; h->_basket = NULL;
     h->_index = NULL;
     h->_freeval = freeval;
+
+    h->_cmpfn = NULL;
+    h->_order = 0;
+    h->_stale = 0;
 
     if (_resize(h, 4) == -1) {
         debug("map_alloc(): cannot resize the hash table.\n");
@@ -646,6 +654,8 @@ ASKL_API Variant map_update_with(
                     res = old;
                 }
 
+                if (h->_cmpfn) h->_stale = 1;
+
                 lock_restore(h->_lock);
             } else goto _fail;
         }
@@ -785,43 +795,11 @@ ASKL_API int map_merge(
     lock_destroy(src->_lock);
     lock_free(src->_lock); free(src);
 
+    if (dest->_cmpfn) dest->_stale = 1;
+
     lock_unlock(dest->_lock);
 
     return 0;
-}
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API void map_foreach(Map *h, int (*f)(const char *, size_t, Variant))
-{
-    _Bucket *bucket = NULL;
-
-    if (! h || ! f) {
-        debug("map_foreach(): bad parameters.\n");
-        return;
-    }
-
-    if (lock_wrlock(h->_lock) == -1) return;
-
-    for (bucket = h->_index; bucket; bucket = bucket->next) {
-        if (bucket->item.key.len) {
-            int ret = f(
-                bucket->item.key.str,
-                bucket->item.key.len,
-                bucket->item.val
-            );
-            if (ret == -1) {
-                /* delete the record */
-                if (h->_freeval)
-                    h->_freeval(bucket->item.val);
-                bucket->item.key.len = 0;
-            }
-        }
-    }
-
-    lock_unlock(h->_lock);
-
-    return;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -831,10 +809,7 @@ static inline _Bucket *_select_run(
     _Bucket **run_tail,
     _Bucket ***tombstones,
     unsigned int order,
-    int (*cmp)(
-        const char *, size_t, Variant,
-        const char *, size_t, Variant
-    )
+    Map_Comparator cmp
 )
 {
     _Bucket *head = NULL, *tail = NULL, *cur;
@@ -872,25 +847,11 @@ static inline _Bucket *_select_run(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int map_sort(
-    Map *h,
-    unsigned int order,
-    int (*cmp)(
-        const char *, size_t, Variant,
-        const char *, size_t, Variant
-    )
-)
+static int _sort(Map *h, unsigned int order, Map_Comparator cmp)
 {
     _Bucket *dead_head = NULL, *live_tail = NULL;
     _Bucket **tombstones = & dead_head;
     int did_merge;
-
-    if (! h || ! cmp || (order != MAP_ASC && order != MAP_DESC)) {
-        debug("map_sort(): bad parameters.\n");
-        return -1;
-    }
-
-    if (lock_wrlock(h->_lock) == -1) return -1;
 
     do {
         _Bucket *res_head = NULL, *res_tail = NULL, *cur = h->_index;
@@ -979,9 +940,36 @@ ASKL_API int map_sort(
     else
         h->_index = dead_head;
 
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API int map_sort(Map *h, unsigned int order, Map_Comparator cmp)
+{
+    int ret = 0;
+    int sort_once = order & MAP_SORT_ONCE;
+
+    order ^= sort_once;
+
+    if (! h || ! cmp || (order != MAP_ASC && order != MAP_DESC)) {
+        debug("map_sort(): bad parameters.\n");
+        return -1;
+    }
+
+    if (lock_wrlock(h->_lock) == -1) return -1;
+
+        if (! (ret = _sort(h, order, cmp)) ) {
+            if (! sort_once) {
+                h->_cmpfn = cmp;
+                h->_order = order;
+            }
+            h->_stale = 0;
+        }
+
     lock_unlock(h->_lock);
 
-    return 0;
+    return ret;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1093,6 +1081,43 @@ ASKL_API Variant map_remove(Map *h, const char *key, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
+ASKL_API void map_foreach(Map *h, int (*f)(const char *, size_t, Variant))
+{
+    _Bucket *bucket = NULL;
+
+    if (! h || ! f) {
+        debug("map_foreach(): bad parameters.\n");
+        return;
+    }
+
+    if (lock_wrlock(h->_lock) == -1) return;
+
+    if (h->_cmpfn && h->_stale)
+        h->_stale = _sort(h, h->_order, h->_cmpfn);
+
+    for (bucket = h->_index; bucket; bucket = bucket->next) {
+        if (bucket->item.key.len) {
+            int ret = f(
+                bucket->item.key.str,
+                bucket->item.key.len,
+                bucket->item.val
+            );
+            if (ret == -1) {
+                /* delete the record */
+                if (h->_freeval)
+                    h->_freeval(bucket->item.val);
+                bucket->item.key.len = 0;
+            }
+        }
+    }
+
+    lock_unlock(h->_lock);
+
+    return;
+}
+
+/* -------------------------------------------------------------------------- */
+
 ASKL_API size_t map_footprint(Map *h, size_t *overhead)
 {
     _Bucket *bucket = NULL;
@@ -1181,6 +1206,12 @@ ASKL_API Map_Iterator *map_each(Map *h)
         goto _err_init;
     }
 
+    if (h->_cmpfn && h->_stale) {
+        if (lock_upgrade(h->_lock) == -1) goto _err_lock;
+            h->_stale = _sort(h, h->_order, h->_cmpfn);
+        lock_restore(h->_lock);
+    }
+
     if (! (iterator = malloc(sizeof(*iterator)))) {
         perror(ERR(map_each, malloc));
         goto _err_init;
@@ -1228,6 +1259,12 @@ ASKL_API Map_Iterator *map_at(Map *h, const char *key, size_t len)
         goto _err_item;
     }
 
+    if (h->_cmpfn && h->_stale) {
+        if (lock_upgrade(h->_lock) == -1) goto _err_lock;
+            h->_stale = _sort(h, h->_order, h->_cmpfn);
+        lock_restore(h->_lock);
+    }
+
     /* find the bucket from the item address */
     iterator->_current = (_Bucket *) (ptr - offsetof(_Bucket, item));
     iterator->key = iterator->_current->item.key.str;
@@ -1266,14 +1303,19 @@ ASKL_API Map_Iterator *map_next(Map_Iterator *iterator)
 ASKL_API Variant map_set_at(Map_Iterator *iterator, Variant new)
 {
     Variant old;
+    int aliased = 0;
 
     if (lock_upgrade(iterator->map->_lock) == -1) return new;
         old = iterator->_current->item.val;
+        if (! (aliased = variant_equal(old, new)) ) {
+            if (iterator->map->_cmpfn)
+                iterator->map->_stale = 1;
+        }
         iterator->_current->item.val = new;
         iterator->val = new;
     lock_restore(iterator->map->_lock);
 
-    return old;
+    return (aliased) ? variant_null() : old;
 }
 
 /* -------------------------------------------------------------------------- */
