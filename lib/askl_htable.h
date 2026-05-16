@@ -60,7 +60,7 @@ typedef struct _Map Map;
  * A Map is a hash-indexed associative container mapping arbitrary byte-string
  * keys to @ref variant values. In addition to O(1) expected-time lookups, it
  * maintains a stable internal index so that entries can be visited in a
- * well-defined order (e.g. insertion order or user-specified sort order).
+ * well-defined order (e.g. LIFO insertion order or user-specified sort order).
  *
  * The map is safe for concurrent access: readers and writers are synchronized
  * internally using a read–write lock. Simple operations such as @ref map_get(),
@@ -492,24 +492,34 @@ ASKL_API int map_merge(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void map_foreach(Map *h, int (*function)(const char *, size_t, Variant));
+ASKL_API void map_foreach(
+    Map *h,
+    int (*function)(const char *, size_t, Variant, void *),
+    void *context
+);
 
 /**
  * @ingroup map
- * @fn void map_foreach(Map *h, int (*function)(const char *, size_t, Variant))
+ * @fn void map_foreach(Map *h,
+ *                      int (*function)(const char *, size_t, Variant, void *),
+ *                      void *context)
  * @param h        a pointer to a linked hashmap
  * @param function a callback invoked once per key/value pair
+ * @param context  optional user data passed to the callback
  * @return void
  *
  * This function iterates over all entries in the hashmap and calls @p function
  * for each key/value pair. The callback receives:
  *  - the key pointer (NUL-terminated),
  *  - the key length in bytes,
- *  - the associated value.
+ *  - the associated value,
+ *  - the user provided context.
  *
  * If @p function returns -1 for an entry, that entry is removed from the
  * map. If the hashmap was created with a @p freeval callback, it is invoked on
  * the value before the entry is destroyed.
+ * 
+ * If @p function returns 1 for an entry, the traversal stops.
  *
  * Any other return value from @p function is ignored and the iteration
  * continues.

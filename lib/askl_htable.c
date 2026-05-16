@@ -88,21 +88,21 @@ STATIC_ASSERT(
  * @ingroup map
  * @struct _Bucket
  *
- * Internal node used to maintain the map's traversal order.
+ * Internal node of the map's traversal list.
  *
- * While the hash index is stored separately as an array of @ref _Item pointers
- * (@ref Map::_bucket), the map also keeps a singly linked list of
- * all entries to support stable iteration and sorting. Each node of that list
- * is a @ref _Bucket that embeds an @ref _Item.
+ * A Map keeps two views of the same entries:
+ * - the hash index (@ref Map::_bucket), used for key lookup;
+ * - the traversal list (@ref Map::_index), used for iteration and sorting.
  *
- * The head of this list is stored in @ref Map::_index, and functions such as
- * @ref map_each(), @ref map_next() and @ref map_sort() operate on this list
- * rather than on the main hash table.
+ * Each _Bucket is one node in the traversal list and owns one embedded
+ * @ref _Item. The hash index and overflow basket do not allocate separate
+ * entries; they point to the @ref _Item stored inside these buckets.
  *
- * @b private @ref next links nodes in the traversal list.
- * @b private @ref item is the embedded entry payload for this position in the
- *                      list. The same @ref _item is also referenced from the
- *                      hash table and/or the overflow basket.
+ * Sorting only relinks _Bucket nodes in the traversal list. It does not move
+ * or copy keys and values, and it does not change lookup semantics.
+ *
+ * @b private @ref next links the next node in traversal order.
+ * @b private @ref item stores the key/value payload for this entry.
  *
  * This type is internal and may change at any time.
  */
@@ -118,8 +118,12 @@ struct _Map {
     uintptr_t _seed[HASH_COUNT];
     Map_Comparator _cmpfn;
     int8_t _order;
-    int8_t _stale;
+    uint8_t _state;
 };
+
+#define MAP_INDEX_STALE 0x1
+#define MAP_DATA_CHANGE 0x2
+#define MAP_STATE_DIRTY (MAP_DATA_CHANGE | MAP_INDEX_STALE)
 
 /**
  * @ingroup map
@@ -128,30 +132,38 @@ struct _Map {
  * This structure holds the internal state of a @ref Map.
  *
  * A Map is a hash-indexed associative container that also maintains a stable
- * traversal order (typically insertion order, and optionally sortable)
- * It combines cuckoo hashing for O(1) expected lookup with an overflow basket
- * for guaranteed insertion when cuckoo displacement fails.
+ * traversal order. It combines cuckoo hashing for O(1) expected-time lookup
+ * with an overflow basket for guaranteed insertion when cuckoo displacement
+ * fails.
  *
  * Concurrency:
  * - Readers hold a read lock to allow concurrent lookups/traversals.
- * - Writers take a write lock to insert/remove/resize.
+ * - Writers take a write lock to insert/remove/resize/sort.
  *
  * @b private @ref _lock is a reader/writer lock protecting the whole map.
- * @b private @ref _bucket_size is the current capacity of the map
- * @b private @ref _bucket_count is the number of entries in the map.
- * @b private @ref _index keeps track of all the entries in a stable order.
- *                 Each node points to an @ref _item in either @ref _bucket or
- *                 @ref _basket. This enables O(n) ordered traversal.
- * @b private @ref _bucket is the hash index table
- * @b private @ref _basket is the overflow chain head. Points to the first
- *                 @ref _bucket in the linked list of items that failed cuckoo
- *                 placement after HASH_RETRY displacement attempts.
+ * @b private @ref _index is the head of the traversal list. Each node embeds
+ *                 an @ref _Item and supports O(n) ordered traversal.
+ * @b private @ref _bucket is the hash index table. Its entries point to
+ *                 items embedded in the traversal list.
+ * @b private @ref _basket is the overflow chain head for items that failed
+ *                 cuckoo placement after HASH_RETRY displacement attempts.
+ * @b private @ref _bucket_size is the current capacity of the hash index.
+ * @b private @ref _bucket_count is the number of occupied hash slots/items
+ *                 tracked by the hash index.
  * @b private @ref _freeval is an optional destructor callback used when
  *                 removing entries from the map.
- * @b private @ref _seed is the per-map hash seed material (HASH_COUNT words)
+ * @b private @ref _seed is the per-map hash seed material (HASH_COUNT words).
+ * @b private @ref _cmpfn is the persistent comparator used to maintain sorted
+ *                 traversal order, or NULL if no persistent sort is active.
+ * @b private @ref _order is the persistent sort order applied to @ref _cmpfn.
+ * @b private @ref _state stores internal state flags:
+ *                 @ref MAP_INDEX_STALE indicates that the traversal index
+ *                 should be lazily re-sorted before the next ordered
+ *                 traversal; @ref MAP_DATA_CHANGE indicates that map contents
+ *                 changed since the last observer/cache refresh.
  *
  * This type is internal and may change at any time; only use the public
- * @ref ASKL_LinkedMap API.
+ * @ref Map API.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -162,6 +174,7 @@ static int _probe(Map *h, unsigned int i, _Item *new, int replace)
         h->_bucket[i] = TAG_PTR(new, new->ptr);
         h->_bucket_count ++;
         /* insert */
+        if (replace >= 0) h->_state |= MAP_STATE_DIRTY;
         return 0;
     }
 
@@ -179,6 +192,39 @@ static int _probe(Map *h, unsigned int i, _Item *new, int replace)
 
     /* continue */
     return INT_MAX;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static Variant _update(
+    Map *h,
+    _Item *slot,
+    Variant new,
+    Variant (*on_update)(const char *k, size_t l, Variant old, Variant new)
+)
+{
+    Variant old = slot->val, rejected = old;
+    int aliased = variant_equal(new, old), changed = ! aliased;
+
+    if (on_update) {
+        Variant val = on_update(slot->key.str, slot->key.len, old, new);
+        if (! variant_equal(new, val)) {
+            if ( (changed = ! variant_equal(old, val)) ) {
+                /* the function returned an entirely new value */
+                if (h->_freeval) h->_freeval(old);
+            }
+            /* the item value was unused */
+            rejected = new;
+        }
+        new = val;
+    }
+
+    if (changed) {
+        h->_state |= MAP_STATE_DIRTY;
+        slot->val = new;
+    }
+
+    return (aliased) ? variant_null() : rejected;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -256,11 +302,12 @@ _loop:  index = hash & mask;
                 }
             }
         }
-    }
 
-    /* no free slot found, the new item will be forcefully inserted */
-    if (on_insert)
-        item->val = on_insert(item->key.str, item->key.len, item->val);
+        /* no free slot found, the new item will be forcefully inserted */
+        if (on_insert)
+            item->val = on_insert(item->key.str, item->key.len, item->val);
+        h->_state |= MAP_STATE_DIRTY;
+    }
 
     /* try cuckoo eviction */
     for (index = (uintptr_t) item->ptr & mask; retry < HASH_RETRY; retry ++) {
@@ -301,25 +348,7 @@ _loop:  index = hash & mask;
     return 0;
 
 _replace:
-    if (replace) {
-        Variant new = item->val, rejected = slot->val;
-        int aliased = variant_equal(item->val, slot->val);
-        if (on_update) {
-            new = on_update(item->key.str, item->key.len, slot->val, item->val);
-            if (! variant_equal(new, item->val)) {
-                if (! variant_equal(new, slot->val)) {
-                    /* the function returned an entirely new value */
-                    if (h->_freeval) h->_freeval(slot->val);
-                }
-                /* the item value was unused */
-                rejected = item->val;
-            }
-        }
-
-        *val = (aliased) ? variant_null() : rejected;
-        slot->val = new;
-    } else *val = slot->val; /* return the existing value */
-
+    *val = _update(h, slot, item->val, on_update);
     return 1;
 
 _failure:
@@ -420,8 +449,6 @@ static inline Variant _insert(
         _resize(h, h->_bucket_size + 1);
     } else free(bucket);
 
-    if (h->_cmpfn) h->_stale = 1;
-
     lock_unlock(h->_lock);
 
     return val;
@@ -468,7 +495,7 @@ ASKL_API Map *map_alloc(void (*freeval)(Variant))
 
     h->_cmpfn = NULL;
     h->_order = 0;
-    h->_stale = 0;
+    h->_state = 0;
 
     if (_resize(h, 4) == -1) {
         debug("map_alloc(): cannot resize the hash table.\n");
@@ -479,7 +506,6 @@ ASKL_API Map *map_alloc(void (*freeval)(Variant))
 
 _err_size:
     free(h->_bucket);
-    free(h->_basket);
     lock_destroy(h->_lock);
 _err_init:
     lock_free(h->_lock);
@@ -623,7 +649,6 @@ ASKL_API Variant map_update_with(
 {
     Variant old = { 0 }, res = new;
     _Item *slot = NULL;
-    int aliased = 0;
 
     if (unlikely(! h || ! k || ! l)) {
         debug("map_update_with(): bad parameters.\n");
@@ -633,39 +658,25 @@ ASKL_API Variant map_update_with(
     if (lock_rdlock(h->_lock) == -1) return res;
 
         if ( (slot = _get_item(h, k, l, & old) ) ) {
-            if ( (aliased = variant_equal(new, old)) && ! function) {
+            if (variant_equal(new, old) && ! function) {
                 /* no-op, avoid taking the write lock */
+                res = variant_null();
                 goto _noop;
             }
 
             if (lock_upgrade(h->_lock) == 0) {
-                if (function) {
-                    slot->val = function(k, l, old, new);
-                    if (! variant_equal(slot->val, new)) {
-                        if (! variant_equal(slot->val, old)) {
-                            /* the callback returned a third value,
-                               free the old value and return the
-                               new value to be disposed of */
-                            if (h->_freeval) h->_freeval(old);
-                        }
-                    } else res = old;
-                } else {
-                    slot->val = new;
-                    res = old;
-                }
 
-                if (h->_cmpfn) h->_stale = 1;
+                /* check if the value was deleted during upgrade */
+                if (likely(slot->key.len))
+                    res = _update(h, slot, new, function);
 
                 lock_restore(h->_lock);
             } else goto _fail;
         }
-
 _noop:
     lock_unlock(h->_lock);
 
 _fail:
-    if (aliased) res = variant_null();
-
     return res;
 }
 
@@ -795,8 +806,6 @@ ASKL_API int map_merge(
     lock_destroy(src->_lock);
     lock_free(src->_lock); free(src);
 
-    if (dest->_cmpfn) dest->_stale = 1;
-
     lock_unlock(dest->_lock);
 
     return 0;
@@ -847,7 +856,7 @@ static inline _Bucket *_select_run(
 
 /* -------------------------------------------------------------------------- */
 
-static int _sort(Map *h, unsigned int order, Map_Comparator cmp)
+static void _sort(Map *h, unsigned int order, Map_Comparator cmp)
 {
     _Bucket *dead_head = NULL, *live_tail = NULL;
     _Bucket **tombstones = & dead_head;
@@ -939,15 +948,12 @@ static int _sort(Map *h, unsigned int order, Map_Comparator cmp)
         live_tail->next = dead_head;
     else
         h->_index = dead_head;
-
-    return 0;
 }
 
 /* -------------------------------------------------------------------------- */
 
 ASKL_API int map_sort(Map *h, unsigned int order, Map_Comparator cmp)
 {
-    int ret = 0;
     int sort_once = order & MAP_SORT_ONCE;
 
     order ^= sort_once;
@@ -959,17 +965,17 @@ ASKL_API int map_sort(Map *h, unsigned int order, Map_Comparator cmp)
 
     if (lock_wrlock(h->_lock) == -1) return -1;
 
-        if (! (ret = _sort(h, order, cmp)) ) {
-            if (! sort_once) {
-                h->_cmpfn = cmp;
-                h->_order = order;
-            }
-            h->_stale = 0;
+        _sort(h, order, cmp);
+        h->_state &= ~MAP_INDEX_STALE;
+
+        if (! sort_once) {
+            h->_cmpfn = cmp;
+            h->_order = order;
         }
 
     lock_unlock(h->_lock);
 
-    return ret;
+    return 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1030,6 +1036,8 @@ ASKL_API Variant map_remove_if(
                         result = tmp->val; \
                         /* a length of 0 indicates a tombstone */ \
                         tmp->key.len = 0; \
+                        /* mark the map as dirty */ \
+                        h->_state |= MAP_DATA_CHANGE; \
                     } \
                     goto _result; \
                 } \
@@ -1058,6 +1066,9 @@ _loop:  _MAP_REMOVE(hash & mask);
 
                     /* tombstone */
                     tmp->key.len = 0;
+
+                    /* mark the map as dirty */
+                    h->_state |= MAP_DATA_CHANGE;
                 }
                 goto _result;
             }
@@ -1081,7 +1092,11 @@ ASKL_API Variant map_remove(Map *h, const char *key, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void map_foreach(Map *h, int (*f)(const char *, size_t, Variant))
+ASKL_API void map_foreach(
+    Map *h,
+    int (*f)(const char *, size_t, Variant, void *),
+    void *context
+)
 {
     _Bucket *bucket = NULL;
 
@@ -1092,22 +1107,26 @@ ASKL_API void map_foreach(Map *h, int (*f)(const char *, size_t, Variant))
 
     if (lock_wrlock(h->_lock) == -1) return;
 
-    if (h->_cmpfn && h->_stale)
-        h->_stale = _sort(h, h->_order, h->_cmpfn);
+    if (h->_cmpfn && (h->_state & MAP_INDEX_STALE)) {
+        _sort(h, h->_order, h->_cmpfn);
+        h->_state &= ~MAP_INDEX_STALE;
+    }
 
     for (bucket = h->_index; bucket; bucket = bucket->next) {
         if (bucket->item.key.len) {
             int ret = f(
                 bucket->item.key.str,
                 bucket->item.key.len,
-                bucket->item.val
+                bucket->item.val,
+                context
             );
             if (ret == -1) {
                 /* delete the record */
                 if (h->_freeval)
                     h->_freeval(bucket->item.val);
                 bucket->item.key.len = 0;
-            }
+                h->_state |= MAP_DATA_CHANGE;
+            } else if (ret == 1) break;
         }
     }
 
@@ -1199,6 +1218,11 @@ ASKL_API Map_Iterator *map_each(Map *h)
         return NULL;
     }
 
+    if (! (iterator = malloc(sizeof(*iterator)))) {
+        perror(ERR(map_each, malloc));
+        return NULL;
+    }
+
     if (lock_rdlock(h->_lock) == -1) goto _err_lock;
 
     if (! h->_index) {
@@ -1206,15 +1230,13 @@ ASKL_API Map_Iterator *map_each(Map *h)
         goto _err_init;
     }
 
-    if (h->_cmpfn && h->_stale) {
+    if (h->_cmpfn && (h->_state & MAP_INDEX_STALE)) {
         if (lock_upgrade(h->_lock) == -1) goto _err_lock;
-            h->_stale = _sort(h, h->_order, h->_cmpfn);
+            if (h->_state & MAP_INDEX_STALE) {
+                _sort(h, h->_order, h->_cmpfn);
+                h->_state &= ~MAP_INDEX_STALE;
+            }
         lock_restore(h->_lock);
-    }
-
-    if (! (iterator = malloc(sizeof(*iterator)))) {
-        perror(ERR(map_each, malloc));
-        goto _err_init;
     }
 
     iterator->map = h;
@@ -1230,6 +1252,7 @@ ASKL_API Map_Iterator *map_each(Map *h)
 _err_init:
     lock_unlock(h->_lock);
 _err_lock:
+    free(iterator);
     return NULL;
 }
 
@@ -1254,15 +1277,18 @@ ASKL_API Map_Iterator *map_at(Map *h, const char *key, size_t len)
 
     if (lock_rdlock(h->_lock) == -1) goto _err_lock;
 
+    if (h->_cmpfn && (h->_state & MAP_INDEX_STALE)) {
+        if (lock_upgrade(h->_lock) == -1) goto _err_lock;
+            if (h->_state & MAP_INDEX_STALE) {
+                _sort(h, h->_order, h->_cmpfn);
+                h->_state &= ~MAP_INDEX_STALE;
+            }
+        lock_restore(h->_lock);
+    }
+
     if (! (ptr = (uint8_t *) _get_item(h, key, len, & iterator->val))) {
         debug("map_at(): key not found.\n");
         goto _err_item;
-    }
-
-    if (h->_cmpfn && h->_stale) {
-        if (lock_upgrade(h->_lock) == -1) goto _err_lock;
-            h->_stale = _sort(h, h->_order, h->_cmpfn);
-        lock_restore(h->_lock);
     }
 
     /* find the bucket from the item address */
@@ -1302,17 +1328,19 @@ ASKL_API Map_Iterator *map_next(Map_Iterator *iterator)
 
 ASKL_API Variant map_set_at(Map_Iterator *iterator, Variant new)
 {
-    Variant old;
+    Variant old = new;
     int aliased = 0;
 
     if (lock_upgrade(iterator->map->_lock) == -1) return new;
-        old = iterator->_current->item.val;
-        if (! (aliased = variant_equal(old, new)) ) {
-            if (iterator->map->_cmpfn)
-                iterator->map->_stale = 1;
+        /* XXX another thread may have deleted the entry during upgrade */
+        if (likely(iterator->_current->item.key.len)) {
+            old = iterator->_current->item.val;
+            if (! (aliased = variant_equal(old, new)) ) {
+                iterator->_current->item.val = new;
+                iterator->val = new;
+                iterator->map->_state |= MAP_STATE_DIRTY;
+            }
         }
-        iterator->_current->item.val = new;
-        iterator->val = new;
     lock_restore(iterator->map->_lock);
 
     return (aliased) ? variant_null() : old;
@@ -1330,6 +1358,7 @@ ASKL_API Variant map_remove_at(Map_Iterator *iterator)
         if (likely(len = iterator->_current->item.key.len)) {
             ret = iterator->_current->item.val;
             iterator->_current->item.key.len = 0;
+            iterator->map->_state |= MAP_DATA_CHANGE;
         }
     lock_restore(iterator->map->_lock);
 

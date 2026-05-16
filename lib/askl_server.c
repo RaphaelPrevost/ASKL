@@ -363,7 +363,12 @@ static int server_response_process(Response *r, Socket *s)
 /* -------------------------------------------------------------------------- */
 
 #ifdef _ENABLE_UDP
-static int _server_poll_udp(UNUSED const char *k, UNUSED size_t l, Variant val)
+static int _server_poll_udp(
+    UNUSED const char *k,
+    UNUSED size_t l,
+    Variant val,
+    UNUSED void *context
+)
 {
     unsigned int id = variant_to_integer(val);
 
@@ -431,7 +436,7 @@ _wait:
 
     #ifdef _ENABLE_UDP
     /* poll the virtual udp sockets for writing */
-    map_foreach(_UDP, _server_poll_udp);
+    map_foreach(_UDP, _server_poll_udp, NULL);
     #endif
 
     socket_queue_wait(_readable, 10000);

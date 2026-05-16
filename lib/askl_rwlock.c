@@ -62,8 +62,8 @@ struct _RW_Lock {
  *
  * The following symbolic values are used:
  *
- * - @c -1        : broken; further calls to lock_rdlock(), lock_wrlock()
- *                  or lock_upgrade() will fail and return -1.
+ * - @c -1            : broken; further calls to lock_rdlock(), lock_wrlock()
+ *                      or lock_upgrade() will fail and return -1.
  * - @c WRLOCKED  (0) : write-locked; exactly one writer holds the lock.
  * - @c UPGRADED  (1) : upgraded; a single thread holds what was previously
  *                      a read lock but has transitioned to exclusive mode.

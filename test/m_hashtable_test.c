@@ -27,7 +27,12 @@ static void _timeout(int dummy)
 
 /* -------------------------------------------------------------------------- */
 
-static int _print_and_delete_key(const char *key, size_t len, UNUSED Variant val)
+static int _print_and_delete_key(
+    const char *key,
+    size_t len,
+    UNUSED Variant val,
+    UNUSED void *context
+)
 {
     printf("%.*s\n", (int) len, key);
     return -1;
@@ -35,7 +40,12 @@ static int _print_and_delete_key(const char *key, size_t len, UNUSED Variant val
 
 /* -------------------------------------------------------------------------- */
 
-static int _print_key_intval(const char *key, size_t len, Variant val)
+static int _print_key_intval(
+    const char *key,
+    size_t len,
+    Variant val,
+    UNUSED void *context
+)
 {
     printf("%.*s = %llu\n", (int) len, key, variant_to_integer(val));
     return 0;
@@ -1332,6 +1342,529 @@ static int test_writer_starvation(void) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Test: Sticky/lazy sorting torture                                          */
+/* -------------------------------------------------------------------------- */
+
+#define STICKY_KEY_UNIVERSE 128
+#define STICKY_MAX_KEYLEN   16
+#define STICKY_SORT_KEY     0
+#define STICKY_SORT_VALUE   1
+
+typedef struct {
+    unsigned char key[STICKY_MAX_KEYLEN];
+    size_t len;
+    uint64_t value;
+    int alive;
+} sticky_ref_t;
+
+static sticky_ref_t _sticky_ref[STICKY_KEY_UNIVERSE];
+static int _sticky_qsort_mode = STICKY_SORT_KEY;
+static int _sticky_qsort_desc = 0;
+
+static int _sticky_bytes_cmp(
+    const unsigned char *a,
+    size_t alen,
+    const unsigned char *b,
+    size_t blen
+)
+{
+    size_t n = (alen < blen) ? alen : blen;
+    int r = memcmp(a, b, n);
+
+    if (r)
+        return r;
+
+    return (alen > blen) - (alen < blen);
+}
+
+static int _sticky_key_cmp(
+    const char *key0,
+    size_t len0,
+    UNUSED Variant val0,
+    const char *key1,
+    size_t len1,
+    UNUSED Variant val1
+)
+{
+    return _sticky_bytes_cmp(
+        (const unsigned char *) key0,
+        len0,
+        (const unsigned char *) key1,
+        len1
+    );
+}
+
+static int _sticky_value_cmp(
+    const char *key0,
+    size_t len0,
+    Variant val0,
+    const char *key1,
+    size_t len1,
+    Variant val1
+)
+{
+    uint64_t v0 = variant_to_integer(val0);
+    uint64_t v1 = variant_to_integer(val1);
+
+    if (v0 < v1)
+        return -1;
+
+    if (v0 > v1)
+        return 1;
+
+    return _sticky_bytes_cmp(
+        (const unsigned char *) key0,
+        len0,
+        (const unsigned char *) key1,
+        len1
+    );
+}
+
+static int _sticky_ref_cmp(const sticky_ref_t *a, const sticky_ref_t *b)
+{
+    int r = 0;
+
+    if (_sticky_qsort_mode == STICKY_SORT_VALUE) {
+        if (a->value < b->value)
+            r = -1;
+        else if (a->value > b->value)
+            r = 1;
+    }
+
+    if (! r) {
+        r = _sticky_bytes_cmp(
+            a->key,
+            a->len,
+            b->key,
+            b->len
+        );
+    }
+
+    return _sticky_qsort_desc ? -r : r;
+}
+
+static int _sticky_ref_cmp_qsort(const void *pa, const void *pb)
+{
+    const sticky_ref_t *a = *(const sticky_ref_t * const *) pa;
+    const sticky_ref_t *b = *(const sticky_ref_t * const *) pb;
+
+    return _sticky_ref_cmp(a, b);
+}
+
+static void _sticky_init_refs(void)
+{
+    for (int i = 0; i < STICKY_KEY_UNIVERSE; i ++) {
+        size_t len = 4 + (rand() % (STICKY_MAX_KEYLEN - 3));
+
+        _sticky_ref[i].len = len;
+
+        /*
+         * Repeated prefixes + embedded NULs + unique suffix.
+         * This stresses comparator/length handling and hash equality.
+         */
+        _sticky_ref[i].key[0] = (unsigned char) ('a' + (i % 7));
+        _sticky_ref[i].key[1] = (unsigned char) ((i % 4) ? 0 : 'X');
+
+        for (size_t j = 2; j < len - 2; j ++) {
+            if ((rand() % 4) == 0)
+                _sticky_ref[i].key[j] = 0;
+            else
+                _sticky_ref[i].key[j] = (unsigned char) (rand() & 0xff);
+        }
+
+        _sticky_ref[i].key[len - 2] = (unsigned char) (i & 0xff);
+        _sticky_ref[i].key[len - 1] = (unsigned char) ((i >> 8) & 0xff);
+
+        _sticky_ref[i].value = 0;
+        _sticky_ref[i].alive = 0;
+    }
+}
+
+static int _sticky_live_sorted(
+    sticky_ref_t **live,
+    int mode,
+    int desc
+)
+{
+    int n = 0;
+
+    _sticky_qsort_mode = mode;
+    _sticky_qsort_desc = desc;
+
+    for (int i = 0; i < STICKY_KEY_UNIVERSE; i ++) {
+        if (_sticky_ref[i].alive)
+            live[n ++] = & _sticky_ref[i];
+    }
+
+    qsort(live, n, sizeof(*live), _sticky_ref_cmp_qsort);
+
+    return n;
+}
+
+static int _sticky_validate_order(
+    Map *h,
+    int mode,
+    int desc,
+    const char *where
+)
+{
+    sticky_ref_t *live[STICKY_KEY_UNIVERSE];
+    int n = _sticky_live_sorted(live, mode, desc);
+    int i = 0;
+
+    for (Map_Iterator *it = map_each(h); it; it = map_next(it), i ++) {
+        if (i >= n) {
+            printf("(!) Sticky sort: iterator too long at %s\n", where);
+            map_break(it);
+            return -1;
+        }
+
+        if (it->len != live[i]->len ||
+            memcmp(it->key, live[i]->key, it->len) != 0) {
+            printf("(!) Sticky sort: key order mismatch at %s, index %d\n",
+                   where, i);
+            map_break(it);
+            return -1;
+        }
+
+        if (! is_integer(it->val) ||
+            variant_to_integer(it->val) != live[i]->value) {
+            printf("(!) Sticky sort: value mismatch at %s, index %d\n",
+                   where, i);
+            map_break(it);
+            return -1;
+        }
+    }
+
+    if (i != n) {
+        printf("(!) Sticky sort: iterator too short at %s (%d vs %d)\n",
+               where, i, n);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int _sticky_validate_from_at(
+    Map *h,
+    int mode,
+    int desc,
+    int start_seed,
+    const char *where
+)
+{
+    sticky_ref_t *live[STICKY_KEY_UNIVERSE];
+    int n = _sticky_live_sorted(live, mode, desc);
+    int pos, i;
+    Map_Iterator *it = NULL;
+
+    if (! n)
+        return 0;
+
+    pos = start_seed % n;
+
+    it = map_at(
+        h,
+        (const char *) live[pos]->key,
+        live[pos]->len
+    );
+
+    if (! it) {
+        printf("(!) Sticky sort: map_at failed at %s\n", where);
+        return -1;
+    }
+
+    for (i = pos; it; it = map_next(it), i ++) {
+        if (i >= n) {
+            printf("(!) Sticky sort: map_at iterator too long at %s\n", where);
+            map_break(it);
+            return -1;
+        }
+
+        if (it->len != live[i]->len ||
+            memcmp(it->key, live[i]->key, it->len) != 0) {
+            printf("(!) Sticky sort: map_at continuation mismatch at %s, index %d\n",
+                   where, i);
+            map_break(it);
+            return -1;
+        }
+
+        if (! is_integer(it->val) ||
+            variant_to_integer(it->val) != live[i]->value) {
+            printf("(!) Sticky sort: map_at value mismatch at %s, index %d\n",
+                   where, i);
+            map_break(it);
+            return -1;
+        }
+    }
+
+    if (i != n) {
+        printf("(!) Sticky sort: map_at iterator too short at %s (%d vs %d)\n",
+               where, i, n);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int test_sticky_sort_active_iterator(void)
+{
+    Map *h = map_alloc(NULL);
+    Map_Iterator *it = NULL;
+    Variant old;
+    const char *tail[] = { "B", "C", "D", "E" };
+    const char *fresh[] = { "B", "C", "D", "E", "A" };
+    int i = 0;
+
+    if (! h)
+        return -1;
+
+    /*
+     * Sort by value. Then mutate the first iterator entry so it should move
+     * to the end. The active iterator must not be relinked under its feet.
+     * A fresh iterator must see the re-sorted order.
+     */
+    map_set(h, "A", 1, variant_from_integer(1));
+    map_set(h, "B", 1, variant_from_integer(2));
+    map_set(h, "C", 1, variant_from_integer(3));
+    map_set(h, "D", 1, variant_from_integer(4));
+    map_set(h, "E", 1, variant_from_integer(5));
+
+    if (map_sort(h, MAP_ASC, _sticky_value_cmp) == -1)
+        goto _fail;
+
+    it = map_each(h);
+    if (! it)
+        goto _fail;
+
+    if (it->len != 1 || memcmp(it->key, "A", 1) != 0)
+        goto _fail_iter;
+
+    old = map_set_at(it, variant_from_integer(100));
+    if (! is_integer(old) || variant_to_integer(old) != 1)
+        goto _fail_iter;
+
+    if (! is_integer(it->val) || variant_to_integer(it->val) != 100)
+        goto _fail_iter;
+
+    /*
+     * Active iterator should continue in the old traversal order, not jump
+     * around after map_set_at().
+     */
+    it = map_next(it);
+    for (i = 0; it; it = map_next(it), i ++) {
+        if (i >= 4)
+            goto _fail_iter;
+
+        if (it->len != 1 || memcmp(it->key, tail[i], 1) != 0)
+            goto _fail_iter;
+    }
+
+    if (i != 4)
+        goto _fail;
+
+    /*
+     * Fresh iterator should lazily re-sort and put A at the end.
+     */
+    i = 0;
+    for (it = map_each(h); it; it = map_next(it), i ++) {
+        if (i >= 5)
+            goto _fail_iter;
+
+        if (it->len != 1 || memcmp(it->key, fresh[i], 1) != 0)
+            goto _fail_iter;
+    }
+
+    if (i != 5)
+        goto _fail;
+
+    map_free(h);
+    return 0;
+
+_fail_iter:
+    if (it)
+        map_break(it);
+
+_fail:
+    map_free(h);
+    return -1;
+}
+
+static int test_sticky_sort_torture(void)
+{
+    Map *h = NULL;
+
+    printf("(-) Testing persistent/lazy sticky sorting.\n");
+
+    srand(0x571c4b7);
+    _sticky_init_refs();
+
+    h = map_alloc(NULL);
+    if (! h) {
+        printf("(!) Sticky sort: failed to allocate map\n");
+        return -1;
+    }
+
+    /*
+     * Populate a subset, then install persistent key order.
+     */
+    for (int i = 0; i < STICKY_KEY_UNIVERSE; i += 2) {
+        uint64_t v = (uint64_t) (1000 + i);
+
+        map_set(
+            h,
+            (const char *) _sticky_ref[i].key,
+            _sticky_ref[i].len,
+            variant_from_integer(v)
+        );
+
+        _sticky_ref[i].alive = 1;
+        _sticky_ref[i].value = v;
+    }
+
+    if (map_sort(h, MAP_ASC, _sticky_key_cmp) == -1)
+        goto _fail;
+
+    if (_sticky_validate_order(h, STICKY_SORT_KEY, 0, "initial key asc") == -1)
+        goto _fail;
+
+    /*
+     * Batch random insert/set/remove without traversal. The next traversal
+     * must lazily sort by the persistent key comparator.
+     */
+    for (int op = 0; op < 1000; op ++) {
+        int idx = rand() % STICKY_KEY_UNIVERSE;
+        uint64_t v = ((uint64_t) op << 16) ^ (uint64_t) idx;
+
+        switch (rand() % 4) {
+        case 0:
+        case 1:
+        case 2:
+            map_set(
+                h,
+                (const char *) _sticky_ref[idx].key,
+                _sticky_ref[idx].len,
+                variant_from_integer(v)
+            );
+            _sticky_ref[idx].alive = 1;
+            _sticky_ref[idx].value = v;
+            break;
+
+        case 3:
+            map_remove(
+                h,
+                (const char *) _sticky_ref[idx].key,
+                _sticky_ref[idx].len
+            );
+            _sticky_ref[idx].alive = 0;
+            break;
+        }
+    }
+
+    if (_sticky_validate_from_at(h, STICKY_SORT_KEY, 0, 17, "key asc map_at after batch") == -1)
+        goto _fail;
+
+    if (_sticky_validate_order(h, STICKY_SORT_KEY, 0, "key asc after batch") == -1)
+        goto _fail;
+
+    /*
+     * Switch persistent policy to value-descending. Then mutate values.
+     * map_at() should force lazy sorting before returning the iterator.
+     */
+    if (map_sort(h, MAP_DESC, _sticky_value_cmp) == -1)
+        goto _fail;
+
+    if (_sticky_validate_order(h, STICKY_SORT_VALUE, 1, "value desc initial") == -1)
+        goto _fail;
+
+    for (int op = 0; op < 1000; op ++) {
+        int idx = rand() % STICKY_KEY_UNIVERSE;
+        uint64_t v = ((uint64_t) rand() << 32) ^ (uint64_t) op;
+
+        map_set(
+            h,
+            (const char *) _sticky_ref[idx].key,
+            _sticky_ref[idx].len,
+            variant_from_integer(v)
+        );
+
+        _sticky_ref[idx].alive = 1;
+        _sticky_ref[idx].value = v;
+    }
+
+    if (_sticky_validate_from_at(h, STICKY_SORT_VALUE, 1, 23, "value desc map_at after updates") == -1)
+        goto _fail;
+
+    if (_sticky_validate_order(h, STICKY_SORT_VALUE, 1, "value desc after updates") == -1)
+        goto _fail;
+
+    /*
+     * One-shot sort should temporarily override traversal order but must not
+     * replace the persistent value-desc policy.
+     */
+    if (map_sort(h, MAP_DESC | MAP_SORT_ONCE, _sticky_key_cmp) == -1)
+        goto _fail;
+
+    if (_sticky_validate_order(h, STICKY_SORT_KEY, 1, "one-shot key desc") == -1)
+        goto _fail;
+
+    /*
+     * Removals do not make the order stale; they should preserve the current
+     * one-shot order among remaining entries.
+     */
+    for (int op = 0; op < 32; op ++) {
+        int idx = rand() % STICKY_KEY_UNIVERSE;
+
+        map_remove(
+            h,
+            (const char *) _sticky_ref[idx].key,
+            _sticky_ref[idx].len
+        );
+
+        _sticky_ref[idx].alive = 0;
+    }
+
+    if (_sticky_validate_order(h, STICKY_SORT_KEY, 1, "one-shot key desc after removals") == -1)
+        goto _fail;
+
+    /*
+     * A later value update must make the old persistent value-desc policy
+     * take effect again on the next traversal.
+     */
+    for (int i = 0; i < STICKY_KEY_UNIVERSE; i ++) {
+        if (!_sticky_ref[i].alive) {
+            map_set(
+                h,
+                (const char *) _sticky_ref[i].key,
+                _sticky_ref[i].len,
+                variant_from_integer(UINT64_MAX - (uint64_t) i)
+            );
+
+            _sticky_ref[i].alive = 1;
+            _sticky_ref[i].value = UINT64_MAX - (uint64_t) i;
+            break;
+        }
+    }
+
+    if (_sticky_validate_order(h, STICKY_SORT_VALUE, 1, "persistent value desc restored") == -1)
+        goto _fail;
+
+    if (test_sticky_sort_active_iterator() == -1) {
+        printf("(!) Sticky sort: active iterator stability failed\n");
+        goto _fail;
+    }
+
+    map_free(h);
+    printf("(*) Sticky sort torture test PASSED!\n");
+    return 0;
+
+_fail:
+    map_free(h);
+    printf("(!) Sticky sort torture test FAILED!\n");
+    return -1;
+}
+
+/* -------------------------------------------------------------------------- */
 /* -------------------------------------------------------------------------- */
 
 int test_hashtable(void)
@@ -1522,7 +2055,7 @@ int test_hashtable(void)
     map_set(h, "btest", strlen("btest"), variant_from_integer(0x4));
     map_set(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
     map_sort(h, MAP_ASC, map_sort_keys);
-    map_foreach(h, _print_and_delete_key);
+    map_foreach(h, _print_and_delete_key, NULL);
 
     map_set(h, "zzzzz", strlen("zzzzz"), variant_from_integer(0x0));
     map_set(h, "tedst", strlen("tedst"), variant_from_integer(0x1));
@@ -1530,12 +2063,12 @@ int test_hashtable(void)
     map_set(h, "btest", strlen("btest"), variant_from_integer(0x4));
     map_set(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
     map_sort(h, MAP_DESC, map_sort_keys);
-    map_foreach(h, _print_and_delete_key);
+    map_foreach(h, _print_and_delete_key, NULL);
 
     map_set(h, "btest", strlen("btest"), variant_from_integer(0x4));
     map_set(h, "tcest", strlen("tcest"), variant_from_integer(0x8));
     map_sort(h, MAP_DESC, map_sort_keys);
-    map_foreach(h, _print_and_delete_key);
+    map_foreach(h, _print_and_delete_key, NULL);
 
     map_set(h, "A", 1, variant_from_integer(0x1));
     map_set(h, "B", 1, variant_from_integer(0x2));
@@ -1550,7 +2083,7 @@ int test_hashtable(void)
     map_set(h2, "H", 1, variant_from_integer(0x8));
 
     map_merge(h, h2, _merge);
-    map_foreach(h, _print_key_intval);
+    map_foreach(h, _print_key_intval, NULL);
 
     /* map_at test */
     printf("(*) Iterating from H\n");
@@ -1590,6 +2123,10 @@ int test_hashtable(void)
     }
 
     if (test_writer_starvation() == -1) {
+        return -1;
+    }
+
+    if (test_sticky_sort_torture() == -1) {
         return -1;
     }
 

@@ -584,7 +584,12 @@ INTERNAL Module *module_release(Module *module)
 
 /* -------------------------------------------------------------------------- */
 
-static int _module_shutdown(UNUSED const char *k, UNUSED size_t l, Variant v)
+static int _module_shutdown(
+    UNUSED const char *k,
+    UNUSED size_t l,
+    Variant v,
+    UNUSED void *context
+)
 {
     Module *module = NULL;
 
@@ -602,7 +607,7 @@ static int _module_shutdown(UNUSED const char *k, UNUSED size_t l, Variant v)
 
 INTERNAL void module_api_shutdown(void)
 {
-    map_foreach(_module, _module_shutdown);
+    map_foreach(_module, _module_shutdown, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
