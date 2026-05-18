@@ -155,13 +155,18 @@ static uint64_t _rapid_mix(uint64_t a, uint64_t b)
 
 /* -------------------------------------------------------------------------- */
 
+static void _check_seed(uintptr_t *seed)
+{
+    *seed ^= _rapid_mix(*seed ^ _rapid_secret[2], _rapid_secret[1]);
+}
+
+/* -------------------------------------------------------------------------- */
+
 static uint64_t _hash(const char *key, size_t len, uint64_t seed)
 {
     const uint8_t *p = (const uint8_t *) key;
     uint64_t a = 0, b = 0;
     size_t i = len;
-
-    seed ^= _rapid_mix(seed ^ _rapid_secret[2], _rapid_secret[1]);
 
     if (likely(len <= 16)) {
         if (len >= 4) {
@@ -258,6 +263,20 @@ static void _wymix32(uint32_t *a, uint32_t *b)
     c *= *b ^ 0x74743c1bu;
     *a = (uint32_t) c;
     *b = (uint32_t) (c >> 32);
+}
+
+/* -------------------------------------------------------------------------- */
+
+static void _check_seed(uintptr_t *seed)
+{
+    /* wyhash32 known bad seeds */
+    if ((*seed == 0x429dacdd) ||
+        (*seed == 0x51a43a0f) ||
+        (*seed == 0x522235ae) ||
+        (*seed == 0x99ac2b20) ||
+        (*seed == 0x9a4f1376) ||
+        (*seed == 0xd637dbf3))
+        (*seed) ++;
 }
 
 /* -------------------------------------------------------------------------- */

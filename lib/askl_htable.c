@@ -170,11 +170,14 @@ struct _Map {
 
 static int _probe(Map *h, unsigned int i, _Item *new, int replace)
 {
-    if (! h->_bucket[i]) {
+    if (likely(! h->_bucket[i])) {
         h->_bucket[i] = TAG_PTR(new, new->ptr);
         h->_bucket_count ++;
         /* insert */
-        if (replace >= 0) h->_state |= MAP_STATE_DIRTY;
+        if (replace >= 0) {
+            if (~h->_state & MAP_STATE_DIRTY)
+                h->_state |= MAP_STATE_DIRTY;
+        }
         return 0;
     }
 
@@ -220,7 +223,8 @@ static Variant _update(
     }
 
     if (changed) {
-        h->_state |= MAP_STATE_DIRTY;
+        if (~h->_state & MAP_STATE_DIRTY)
+            h->_state |= MAP_STATE_DIRTY;
         slot->val = new;
     }
 
@@ -306,7 +310,8 @@ _loop:  index = hash & mask;
         /* no free slot found, the new item will be forcefully inserted */
         if (on_insert)
             item->val = on_insert(item->key.str, item->key.len, item->val);
-        h->_state |= MAP_STATE_DIRTY;
+        if (~h->_state & MAP_STATE_DIRTY)
+            h->_state |= MAP_STATE_DIRTY;
     }
 
     /* try cuckoo eviction */
@@ -472,18 +477,8 @@ ASKL_API Map *map_alloc(void (*freeval)(Variant))
     if (random_seed((uint32_t *) h->_seed, sizeof(h->_seed) / 4) == -1)
         goto _err_rand;
 
-    #if (UINTPTR_MAX == 0xffffffffU)
-    for (int i = 0; i < HASH_COUNT; i ++) {
-        /* wyhash32 known bad seeds */
-        if ((h->_seed[i] == 0x429dacdd) ||
-            (h->_seed[i] == 0x51a43a0f) ||
-            (h->_seed[i] == 0x522235ae) ||
-            (h->_seed[i] == 0x99ac2b20) ||
-            (h->_seed[i] == 0x9a4f1376) ||
-            (h->_seed[i] == 0xd637dbf3))
-            h->_seed[i] ++;
-    }
-    #endif
+    for (int i = 0; i < HASH_COUNT; i ++)
+        _check_seed(& h->_seed[i]);
 
     if (! (h->_lock = lock_alloc()) ) goto _err_lock;
     if (lock_init(h->_lock) == -1) goto _err_init;
