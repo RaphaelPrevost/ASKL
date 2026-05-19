@@ -41,14 +41,16 @@
 
 #define HASH_COUNT         8    /* number of hash functions */
 #define HASH_RETRY         4    /* number of retries if the bucket is full */
-#define HASH_RATIO      1.23    /* threshold to grow the table (81.3%) */
+
+#define MAP_MAX_LOAD       813    /* maximum load factor (81.3%) */
+#define MAP_MIN_SIZE         4    /* smallest hash index size */
 
 /*
- * HASH_RATIO: Resize threshold (inverse of load factor)
+ * MAP_MAX_LOAD: maximum hash-index load before growth.
  * Recommended values:
- *   1.23 (81.3% load) - Optimal speed/memory balance (32/64 bits) [default]
- *   1.10 (90.9% load) - 3% slower (64 bits only)
- *   1.03 (97.1% load) - Maximum density (64 bits only)
+ *   813 (81.3% load) - Optimal speed/memory balance (32/64 bits) [default]
+ *   909 (90.9% load) - 3% slower (64 bits only)
+ *   971 (97.1% load) - Maximum density (64 bits only)
  */
 
 #define REHASH_ONLY -1

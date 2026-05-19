@@ -363,23 +363,21 @@ _failure:
 
 /* -------------------------------------------------------------------------- */
 
-static int _resize(Map *h, size_t size)
+static int _grow(Map *h, size_t size)
 {
     _Bucket *b = NULL, *next = NULL;
     _Bucket **prev = NULL;
     _Item *item = NULL, *tmp = NULL;
     _Item **new = NULL;
 
-    if (h->_bucket_count * HASH_RATIO < h->_bucket_size) return 0;
-
     /* round the size to the next highest power of 2 */
-    size --; size |= size >> 1; size |= size >> 2;
-    size |= size >> 4; size |= size >> 8; size |= size >> 16;
-    size ++; size += (size == 0);
+    size = __next_pow2(size);
+    if (unlikely(size < MAP_MIN_SIZE))
+        size = MAP_MIN_SIZE;
 
     /* try to allocate a new bucket array */
     if (! (new = calloc(size, sizeof(*h->_bucket))) ) {
-        perror(ERR(_resize, calloc));
+        perror(ERR(_grow, calloc));
         return -1;
     }
 
@@ -411,6 +409,16 @@ static int _resize(Map *h, size_t size)
     }
 
     return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline int _check_size(Map *h)
+{
+    if (likely(h->_bucket_count <= (h->_bucket_size * MAP_MAX_LOAD) / 1000))
+        return 0;
+
+    return _grow(h, h->_bucket_size + 1);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -448,16 +456,19 @@ static inline Variant _insert(
 
     if (lock_wrlock(h->_lock) == -1) goto _err_lock;
 
+    if (_check_size(h) == -1) goto _err_size;
+
     if (! _set_item(h, & bucket->item, replace, & val, on_insert, on_update)) {
         bucket->next = h->_index; h->_index = bucket;
         val = variant_null();
-        _resize(h, h->_bucket_size + 1);
     } else free(bucket);
 
     lock_unlock(h->_lock);
 
     return val;
 
+_err_size:
+    lock_unlock(h->_lock);
 _err_lock:
     free(bucket);
     return val;
@@ -492,16 +503,10 @@ ASKL_API Map *map_alloc(void (*freeval)(Variant))
     h->_order = 0;
     h->_state = 0;
 
-    if (_resize(h, 4) == -1) {
-        debug("map_alloc(): cannot resize the hash table.\n");
-        goto _err_size;
-    }
+    if (_grow(h, 0) == -1) goto _err_init;
 
     return h;
 
-_err_size:
-    free(h->_bucket);
-    lock_destroy(h->_lock);
 _err_init:
     lock_free(h->_lock);
 _err_lock:
@@ -509,6 +514,31 @@ _err_rand:
     free(h);
 
     return NULL;
+}
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API void map_reserve(Map *h, size_t count)
+{
+    size_t size = 0;
+
+    if (! h) {
+        debug("map_reserve(): bad parameters.\n");
+        return;
+    }
+
+    if (count > (SIZE_MAX - (MAP_MAX_LOAD - 1)) / 1000) {
+        debug("_reserve_size(): requested capacity is too large.\n");
+        return;
+    }
+
+    size = ((count * 1000) + (MAP_MAX_LOAD - 1)) / MAP_MAX_LOAD;
+
+    if (lock_wrlock(h->_lock) == 0) {
+        if (size > h->_bucket_size)
+            _grow(h, size);
+        lock_unlock(h->_lock);
+    }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1071,8 +1101,6 @@ _loop:  _MAP_REMOVE(hash & mask);
     }
 
 _result:
-    /* garbage collection if necessary */
-    _resize(h, (size_t) (h->_bucket_count * HASH_RATIO));
     lock_unlock(h->_lock);
 
     return result;

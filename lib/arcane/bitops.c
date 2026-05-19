@@ -374,6 +374,25 @@ static inline unsigned int __msb_idx64(const uint64_t i)
 
 /* -------------------------------------------------------------------------- */
 
+static inline size_t __next_pow2(size_t size)
+{
+    size --;
+    size |= size >> 1;
+    size |= size >> 2;
+    size |= size >> 4;
+    size |= size >> 8;
+    size |= size >> 16;
+    #if (SIZE_MAX > UINT32_MAX)
+    size |= size >> 32;
+    #endif
+    size ++;
+    size += (size == 0);
+
+    return size;
+}
+
+/* -------------------------------------------------------------------------- */
+
 static inline int __is_pow2_multiple(uint64_t value, uint32_t p)
 {
     return (value & ((1ULL << p) - 1)) == 0;

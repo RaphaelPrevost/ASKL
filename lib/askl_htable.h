@@ -154,6 +154,31 @@ ASKL_API Map *map_alloc(void (*freeval)(Variant));
 
 /* -------------------------------------------------------------------------- */
 
+ASKL_API void map_reserve(Map *h, size_t count);
+
+/**
+ * @ingroup map
+ * @fn void map_reserve(Map *h, size_t count)
+ * @param h     a pointer to a linked hashmap
+ * @param count the number of entries to reserve space for
+ * @return void
+ *
+ * This function reserves enough hash-index capacity for at least @p count
+ * entries.
+ *
+ * Reserving capacity before inserting many entries can reduce the number of
+ * internal resizes and rehashes performed while the map grows. It does not
+ * insert any entries, change existing key/value pairs, or alter the traversal
+ * order of the map.
+ *
+ * If @p count is less than or equal to the current effective capacity, this
+ * function succeeds without modifying the map.
+ *
+ * @note This function acquires a write lock on the hashmap while resizing.
+ */
+
+/* -------------------------------------------------------------------------- */
+
 ASKL_API Variant map_set_with(
     Map *h,
     const char *k,
