@@ -89,7 +89,6 @@
     #define LITTLE_ENDIAN_HOST
 #elif (defined(__BYTE_ORDER) && defined(__BIG_ENDIAN) && \
        __BYTE_ORDER == __BIG_ENDIAN) || \
-
       (defined(__APPLE__) && defined(__BIG_ENDIAN__)) || \
       (defined(__sparc) || defined(__powerpc__) || defined(__ppc__) || \
        defined(__mc68000) || defined(__ARMEB__) || defined(__MIPSEB__))
