@@ -47,8 +47,12 @@
 #ifdef __GNUC__
     /* gcc settings */
     #ifndef __APPLE__
-    #define _POSIX_C_SOURCE 200112L
-    #define _XOPEN_SOURCE 600
+    #ifndef _POSIX_C_SOURCE
+        #define _POSIX_C_SOURCE 200809L
+    #endif
+    #ifndef _XOPEN_SOURCE
+        #define _XOPEN_SOURCE 700
+    #endif
     #define _SVID_SOURCE 1
     #else
     #define _DARWIN_C_SOURCE
