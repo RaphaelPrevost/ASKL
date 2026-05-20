@@ -33,6 +33,10 @@
  *                                                                             *
  ******************************************************************************/
 
+#ifndef _BITOPS_C_
+
+#define _BITOPS_C_
+
 #if (defined(_MSC_VER) && (_MSC_VER >= 1400))
 #include <intrin.h>
 #endif
@@ -798,5 +802,7 @@ static inline int _atomic_sub(_ATOMIC int *ptr, int val)
 }
 
 /* -------------------------------------------------------------------------- */
+
+#endif
 
 #endif
