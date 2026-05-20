@@ -161,11 +161,12 @@ int64_t strtoll(const char *nptr, char **endptr, int base)
 /* -------------------------------------------------------------------------- */
 #endif
 /* -------------------------------------------------------------------------- */
-#if (defined(_MSC_VER) || \
-    (! defined(__GNUC__) && ! defined(__clang__)) || \
-    (defined(__GNUC__) && (__GNUC__ < 5)) || \
-    (defined(__clang__) && (__clang_major__ < 3)) || \
-    (! defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE < 200809L))
+#if defined(_MSC_VER) || defined(_WIN32) || \
+    ! (defined(__APPLE__) || defined(_DARWIN_C_SOURCE) || \
+       defined(_GNU_SOURCE) || defined(_DEFAULT_SOURCE) || \
+       defined(_BSD_SOURCE) || defined(_SVID_SOURCE) || \
+       (defined(_POSIX_C_SOURCE) && _POSIX_C_SOURCE >= 200809L) || \
+       (defined(_XOPEN_SOURCE) && _XOPEN_SOURCE >= 700))
 /* -------------------------------------------------------------------------- */
 
 char *strndup(const char *s, size_t len)
