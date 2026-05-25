@@ -39,7 +39,11 @@
 #ifdef WIN32
 /* -------------------------------------------------------------------------- */
 
+#ifdef __GNUC__
+static __thread char _dlerror_buffer[1024];
+#else
 static __declspec(thread) char _dlerror_buffer[1024];
+#endif
 
 INTERNAL const char *dlerror(void)
 {
