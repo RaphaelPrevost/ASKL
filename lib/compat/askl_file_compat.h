@@ -41,12 +41,14 @@
 #ifdef WIN32 /* WIN32 file I/O compatibility */
 /* -------------------------------------------------------------------------- */
 
-#ifndef stat
-    #define stat _stat
-#endif
+#ifndef __MINGW32__
+    #ifndef stat
+        #define stat _stat
+    #endif
 
-#ifndef fstat
-    #define fstat _fstat
+    #ifndef fstat
+        #define fstat _fstat
+    #endif
 #endif
 
 /* open */

@@ -871,7 +871,7 @@ public m_string *http_get_request(int *r, m_string **buf, m_string *input)
     }
 
     /* check for errors */
-    if (IS_ERROR(req)) {
+    if (HAS_ERROR(req)) {
         *buf = string_free(req);
         return NULL;
     }

@@ -54,7 +54,7 @@ static void print_tokens(const String *s, unsigned int indent)
          IS_STRING(s) ? "(string)" :
          IS_PRIMITIVE(s) ? "(primitive)" : "")
     );
-    if (IS_ERROR(s)) printf(" (!) ");
+    if (HAS_ERROR(s)) printf(" (!) ");
     if (! IS_TYPE(s, JSON_TYPE))
         printf("(size=%u)", s->len);
     printf("\n");

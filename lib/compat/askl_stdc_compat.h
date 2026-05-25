@@ -171,6 +171,8 @@
     #define UINTMAX_MAX  UINT64_MAX
 #endif
 
+typedef uint32_t unaligned_uint32_t;
+
 #ifndef _strtoi64
     ASKL_API int64_t strtoll(const char *nptr, char **endptr, int base);
     #define strtoull (uint64_t) strtoll
