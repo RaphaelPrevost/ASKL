@@ -172,7 +172,7 @@ ASKL_API SOCKET dupsocket(SOCKET s);
 
 /* -------------------------------------------------------------------------- */
 
-private const char *_socket_win32_strerror(void);
+INTERNAL const char *_socket_win32_strerror(void);
 
 /**
  * @ingroup socket
