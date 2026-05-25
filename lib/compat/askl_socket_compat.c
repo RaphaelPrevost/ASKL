@@ -120,7 +120,7 @@ INTERNAL const char *_socket_win32_strerror(void)
 
 /* -------------------------------------------------------------------------- */
 
-INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(SOCKET out, int in, off_t *off, size_t len)
 {
     HANDLE handle = INVALID_FILE_HANDLE;
     off_t current = 0;
@@ -155,7 +155,7 @@ INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 #elif (defined (__linux__))
 /* -------------------------------------------------------------------------- */
 
-INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(SOCKET out, int in, off_t *off, size_t len)
 {
     return sendfile(out, in, off, len);
 }
@@ -164,7 +164,7 @@ INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 #elif (defined (__FreeBSD__))
 /* -------------------------------------------------------------------------- */
 
-INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(SOCKET out, int in, off_t *off, size_t len)
 {
     off_t written = 0, current = 0, p = 0;
     int ret = -1;
@@ -187,7 +187,7 @@ INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 #elif (defined(MAC_OS_X_VERSION_10_5) || defined(__MAC_10_5))
 /* -------------------------------------------------------------------------- */
 
-INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(SOCKET out, int in, off_t *off, size_t len)
 {
     off_t l = len;
     int ret = 0;
@@ -204,7 +204,7 @@ INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 #elif (defined (__sun))
 /* -------------------------------------------------------------------------- */
 
-INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
+INTERNAL ssize_t _socket_sendfile(SOCKET out, int in, off_t *off, size_t len)
 {
     size_t written = 0, current = 0;
     int ret = 0;
@@ -235,7 +235,7 @@ INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len)
 
 /* use the generic implementation */
 INTERNAL ssize_t _socket_sendfile(
-    UNUSED int out,
+    UNUSED SOCKET out,
     UNUSED int in,
     UNUSED off_t *off,
     UNUSED size_t len
@@ -261,7 +261,7 @@ INTERNAL ssize_t _socket_sendfile(
 /* -------------------------------------------------------------------------- */
 
 ASKL_API int getaddrinfo(const char *node, const char *service,
-                       const struct addrinfo *hints, struct addrinfo **res)
+                         const struct addrinfo *hints, struct addrinfo **res)
 {
     /** @brief *Very* minimal getaddrinfo() implementation */
     /*
@@ -307,7 +307,7 @@ ASKL_API int getaddrinfo(const char *node, const char *service,
 /* -------------------------------------------------------------------------- */
 
 ASKL_API int getnameinfo(const struct sockaddr *s, int salen, char *host,
-                       size_t hostlen, char *serv, size_t servlen, int flags)
+                         size_t hostlen, char *serv, size_t servlen, int flags)
 {
     /** @brief *Very* minimal getnameinfo() implementation */
     /*
@@ -373,7 +373,7 @@ ASKL_API void freeaddrinfo(struct addrinfo *res)
 #define AF_UNIX 0x0
 #endif
 
-ASKL_API int socketpair(UNUSED int d, UNUSED int t, UNUSED int p, int sv[2])
+ASKL_API int socketpair(UNUSED int d, UNUSED int t, UNUSED int p, SOCKET sv[2])
 {
     SOCKET s = INVALID_SOCKET;
     struct sockaddr_in addr;
@@ -436,7 +436,7 @@ _err_sock:
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int socket_sendfd(int socket, int fd)
+ASKL_API int socket_sendfd(SOCKET socket, SOCKET fd)
 {
     WSAPROTOCOL_INFO info;
     DWORD pid = 0;
@@ -463,25 +463,25 @@ ASKL_API int socket_sendfd(int socket, int fd)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int socket_recvfd(int socket)
+ASKL_API SOCKET socket_recvfd(SOCKET socket)
 {
     WSAPROTOCOL_INFO info;
     DWORD pid = _getpid();
-    int ret = 0;
+    SOCKET ret = INVALID_SOCKET;
 
     if (send(socket, (char *) & pid, sizeof(pid), 0x0) == -1) {
         _socket_perror(ERR(socket_recvfd, send));
-        return -1;
+        return INVALID_SOCKET;
     }
 
     if (recv(socket, (char *) & info, sizeof(info), 0x0) == -1) {
         _socket_perror(ERR(socket_recvfd, recv));
-        return -1;
+        return INVALID_SOCKET;
     }
 
     if ( (ret = WSASocket(-1, -1, -1, & info, 0, 0x0)) == INVALID_SOCKET) {
         _socket_perror(ERR(socket_recvfd, WSASocket));
-        return -1;
+        return INVALID_SOCKET;
     }
 
     return ret;
