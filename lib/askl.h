@@ -46,20 +46,26 @@
 /* check the compiler settings */
 #ifdef __GNUC__
     /* gcc settings */
-    #ifndef __APPLE__
-    #ifndef _POSIX_C_SOURCE
-        #define _POSIX_C_SOURCE 200809L
-    #endif
-    #ifndef _XOPEN_SOURCE
-        #define _XOPEN_SOURCE 700
-    #endif
-    #define _SVID_SOURCE 1
+    #ifdef _WIN32
+        #ifndef WIN32
+            #define WIN32
+        #endif
     #else
-    #define _DARWIN_C_SOURCE
+        #ifndef __APPLE__
+            #ifndef _POSIX_C_SOURCE
+                #define _POSIX_C_SOURCE 200809L
+            #endif
+            #ifndef _XOPEN_SOURCE
+                #define _XOPEN_SOURCE 700
+            #endif
+            #define _SVID_SOURCE 1
+        #else
+            #define _DARWIN_C_SOURCE
+        #endif
+        #define _DEFAULT_SOURCE
+        #define _THREAD_SAFE
+        #define _REENTRANT
     #endif
-    #define _DEFAULT_SOURCE
-    #define _THREAD_SAFE
-    #define _REENTRANT
 #endif
 
 /* standard ISO C99/POSIX includes */
@@ -147,46 +153,48 @@
 #ifdef __GNUC__
     /* specific macros */
     #define format(f, v) __attribute__ ((format(printf, (f), (v))))
-    #ifdef DEBUG
-        #define INTERNAL
-        #ifndef __APPLE__
-        #include <execinfo.h>
-        #define backtrace()                                 \
-        do {                                                \
-            void *array[10];                                \
-            size_t size;                                    \
-            char **strings;                                 \
-            size_t i;                                       \
-                                                            \
-            size = backtrace(array, 10);                    \
-            strings = backtrace_symbols(array, size);       \
-                                                            \
-            fprintf(stderr, "======= BACKTRACE =======\n"); \
-            for (i = 0; i < size; i++)                      \
-                printf ("%s\n", strings[i]);                \
-            fprintf(stderr, "=========================\n"); \
-                                                            \
-            free (strings);                                 \
-        } while (0);
+    #ifndef WIN32
+        #define ASKL_API
+        #ifdef DEBUG
+            #define INTERNAL
+            #ifndef __APPLE__
+            #include <execinfo.h>
+            #define backtrace()                                 \
+            do {                                                \
+                void *array[10];                                \
+                size_t size;                                    \
+                char **strings;                                 \
+                size_t i;                                       \
+                                                                \
+                size = backtrace(array, 10);                    \
+                strings = backtrace_symbols(array, size);       \
+                                                                \
+                fprintf(stderr, "======= BACKTRACE =======\n"); \
+                for (i = 0; i < size; i++)                      \
+                    printf ("%s\n", strings[i]);                \
+                fprintf(stderr, "=========================\n"); \
+                                                                \
+                free (strings);                                 \
+            } while (0);
+            #else
+            #define backtrace()
+            #endif
+            typedef uint32_t unaligned_uint32_t __attribute__((aligned(1)));
         #else
-        #define backtrace()
+            #ifndef __APPLE__
+            #define INTERNAL __attribute__((visibility("internal")))
+            #else
+            #define INTERNAL __attribute__((visibility("hidden")))
+            #endif
+            #define backtrace()
+            typedef uint32_t unaligned_uint32_t;
         #endif
-        typedef uint32_t unaligned_uint32_t __attribute__((aligned(1)));
-    #else
-        #ifndef __APPLE__
-        #define INTERNAL __attribute__((visibility("internal")))
-        #else
-        #define INTERNAL __attribute__((visibility("hidden")))
-        #endif
-        #define backtrace()
-        typedef uint32_t unaligned_uint32_t;
     #endif
-    #define ASKL_API
     #define likely(x)    __builtin_expect(!!(x), 1)
     #define unlikely(x)  __builtin_expect(!!(x), 0)
 
     /* handle the dllimport related noise in pthread.h with winegcc */
-    #ifdef __WINE__
+    #if (defined(__WINE__) || defined(__MINGW32__))
         #define dllimport
     #endif
 #endif
@@ -216,7 +224,6 @@
     #ifndef ssize_t
         #define ssize_t long
     #endif
-
 #endif
 
 /* project specific macros */

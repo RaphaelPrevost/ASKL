@@ -1,5 +1,4 @@
 #include "../lib/askl_server.h"
-#include <signal.h>
 
 #define _CACHE_CONCURRENCY 2
 
@@ -13,17 +12,6 @@
 static pthread_mutex_t mx_switch = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cd_switch = PTHREAD_COND_INITIALIZER;
 static int start_switch = 0;
-
-static int timeout = 0;
-
-/* -------------------------------------------------------------------------- */
-
-static void _timeout(int dummy)
-{
-    dummy = 1;
-    if (! timeout) printf("(!) Random deletion timed out.\n");
-    timeout = dummy;
-}
 
 /* -------------------------------------------------------------------------- */
 
@@ -1878,8 +1866,6 @@ int test_hashtable(void)
     char key[BUFSIZ];
     clock_t start, stop;
 
-    signal(SIGALRM, _timeout);
-
     printf("(-) Testing hash table implementation.\n");
     if (! (h = map_alloc(NULL)) ) {
         printf("(!) Allocating hash table: FAILURE\n");
@@ -1937,14 +1923,12 @@ int test_hashtable(void)
 
     missing = 0;
 
-    alarm(2);
     printf("(*) Randomly deleting 100k keys.\n");
-    while (! timeout && missing < _CACHE_RNDDL) {
+    while (missing < _CACHE_RNDDL) {
         i = rand() % _CACHE_ITEMS;
         len = snprintf(key, sizeof(key), _CACHE_KEYFM, i);
         if (is_integer(map_remove(h, key, len))) missing ++;
     }
-    timeout = 1;
 
     /* sorting */
     printf("(*) Sorting.\n");

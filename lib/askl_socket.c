@@ -978,7 +978,7 @@ ASKL_API Socket *socket_accept(Socket *sock)
     _Socket *new = NULL, *s = socket_private_interface(sock);
     struct sockaddr *remote = NULL;
     socklen_t rlen = sizeof(*remote);
-    int ret = 0;
+    SOCKET ret = INVALID_SOCKET;
 
     if (! s || ~s->_state & _SOCKET_B || s->_flags & SOCKET_UDP) {
         debug("socket_accept(): bad parameters.\n");
@@ -1556,7 +1556,7 @@ INTERNAL int socket_queue_poll(
     fd_set r, w, e;
     int fdmax = 0;
     struct timeval tv;
-    tv.tv_sec = timeout / 1000;      // Convert milliseconds to seconds
+    tv.tv_sec = timeout / 1000;
     tv.tv_usec = (timeout % 1000) * 1000;
     #else
     struct pollfd set[SOCKET_MAX];
@@ -1606,16 +1606,19 @@ INTERNAL int socket_queue_poll(
         current->_state &= ~(_SOCKET_E | _SOCKET_R);
 
         #if ! defined(_USE_BIG_FDS) || ! defined(HAS_POLL) || defined(WIN32)
+        #ifndef WIN32
         if (current->_fd >= FD_SETSIZE) {
             fprintf(stderr, "socket_queue_poll(): WARNING: socket descriptor "
                     "number is higher than FD_SETSIZE.\n");
             socket_release(s[i]); s[i] = socket_close(s[i]); i --;
             continue;
         }
-
+        #endif
         FD_SET(current->_fd, & r); FD_SET(current->_fd, & e);
         if (~current->_state & _SOCKET_W) FD_SET(current->_fd, & w);
+        #ifndef WIN32
         fdmax = (fdmax < current->_fd) ? current->_fd : fdmax;
+        #endif
         #else
         set[i].fd = current->_fd;
         set[i].events = POLLIN | POLLERR | POLLPRI | POLLRDBAND;

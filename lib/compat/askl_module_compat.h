@@ -52,7 +52,7 @@
     #define dlclose(h)   (! FreeLibrary((h)))
 
     /* dlerror is implemented using GetLastError() */
-    private const char *dlerror(void);
+    INTERNAL const char *dlerror(void);
 
 /* Mac OS 10.2 does not come with the dlopen api */
 #elif (defined(__APPLE__) && ! defined(MAC_OS_X_VERSION_10_3))

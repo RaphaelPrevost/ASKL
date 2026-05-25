@@ -72,7 +72,7 @@ typedef struct _String_Pattern String_Pattern;
 #define _STRING_EXTENSION    0x000f /* mask extension flags */
 #define _STRING_VALIDATED    0x0010 /* this string has been validated */
 #define _STRING_HAS_ERROR    0x0020 /* this string contains errors */
-#define IS_ERROR(x) ((x)->internal.flags & _STRING_HAS_ERROR)
+#define HAS_ERROR(x) ((x)->internal.flags & _STRING_HAS_ERROR)
 #define _STRING_BUFFERING    0x0040 /* this string is used for buffering */
 #define IS_BUFFER(x) ((x)->internal.flags & _STRING_BUFFERING)
 /*                           0x0080    reserved */

@@ -129,7 +129,7 @@ ASKL_API int string_parse_json(String *s, char strict, JSON_Parser *ctx);
  * valid tokens can be processed first, and parsing resumed later when more
  * data become available.
  *
- * @note Use the macro @ref IS_ERROR to test if a token is incomplete.
+ * @note Use the macro @ref HAS_ERROR to test if a token is incomplete.
  *
  */
 

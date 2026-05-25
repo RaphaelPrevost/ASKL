@@ -132,12 +132,12 @@ ASKL_API int string_parse_json(String *s, char strict, JSON_Parser *ctx)
                     break;
                 }
             }
-        } else if (IS_ERROR(last_token(json))) {
+        } else if (HAS_ERROR(last_token(json))) {
             /* input was incomplete */
             state |= _INC;
 
             while (json->count) {
-                if (! IS_ERROR(last_token(json))) {
+                if (! HAS_ERROR(last_token(json))) {
                     /* restart parsing at the last known-good character */
                     pos = string_end(last_token(json)) - json->data;
 

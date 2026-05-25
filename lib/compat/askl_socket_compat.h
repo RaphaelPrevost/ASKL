@@ -127,7 +127,12 @@
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int socketpair(UNUSED int d, UNUSED int t, UNUSED int p, int sv[2]);
+ASKL_API int socketpair(
+    UNUSED int d,
+    UNUSED int t,
+    UNUSED int p,
+    SOCKET sv[2]
+);
 
 /**
  * @ingroup socket
@@ -172,7 +177,7 @@ ASKL_API SOCKET dupsocket(SOCKET s);
 
 /* -------------------------------------------------------------------------- */
 
-private const char *_socket_win32_strerror(void);
+INTERNAL const char *_socket_win32_strerror(void);
 
 /**
  * @ingroup socket
@@ -235,7 +240,7 @@ private const char *_socket_win32_strerror(void);
 #endif
 /* -------------------------------------------------------------------------- */
 
-INTERNAL ssize_t _socket_sendfile(int out, int in, off_t *off, size_t len);
+INTERNAL ssize_t _socket_sendfile(SOCKET out, int in, off_t *off, size_t len);
 
 /**
  * @ingroup socket
@@ -335,7 +340,7 @@ ASKL_API void freeaddrinfo(struct addrinfo *res);
 /* a small private macro for easily printing errors */
 #define _gai_perror(s, i) (fprintf(stderr, "%s: %s\n", (s), gai_strerror((i))))
 
-ASKL_API int socket_sendfd(int sock, int fd);
+ASKL_API int socket_sendfd(SOCKET sock, SOCKET fd);
 
 /**
  * @ingroup socket
@@ -350,7 +355,7 @@ ASKL_API int socket_sendfd(int sock, int fd);
  * SCM_RIGHTS on POSIX systems or WSADuplicateSocket() on Windows.
  */
 
-ASKL_API int socket_recvfd(int sock);
+ASKL_API SOCKET socket_recvfd(SOCKET sock);
 
 /**
  * @ingroup socket
