@@ -135,13 +135,15 @@ ASKL_API void *mmap(
     */
 
     void *ret = MAP_FAILED;
-    HANDLE hmap = NULL;
+    HANDLE hmap = INVALID_HANDLE_VALUE;
     long wprot = 0, wflags = 0;
 
-    if ( ((fd = _get_osfhandle(fd)) == -1) && (~flags & MAP_ANONYMOUS) ) {
-        /* non-file-backed mapping is only allowed with MAP_ANONYMOUS */
-        errno = EBADF;
-        return MAP_FAILED;
+    if (~flags & MAP_ANONYMOUS) {
+        if ( (hmap = (HANDLE) _get_osfhandle(fd)) == INVALID_HANDLE_VALUE) {
+            /* non-file-backed mapping is only allowed with MAP_ANONYMOUS */
+            errno = EBADF;
+            return MAP_FAILED;
+        }
     }
 
     /* map *NIX protections and flags to their WIN32 equivalents */
@@ -168,7 +170,7 @@ ASKL_API void *mmap(
     }
 
     /* create the windows map object */
-    hmap = CreateFileMapping((HANDLE) fd, NULL, wprot, 0, len, NULL);
+    hmap = CreateFileMapping(hmap, NULL, wprot, 0, len, NULL);
 
     if (! hmap) {
         /* the fd was checked before, so it must have bad access rights */
