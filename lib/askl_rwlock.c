@@ -116,6 +116,8 @@ struct _RW_Lock {
 #define CLAIMANT 5
 
 #define LOCKSTEP 2
+#define RDWAITER 0x1000
+#define WRWAITER 0x0001
 
 #ifdef HAS_ATOMICS
 #define _LOCKSTATE_GET(lk)       _atomic_ldr(& (lk)->state)
@@ -125,8 +127,8 @@ struct _RW_Lock {
 #define _LOCKSTATE_DEC(lk)       _atomic_sub(& (lk)->state, LOCKSTEP)
 #define _LOCKWFLAG_GET(lk)       _atomic_ldr(& (lk)->wflag)
 #define _LOCKWFLAG_SET(lk, v)    _atomic_str(& (lk)->wflag, (v))
-#define _LOCKWFLAG_INC(lk)       _atomic_add(& (lk)->wflag, 1)
-#define _LOCKWFLAG_DEC(lk)       _atomic_sub(& (lk)->wflag, 1)
+#define _LOCKWFLAG_INC(lk, v)    _atomic_add(& (lk)->wflag, (v))
+#define _LOCKWFLAG_DEC(lk, v)    _atomic_sub(& (lk)->wflag, (v))
 #else
 #define _LOCKSTATE_GET(lk)    ((lk)->state)
 #define _LOCKSTATE_SET(lk, v) do { (lk)->state = (v); } while (0)
@@ -134,8 +136,8 @@ struct _RW_Lock {
 #define _LOCKSTATE_DEC(lk)    do { (lk)->state -= LOCKSTEP; } while (0)
 #define _LOCKWFLAG_GET(lk)    ((lk)->wflag)
 #define _LOCKWFLAG_SET(lk, v) do { (lk)->wflag = (v); } while (0)
-#define _LOCKWFLAG_INC(lk) do { (lk)->wflag ++; } while (0)
-#define _LOCKWFLAG_DEC(lk) do { (lk)->wflag --; } while (0)
+#define _LOCKWFLAG_INC(lk, v) do { (lk)->wflag += (v); } while (0)
+#define _LOCKWFLAG_DEC(lk, v) do { (lk)->wflag -= (v); } while (0)
 #endif
 
 /* -------------------------------------------------------------------------- */
@@ -180,7 +182,7 @@ INTERNAL int lock_rdlock(RW_Lock *lock)
 {
     int ret = 0, x = 0;
 
-    if (unlikely(_LOCKWFLAG_GET(lock))) sched_yield();
+    if (unlikely(_LOCKWFLAG_GET(lock) & 0xfff)) sched_yield();
 
     #ifdef HAS_ATOMICS
     for (x = _LOCKSTATE_GET(lock); x && ! (x & 0x1); x = _LOCKSTATE_GET(lock)) {
@@ -193,28 +195,32 @@ INTERNAL int lock_rdlock(RW_Lock *lock)
 
     pthread_mutex_lock(& lock->mutex);
 
-    #ifdef HAS_ATOMICS
-    while (1) {
-    #endif
-        /* wait while write-locked (lockstate == 0) */
-        while (! (x = _LOCKSTATE_GET(lock)) || x & 0x1) {
-            if (unlikely(x == -1)) {
-                ret = -1; goto _err_lock;
-            }
-            pthread_cond_wait(& lock->cond, & lock->mutex);
-        }
+        _LOCKWFLAG_INC(lock, RDWAITER);
 
         #ifdef HAS_ATOMICS
-        /* XXX handle slippery claimants */
-        if (_LOCKSTATE_CAS(lock, x, x + LOCKSTEP)) break;
-        #else
-        _LOCKSTATE_INC(lock);
+        while (1) {
         #endif
-    #ifdef HAS_ATOMICS
-    }
-    #endif
+            /* wait while write-locked (lockstate == 0) */
+            while (! (x = _LOCKSTATE_GET(lock)) || x & 0x1) {
+                if (unlikely(x == -1)) {
+                    ret = -1; goto _err_lock;
+                }
+                pthread_cond_wait(& lock->cond, & lock->mutex);
+            }
+
+            #ifdef HAS_ATOMICS
+            /* XXX handle slippery claimants */
+            if (_LOCKSTATE_CAS(lock, x, x + LOCKSTEP)) break;
+            #else
+            _LOCKSTATE_INC(lock);
+            #endif
+        #ifdef HAS_ATOMICS
+        }
+        #endif
 
 _err_lock:
+        _LOCKWFLAG_DEC(lock, RDWAITER);
+
     pthread_mutex_unlock(& lock->mutex);
 
     return ret;
@@ -232,7 +238,7 @@ INTERNAL int lock_wrlock(RW_Lock *lock)
 
     pthread_mutex_lock(& lock->mutex);
 
-        _LOCKWFLAG_INC(lock);
+        _LOCKWFLAG_INC(lock, WRWAITER);
 
         #ifdef HAS_ATOMICS
         while (1) {
@@ -256,7 +262,7 @@ INTERNAL int lock_wrlock(RW_Lock *lock)
         #endif
 
 _err_lock:
-        _LOCKWFLAG_DEC(lock);
+        _LOCKWFLAG_DEC(lock, WRWAITER);
 
     pthread_mutex_unlock(& lock->mutex);
 
@@ -402,22 +408,25 @@ INTERNAL void lock_unlock(RW_Lock *lock)
     int x;
 
     #ifdef HAS_ATOMICS
-    /* fast path: only reader */
-    if (_LOCKSTATE_CAS(lock, RDLOCKED, UNLOCKED)) {
-        /* check if a writer is waiting */
-        if (likely(! _LOCKWFLAG_GET(lock))) return;
+    while (1) {
+        x = _LOCKSTATE_GET(lock);
 
-        pthread_mutex_lock(& lock->mutex);
-        /*
-         * XXX the waiting writer thread may have already checked the state but
-         * not called pthread_cond_wait() yet
-         */
-        pthread_mutex_unlock(& lock->mutex);
-        pthread_cond_signal(& lock->cond);
-        return;
+        if (x == WRLOCKED) {
+            if (likely(_LOCKSTATE_CAS(lock, x, UNLOCKED)))
+                break;
+        } else if (x > UNLOCKED) {
+            if (_LOCKSTATE_CAS(lock, x, x - LOCKSTEP))
+                break;
+        } else return;
     }
-    #endif
 
+    if (likely(! _LOCKWFLAG_GET(lock))) return;
+
+    pthread_mutex_lock(& lock->mutex);
+    pthread_mutex_unlock(& lock->mutex);
+
+    pthread_cond_broadcast(& lock->cond);
+    #else
     pthread_mutex_lock(& lock->mutex);
 
         if ( (x = _LOCKSTATE_GET(lock)) == 0)
@@ -428,6 +437,7 @@ INTERNAL void lock_unlock(RW_Lock *lock)
     pthread_mutex_unlock(& lock->mutex);
 
     pthread_cond_broadcast(& lock->cond);
+    #endif
 }
 
 /* -------------------------------------------------------------------------- */
