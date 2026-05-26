@@ -125,6 +125,8 @@ struct _RW_Lock {
 #define _LOCKSTATE_DEC(lk)       _atomic_sub(& (lk)->state, LOCKSTEP)
 #define _LOCKWFLAG_GET(lk)       _atomic_ldr(& (lk)->wflag)
 #define _LOCKWFLAG_SET(lk, v)    _atomic_str(& (lk)->wflag, (v))
+#define _LOCKWFLAG_INC(lk)       _atomic_add(& (lk)->wflag, 1)
+#define _LOCKWFLAG_DEC(lk)       _atomic_sub(& (lk)->wflag, 1)
 #else
 #define _LOCKSTATE_GET(lk)    ((lk)->state)
 #define _LOCKSTATE_SET(lk, v) do { (lk)->state = (v); } while (0)
@@ -132,6 +134,8 @@ struct _RW_Lock {
 #define _LOCKSTATE_DEC(lk)    do { (lk)->state -= LOCKSTEP; } while (0)
 #define _LOCKWFLAG_GET(lk)    ((lk)->wflag)
 #define _LOCKWFLAG_SET(lk, v) do { (lk)->wflag = (v); } while (0)
+#define _LOCKWFLAG_INC(lk) do { (lk)->wflag ++; } while (0)
+#define _LOCKWFLAG_DEC(lk) do { (lk)->wflag --; } while (0)
 #endif
 
 /* -------------------------------------------------------------------------- */
@@ -228,7 +232,7 @@ INTERNAL int lock_wrlock(RW_Lock *lock)
 
     pthread_mutex_lock(& lock->mutex);
 
-        _LOCKWFLAG_SET(lock, 1);
+        _LOCKWFLAG_INC(lock);
 
         #ifdef HAS_ATOMICS
         while (1) {
@@ -245,14 +249,14 @@ INTERNAL int lock_wrlock(RW_Lock *lock)
             /* XXX handle slippery readers */
             if (_LOCKSTATE_CAS(lock, UNLOCKED, WRLOCKED)) break;
             #else
-            _LOCKSTATE_SET(lock, 0);
+            _LOCKSTATE_DEC(lock);
             #endif
         #ifdef HAS_ATOMICS
         }
         #endif
 
 _err_lock:
-        _LOCKWFLAG_SET(lock, 0);
+        _LOCKWFLAG_DEC(lock);
 
     pthread_mutex_unlock(& lock->mutex);
 
@@ -279,7 +283,7 @@ static int _cooperate(RW_Lock *lock)
 
     #ifndef HAS_ATOMICS
     /* wait for the claim to be relinquished */
-    while ( (state = _LOCKSTATE_GET(lock)) & 0x1) {
+    while (! (state = _LOCKSTATE_GET(lock)) || (state & 0x1) ) {
         if (unlikely(state == -1)) return -1;
         pthread_cond_wait(& lock->cond, & lock->mutex);
     }
@@ -290,7 +294,8 @@ static int _cooperate(RW_Lock *lock)
         #ifdef HAS_ATOMICS
         while (1) {
             state = _LOCKSTATE_GET(lock);
-            if (! (state & 0x1)) {
+            /* XXX a writer may have slipped in when we were cooperating */
+            if (state > WRLOCKED && ! (state & 0x1)) {
                 if (_LOCKSTATE_CAS(lock, state, state + LOCKSTEP))
                     return 0;
             } else if (unlikely(state == -1)) return -1;
@@ -310,10 +315,7 @@ INTERNAL int lock_upgrade(RW_Lock *lock)
 {
     #ifdef HAS_ATOMICS
     /* fast path: only reader */
-    if (_LOCKSTATE_CAS(lock, RDLOCKED, UPGRADED)) {
-        pthread_cond_broadcast(& lock->cond);
-        return 0;
-    }
+    if (_LOCKSTATE_CAS(lock, RDLOCKED, UPGRADED)) return 0;
     
     /* claim the lock */
     while (1) {
@@ -371,15 +373,11 @@ _success:
 
 INTERNAL void lock_restore(RW_Lock *lock)
 {
-    #ifdef HAS_ATOMICS
-    _LOCKSTATE_CAS(lock, UPGRADED, RDLOCKED);
-    #else
     pthread_mutex_lock(& lock->mutex);
 
         _LOCKSTATE_SET(lock, RDLOCKED);
 
     pthread_mutex_unlock(& lock->mutex);
-    #endif
 
     pthread_cond_broadcast(& lock->cond);
 }
@@ -403,20 +401,33 @@ INTERNAL void lock_unlock(RW_Lock *lock)
 {
     int x;
 
-    #ifndef HAS_ATOMICS
-    pthread_mutex_lock(& lock->mutex);
+    #ifdef HAS_ATOMICS
+    /* fast path: only reader */
+    if (_LOCKSTATE_CAS(lock, RDLOCKED, UNLOCKED)) {
+        /* check if a writer is waiting */
+        if (likely(! _LOCKWFLAG_GET(lock))) return;
+
+        pthread_mutex_lock(& lock->mutex);
+        /*
+         * XXX the waiting writer thread may have already checked the state but
+         * not called pthread_cond_wait() yet
+         */
+        pthread_mutex_unlock(& lock->mutex);
+        pthread_cond_signal(& lock->cond);
+        return;
+    }
     #endif
+
+    pthread_mutex_lock(& lock->mutex);
 
         if ( (x = _LOCKSTATE_GET(lock)) == 0)
             _LOCKSTATE_SET(lock, UNLOCKED);
         else if (x > UNLOCKED)
             _LOCKSTATE_DEC(lock);
 
-        pthread_cond_broadcast(& lock->cond);
-
-    #ifndef HAS_ATOMICS
     pthread_mutex_unlock(& lock->mutex);
-    #endif
+
+    pthread_cond_broadcast(& lock->cond);
 }
 
 /* -------------------------------------------------------------------------- */
