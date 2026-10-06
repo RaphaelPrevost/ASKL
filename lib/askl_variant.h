@@ -65,7 +65,7 @@ typedef struct Variant {
 /**
  * @ingroup variant
  * @struct Variant
- * 
+ *
  * The Variant struct provides a small tagged value type used by ASKL containers
  * (e.g. Map and Trie) to store and retrieve values with lightweight runtime
  * type identification.
@@ -81,13 +81,18 @@ typedef struct Variant {
  *
  */
 
-
 #define VALUE_NULL        0
 #define VALUE_STRING      1
 #define VALUE_INTEGER     2
 #define VALUE_BOOLEAN     3
 #define VALUE_DECIMAL     4
 #define VALUE_POINTER     5
+#define VALUE_ARRAY       6
+#define VALUE_OBJECT      7
+
+/* VALUE_ARRAY and VALUE_OBJECT describe a container: the integer value is
+   its number of members; they are only stored for an empty container by
+   the JSON index, which knows a container with members through them */
 #define _VALUE_OBJECT  0x80
 
 #define is_null(v) ((v).metadata.fields.type == VALUE_NULL)
@@ -96,6 +101,8 @@ typedef struct Variant {
 #define is_boolean(v) ((v).metadata.fields.type == VALUE_BOOLEAN)
 #define is_decimal(v) ((v).metadata.fields.type == VALUE_DECIMAL)
 #define is_pointer(v) ((v).metadata.fields.type == VALUE_POINTER)
+#define is_array(v) ((v).metadata.fields.type == VALUE_ARRAY)
+#define is_object(v) ((v).metadata.fields.type == VALUE_OBJECT)
 #define _is_object(v) ((v).metadata.fields.type & _VALUE_OBJECT)
 
 /* -------------------------------------------------------------------------- */
@@ -229,7 +236,7 @@ ASKL_API void *variant_to_pointer(Variant v);
  *
  * If @p v is not a pointer variant, the program will terminate with an error.
  * Callers should test with @ref is_pointer() first.
- * 
+ *
  * @note VALUE_NULL or _VALUE_OBJECT are tolerated.
  *
  */

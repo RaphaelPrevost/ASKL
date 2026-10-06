@@ -121,12 +121,12 @@ struct _RW_Lock {
 
 #ifdef HAS_ATOMICS
 #define _LOCKSTATE_GET(lk)       _atomic_ldr(& (lk)->state)
-#define _LOCKSTATE_SET(lk, v)    _atomic_str(& (lk)->state, (v))
+#define _LOCKSTATE_SET(lk, v)    _atomic_stlr(& (lk)->state, (v))
 #define _LOCKSTATE_CAS(lk, a, b) _atomic_cas(& (lk)->state, (a), (b))
 #define _LOCKSTATE_INC(lk)       _atomic_add(& (lk)->state, LOCKSTEP)
 #define _LOCKSTATE_DEC(lk)       _atomic_sub(& (lk)->state, LOCKSTEP)
 #define _LOCKWFLAG_GET(lk)       _atomic_ldr(& (lk)->wflag)
-#define _LOCKWFLAG_SET(lk, v)    _atomic_str(& (lk)->wflag, (v))
+#define _LOCKWFLAG_SET(lk, v)    _atomic_stlr(& (lk)->wflag, (v))
 #define _LOCKWFLAG_INC(lk, v)    _atomic_add(& (lk)->wflag, (v))
 #define _LOCKWFLAG_DEC(lk, v)    _atomic_sub(& (lk)->wflag, (v))
 #else
@@ -182,6 +182,8 @@ INTERNAL int lock_rdlock(RW_Lock *lock)
 {
     int ret = 0, x = 0;
 
+    if (unlikely(! lock)) return 0;
+
     if (unlikely(_LOCKWFLAG_GET(lock) & 0xfff)) sched_yield();
 
     #ifdef HAS_ATOMICS
@@ -231,6 +233,8 @@ _err_lock:
 INTERNAL int lock_wrlock(RW_Lock *lock)
 {
     int ret = 0, x = 0;
+
+    if (unlikely(! lock)) return 0;
 
     #ifdef HAS_ATOMICS
     if (likely(_LOCKSTATE_CAS(lock, UNLOCKED, WRLOCKED))) return 0;
@@ -322,7 +326,7 @@ INTERNAL int lock_upgrade(RW_Lock *lock)
     #ifdef HAS_ATOMICS
     /* fast path: only reader */
     if (_LOCKSTATE_CAS(lock, RDLOCKED, UPGRADED)) return 0;
-    
+
     /* claim the lock */
     while (1) {
         int state = _LOCKSTATE_GET(lock);
@@ -407,6 +411,8 @@ INTERNAL void lock_unlock(RW_Lock *lock)
 {
     int x;
 
+    if (unlikely(! lock)) return;
+
     #ifdef HAS_ATOMICS
     while (1) {
         x = _LOCKSTATE_GET(lock);
@@ -444,6 +450,8 @@ INTERNAL void lock_unlock(RW_Lock *lock)
 
 INTERNAL void lock_destroy(RW_Lock *lock)
 {
+    if (! lock) return;
+
     pthread_cond_destroy(& lock->cond);
     pthread_mutex_destroy(& lock->mutex);
 }

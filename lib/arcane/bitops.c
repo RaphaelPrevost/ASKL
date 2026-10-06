@@ -588,7 +588,9 @@ static inline uint8_t _crc7(const char *string, size_t len)
     ((defined(__GNUC__)) && (((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1)) || \
      (__GNUC__ > 4) || defined(__i386__) || defined(__x86_64__))) || \
     ((defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)))
+#ifndef ASKL_NO_ATOMICS
 #define HAS_ATOMICS
+#endif
 #endif
 
 #ifdef HAS_ATOMICS
@@ -700,7 +702,39 @@ static inline int _atomic_ldr(_ATOMIC int *ptr)
 
 /* -------------------------------------------------------------------------- */
 
-static inline void _atomic_str(_ATOMIC int *ptr, int value)
+static inline int _atomic_ldar(_ATOMIC int *ptr)
+{
+    #if (defined(_MSC_VER))
+        int ret = *ptr;
+        #if _MSC_VER >= 1300
+        _ReadWriteBarrier();
+        #elif (defined(_M_IX86))
+        __asm { /* empty, acts as barrier */ }
+        #endif
+        return ret;
+    #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+        return atomic_load_explicit(ptr, memory_order_acquire);
+    #elif (defined(__GNUC__))
+        #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
+        return __atomic_load_n(ptr, __ATOMIC_ACQUIRE);
+        #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
+        return __sync_fetch_and_add(ptr, 0);
+        #elif defined(__i386__) || defined(__x86_64__)
+        int value;
+        __asm__ __volatile__(
+            "movl %1, %0"
+            : "=r"(value)
+            : "m"(*ptr)
+            : "memory"
+        );
+        return value;
+        #endif
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline void _atomic_stlr(_ATOMIC int *ptr, int value)
 {
     #if (defined(_MSC_VER))
         #if _MSC_VER >= 1300
@@ -717,6 +751,65 @@ static inline void _atomic_str(_ATOMIC int *ptr, int value)
         #elif defined(__i386__) || defined(__x86_64__)
         __asm__ __volatile__(
             "movl %1, %0"
+            : "=m"(*ptr)
+            : "r"(value)
+            : "memory"
+        );
+        #endif
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline void *_atomic_ldar_ptr(void *_ATOMIC *ptr)
+{
+    #if (defined(_MSC_VER))
+        void *ret = *ptr;
+        #if _MSC_VER >= 1300
+        _ReadWriteBarrier();
+        #elif (defined(_M_IX86))
+        __asm { /* empty, acts as barrier */ }
+        #endif
+        return ret;
+    #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+        return atomic_load_explicit(ptr, memory_order_acquire);
+    #elif (defined(__GNUC__))
+        #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
+        return __atomic_load_n(ptr, __ATOMIC_ACQUIRE);
+        #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
+        return __sync_val_compare_and_swap(ptr, NULL, NULL);
+        #elif defined(__i386__) || defined(__x86_64__)
+        void *value;
+        __asm__ __volatile__(
+            "mov %1, %0"
+            : "=r"(value)
+            : "m"(*ptr)
+            : "memory"
+        );
+        return value;
+        #endif
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static inline void _atomic_stlr_ptr(void *_ATOMIC *ptr, void *value)
+{
+    #if (defined(_MSC_VER))
+        #if _MSC_VER >= 1300
+        _ReadWriteBarrier();
+        #endif
+        *ptr = value;
+    #elif (defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L))
+        atomic_store_explicit(ptr, value, memory_order_release);
+    #elif (defined(__GNUC__))
+        #if ((__GNUC__ > 4) || ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 7)))
+        __atomic_store_n(ptr, value, __ATOMIC_RELEASE);
+        #elif ((__GNUC__ == 4) && (__GNUC_MINOR__ >= 1))
+        __sync_lock_test_and_set(ptr, value);
+        #elif defined(__i386__) || defined(__x86_64__)
+        __asm__ __volatile__(
+            "mov %1, %0"
             : "=m"(*ptr)
             : "r"(value)
             : "memory"
@@ -802,6 +895,10 @@ static inline int _atomic_sub(_ATOMIC int *ptr, int val)
 }
 
 /* -------------------------------------------------------------------------- */
+
+#else
+
+#define _ATOMIC volatile
 
 #endif
 

@@ -35,7 +35,7 @@
 
 #include "../../lib/askl.h"
 #include "../../lib/askl_string.h"
-#include "../../lib/string/parser.h"
+#include "../../lib/askl_json.h"
 
 /* -------------------------------------------------------------------------- */
 

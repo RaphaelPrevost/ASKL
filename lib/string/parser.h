@@ -66,6 +66,23 @@ typedef struct JSON_Parser {
     int (CALLBACK *exit)(int, struct JSON_Parser *);
 } JSON_Parser;
 
+/**
+ * @ingroup string
+ * @struct JSON_Parser
+ *
+ * Callback context used while parsing JSON tokens.
+ *
+ * @ref context is opaque state owned by the parser implementation.
+ * @ref init is called when entering an object or array, @ref data for scalar
+ * values, and @ref exit when leaving a container. During a callback,
+ * @ref key identifies the current object member when applicable,
+ * @ref primitive describes the current primitive value, @ref parent identifies
+ * the enclosing container, and @ref strict contains the active parsing mode.
+ *
+ * Parser contexts are normally initialized by the subsystem that consumes the
+ * JSON, such as @ref jsonpath_init().
+ */
+
 #define JSON_OBJECT         0x1000
 #define JSON_ARRAY          0x2000
 #define JSON_STRING         0x4000
@@ -93,7 +110,7 @@ ASKL_API int string_parse_json(String *s, char strict, JSON_Parser *ctx);
 
 /**
  * @ingroup string
- * @fn m_string *string_parse_json(m_string *s, int strict, m_json_parser *ctx)
+ * @fn m_string *string_parse_json(String *s, char strict, JSON_Parser *ctx)
  * @param s the string to be parsed
  * @param strict boolean - enable or disable strict parsing
  * @param ctx optional parser context
@@ -133,28 +150,6 @@ ASKL_API int string_parse_json(String *s, char strict, JSON_Parser *ctx);
  *
  */
 
-/* -------------------------------------------------------------------------- */
-#if (defined(_ENABLE_PARSER) && defined(_ENABLE_TRIE))
-/* -------------------------------------------------------------------------- */
-
-#include "../askl_cbtrie.h"
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API int jsonpath_init(JSON_Parser *ctx);
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API int jsonpath_print(JSON_Parser *ctx);
-
-/* -------------------------------------------------------------------------- */
-
-ASKL_API int jsonpath_free(JSON_Parser *ctx);
-
-/* -------------------------------------------------------------------------- */
-
-/* -------------------------------------------------------------------------- */
-#endif /* _ENABLE_PARSER && _ENABLE_TRIE */
 /* -------------------------------------------------------------------------- */
 
 /* -------------------------------------------------------------------------- */

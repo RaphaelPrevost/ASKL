@@ -167,7 +167,7 @@ INTERNAL int lock_upgrade(RW_Lock *lock);
  * @warning This function must only be called by a thread that already
  *          holds the lock in read mode. Calling it without a read lock
  *          is undefined behavior.
- * 
+ *
  * @warning An upgraded lock must only be released with @ref lock_restore(),
  *          using @ref lock_unlock() instead will result in a corrupted lock
  *          state and undefined behavior.

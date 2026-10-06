@@ -33,7 +33,7 @@
  *                                                                             *
  ******************************************************************************/
 
-#ifdef ASKL_PARSER_H
+#ifdef ASKL_JSON_H
 
 #define DOUBLE_MANTISSA_BITS 52
 #define DOUBLE_EXPONENT_BITS 11
@@ -397,21 +397,397 @@ static const uint64_t DOUBLE_POW5_SPLIT[DOUBLE_POW5_TABLE_SIZE][2] = {
   {  3278889188817135834u, 1424047269444608885u }, {  8710297504448807696u, 1780059086805761106u }
 };
 
-static const uint16_t u32toa_lut[] = {
-    0x3030,0x3130,0x3230,0x3330,0x3430,0x3530,0x3630,0x3730,0x3830,0x3930,
-    0x3031,0x3131,0x3231,0x3331,0x3431,0x3531,0x3631,0x3731,0x3831,0x3931,
-    0x3032,0x3132,0x3232,0x3332,0x3432,0x3532,0x3632,0x3732,0x3832,0x3932,
-    0x3033,0x3133,0x3233,0x3333,0x3433,0x3533,0x3633,0x3733,0x3833,0x3933,
-    0x3034,0x3134,0x3234,0x3334,0x3434,0x3534,0x3634,0x3734,0x3834,0x3934,
-    0x3035,0x3135,0x3235,0x3335,0x3435,0x3535,0x3635,0x3735,0x3835,0x3935,
-    0x3036,0x3136,0x3236,0x3336,0x3436,0x3536,0x3636,0x3736,0x3836,0x3936,
-    0x3037,0x3137,0x3237,0x3337,0x3437,0x3537,0x3637,0x3737,0x3837,0x3937,
-    0x3038,0x3138,0x3238,0x3338,0x3438,0x3538,0x3638,0x3738,0x3838,0x3938,
-    0x3039,0x3139,0x3239,0x3339,0x3439,0x3539,0x3639,0x3739,0x3839,0x3939
-};
-
 #define LOG2_POW5(x) ((int32_t) ((((uint32_t) (x)) * 1217359) >> 19))
 #define CEIL_LOG2_POW5(x) (LOG2_POW5((x)) + 1)
 #define FLOOR_LOG2(x) (__msb_idx64(x))
+
+/* -------------------------------------------------------------------------- */
+
+static ssize_t json_string(char *out, const char *input, size_t len, int strict)
+{
+    /** @brief validate an UTF-8 JSON string and decode escape sequences */
+
+    size_t i = 0, pos = 0;
+    uint32_t word = 0;
+    uint32_t surrogate = 0;
+    uint8_t c = 0;
+
+    while (i + 4 <= len) {
+        if (unlikely(surrogate)) {
+            if (unlikely(input[i ++] != '\\')) {
+                debug("json_string(): unpaired high surrogate.\n");
+                goto _error;
+            } else goto _unesc;
+        }
+
+        memcpy(& word, input + i, sizeof(word));
+
+        /* check for non-ASCII characters */
+        if (word & 0x80808080U) {
+            switch (__zero_idx(word & 0x80808080U)) {
+            case 3: if ( (c = input[i ++]) == '\\') goto _unesc;
+                    out[pos ++] = c;
+            case 2: if ( (c = input[i ++]) == '\\') goto _unesc;
+                    out[pos ++] = c;
+            case 1: if ( (c = input[i ++]) == '\\') goto _unesc;
+                    out[pos ++] = c;
+            case 0: goto _check;
+            }
+        } else {
+            /* check for an escape sequence */
+            if ( (word = __zero(word ^ 0x5c5c5c5cU)) ) {
+                switch (__zero_idx(word)) {
+                case 3: out[pos ++] = input[i ++];
+                case 2: out[pos ++] = input[i ++];
+                case 1: out[pos ++] = input[i ++];
+                case 0: i ++;
+                }
+            } else {
+                memcpy(out + pos, input + i, 4); pos += 4; i += 4;
+                continue;
+            }
+        }
+
+_unesc: switch (input[i ++]) {
+
+        case '\"': out[pos ++] = '\"'; continue;
+
+        /* QUIRK escaped single quotes, CRLF and capital U
+                 unicode escape sequences */
+        case '\r':
+        case '\n':
+        case '\'': if (! strict) { out[pos ++] = c; continue; }
+        case  'U': if (strict) goto _error; else goto _utf8;
+
+        case  '/': out[pos ++] =  '/'; continue;
+        case '\\': out[pos ++] = '\\'; continue;
+        case  'b': out[pos ++] = '\b'; continue;
+        case  'f': out[pos ++] = '\f'; continue;
+        case  'n': out[pos ++] = '\n'; continue;
+        case  'r': out[pos ++] = '\r'; continue;
+        case  't': out[pos ++] = '\t'; continue;
+
+_utf8:  case  'u': {
+            /* convert the 4 hexadecimal digits to a unicode codepoint */
+            uint32_t codepoint = (
+                ((9 * ((input[i] >> 6)) + (input[i] & 0xf)) << 12) |
+                ((9 * ((input[i + 1] >> 6)) + (input[i + 1] & 0xf)) << 8) |
+                ((9 * ((input[i + 2] >> 6)) + (input[i + 2] & 0xf)) << 4) |
+                 (9 * ((input[i + 3] >> 6)) + (input[i + 3] & 0xf))
+            );
+
+            i += 4;
+
+            if (codepoint <= 0x7f) {
+                /* 1-byte ASCII (0|xxxxxxx) */
+                out[pos ++] = (char) codepoint;
+            } else if (codepoint <= 0x7ff) {
+                /* 2-byte sequence (110|xxxxx 10|xxxxxx) */
+                out[pos ++] = (char) (0xc0 | (codepoint >> 6));
+                out[pos ++] = (char) (0x80 | (codepoint & 0x3f));
+            } else if ((codepoint & 0xfc00) == 0xd800) {
+                /* high surrogate */
+                if (surrogate) {
+                    debug("json_string(): consecutive high surrogates.\n");
+                    goto _error;
+                }
+                surrogate = codepoint;
+            } else if ((codepoint & 0xfc00) == 0xdc00) {
+                /* low surrogate */
+                if (! surrogate) {
+                    debug("json_string(): unpaired low surrogate.\n");
+                    goto _error;
+                }
+
+                /* combine both surrogates */
+                codepoint = (
+                    0x10000 + ((surrogate - 0xd800) << 10) + codepoint - 0xdc00
+                );
+                surrogate = 0;
+
+                /* 4-byte sequence (1110|xxxx 10|xxxxxx 10|xxxxxx 10|xxxxxx) */
+                if (likely(codepoint <= 0x10ffff)) {
+                    out[pos ++] = (char) (0xf0 | ((codepoint >> 18) & 0x07));
+                    out[pos ++] = (char) (0x80 | ((codepoint >> 12) & 0x3f));
+                    out[pos ++] = (char) (0x80 | ((codepoint >> 6) & 0x3f));
+                    out[pos ++] = (char) (0x80 | (codepoint & 0x3f));
+                } else {
+                    debug(
+                        "json_string(): invalid escaped codepoint: 0x%06x.\n",
+                        codepoint
+                    );
+                    goto _error;
+                }
+            } else if (likely((codepoint & 0xf800) ^ 0xd800)) {
+                /* 3-byte sequence (1110|xxxx 10|xxxxxx 10|xxxxxx) */
+                out[pos ++] = (char) (0xe0 | (codepoint >> 12));
+                out[pos ++] = (char) (0x80 | ((codepoint >> 6) & 0x3f));
+                out[pos ++] = (char) (0x80 | (codepoint & 0x3f));
+            }
+        } continue;
+
+        default: goto _error;
+        }
+
+_check: if (((c = input[i]) & 0xe0) == 0xc0) {
+            if ((c & 0xfe) == 0xc0) {
+                debug("json_string(): overlong 2-byte sequence.\n");
+                goto _error;
+            }
+            if ( (i + 1 < len) && (input[i + 1] & 0xc0) == 0x80) {
+                out[pos ++] = input[i ++];
+                out[pos ++] = input[i ++];
+            } else goto _error;
+        } else if (((c = input[i]) & 0xf0) == 0xe0) {
+            if ( (i + 2 < len) &&
+                 ( (input[i + 1] & 0xc0) == 0x80) &&
+                 ( (input[i + 2] & 0xc0) == 0x80) ) {
+                if (unlikely(c == 0xe0 && (input[i + 1] & 0xe0) == 0x80)) {
+                    debug("json_string(): overlong 3-byte sequence.\n");
+                    goto _error;
+                }
+                if (unlikely(c == 0xed && (input[i + 1] & 0xe0) == 0xa0)) {
+                    debug("json_string(): unescaped UTF-16 surrogate.\n");
+                    goto _error;
+                }
+                out[pos ++] = input[i ++];
+                out[pos ++] = input[i ++];
+                out[pos ++] = input[i ++];
+            } else goto _error;
+        } else if (((c = input[i]) & 0xf8) == 0xf0) {
+            if ( (i + 3 < len) &&
+                 ( (input[i + 1] & 0xc0) == 0x80) &&
+                 ( (input[i + 2] & 0xc0) == 0x80) &&
+                 ( (input[i + 3] & 0xc0) == 0x80) ) {
+                if (unlikely(c == 0xf0 && (uint8_t) input[i + 1] < 0x90)) {
+                    debug("json_string(): overlong 4-byte sequence.\n");
+                    goto _error;
+                }
+                if (unlikely(c == 0xf4 && (uint8_t) input[i + 1] > 0x8f)) {
+                    debug("json_string(): invalid codepoint.\n");
+                    goto _error;
+                }
+                out[pos ++] = input[i ++];
+                out[pos ++] = input[i ++];
+                out[pos ++] = input[i ++];
+                out[pos ++] = input[i ++];
+            }  else goto _error;
+        } else goto _error;
+    }
+
+    if (surrogate) {
+        debug("json_string(): lone high surrogate.\n");
+        goto _error;
+    }
+
+    int continuation = 0;
+    uint8_t byte = 0;
+
+    /* remaining characters */
+    switch (len - i) {
+    case 3: if ( (byte = input[i ++]) == '\\') goto _unesc;
+            if (byte & 0x80) {
+                continuation = (
+                    ((byte & 0xe0) == 0xc0) - ((byte & 0xfe) == 0xc0) +
+                    ((byte & 0xf0) == 0xe0) * 2
+                );
+                if (! continuation) goto _error;
+            }
+            out[pos ++] = byte;
+    case 2: if ( (c = input[i ++]) == '\\') {
+                if (continuation) goto _error;
+                goto _unesc;
+            } else if (c & 0x80) {
+                if ((c & 0xc0) == 0x80) {
+                    if (! continuation --) goto _error;
+                    if ( (byte == 0xe0 && (c & 0xe0) == 0x80) ||
+                         (byte == 0xed && (c & 0xe0) == 0xa0) ) {
+                        debug(
+                            "json_string(): ill-formed multi-byte sequence.\n"
+                        );
+                        goto _error;
+                    }
+                } else {
+                    continuation = ( (c & 0xe0) == 0xc0) - ((c & 0xfe) == 0xc0);
+                    if (! continuation) goto _error;
+                }
+            }
+            out[pos ++] = c;
+    case 1: if ( (c = input[i ++]) == '\\') goto _error;
+            if (c & 0x80) {
+                if ((c & 0xc0) == 0x80) {
+                    if (! continuation) goto _error;
+                } else goto _error;
+            }
+            out[pos ++] = c;
+    default:
+            out[pos] = '\0';
+    }
+
+    return pos;
+
+_error:
+    debug(
+        "json_string(): illegal character 0x%02x at %zu.\n",
+        (uint8_t) input[i], i
+    );
+    return -1;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static double json_number(const char *s, size_t len, int neg, int rad, int exp)
+{
+    /** @brief decode a JSON number to IEEE754 */
+
+    uint64_t n = 0;
+    int32_t e = 0;
+    int i = 0, digits = 0, l = 0, neg_exp = 0;
+    double ret;
+
+    l = (rad) ? rad : (exp) ? exp : (int) len;
+
+    /* read the decimal part */
+    for (digits = neg; digits < l; digits ++)
+        n = n * 10 + (s[digits] - '0');
+
+    /* read the fractional part, if any */
+    if (rad ++) {
+        l = (exp) ? exp : (int) len;
+        for (i = rad; i < l; i ++)
+            n = n * 10 + (s[i] - '0');
+        e = (int32_t) rad - l;
+    }
+
+    /* zero */
+    if (n == 0) return (neg) ? -0.0 : 0.0;
+
+    /* read the exponent part, if any */
+    if (exp ++) {
+        int32_t exp_number = 0;
+
+        l = len;
+
+        /* check if there is a sign */
+        if (s[exp] == '-') {
+            neg_exp = 1; exp ++;
+        } else if (s[exp] == '+') exp ++;
+
+        /* check if the exponent is too long */
+        if (len - exp >= 4) {
+            if (neg_exp)
+                return (neg) ? -0.0 : 0.0;
+            else
+                return (neg) ? -INFINITY : INFINITY;
+        }
+
+        for (i = exp; i < l; i ++)
+            exp_number = 10 * exp_number + (s[i] - '0');
+
+        e += (neg_exp) ? -exp_number : exp_number;
+
+        if (unlikely(digits + e <= -324)) return (neg) ? -0.0 : 0.0;
+        if (unlikely(digits + e >=  310)) return (neg) ? -INFINITY : INFINITY;
+    }
+
+    /* integer */
+    if (e == 0) {
+        ret = (double) n;
+        return (neg) ? -ret : ret;
+    }
+
+    if ( (e >= -22) && (e <= 22) && (n <= 9007199254740991ULL) ) {
+        /* losslessly convert to double (0 <= n <= 2^53 - 1) */
+        ret = (double) n;
+
+        /* multiplication will produce correctly rounded values */
+        if (e < 0)
+            ret *= DOUBLE_POW10_INV[-e];
+        else
+            ret *= DOUBLE_POW10[e];
+
+        return (neg) ? -ret : ret;
+    } else {
+        /* convert to binary floating-point and check if the result is exact */
+        uint64_t n2, ieee;
+        int32_t e2;
+        uint32_t ieee_e2;
+        int trailing_zeros;
+
+        if (e >= 0) {
+            /* The length of n * 10^e in bits is:
+               log2(n * 10^e) = log2(n) + e log2(10) = log2(n) + e + e * log2(5)
+               We want to compute the DOUBLE_MANTISSA_BITS + 1 top-most bits
+               (+1 for the implicit leading one in IEEE format).
+               We therefore choose a binary output exponent of
+               log2(n * 10^e) - (DOUBLE_MANTISSA_BITS + 1).
+               We use floor(log2(5^e10)) so that we get at least this many bits
+            */
+            e2 = FLOOR_LOG2(n) + e + LOG2_POW5(e) - (DOUBLE_MANTISSA_BITS + 1);
+
+            /* compute [n * 10^e / 2^e2] = [n * 5^e / 2^(e2 - e)]
+               using the DOUBLE_POW5_SPLIT table */
+            i = e2 - e - CEIL_LOG2_POW5(e) + DOUBLE_POW5_BITCOUNT;
+            n2 = mul_shift64(n, DOUBLE_POW5_SPLIT[e], i);
+
+            /* check if the result is exact */
+            trailing_zeros = (
+                (e2 < e) ||
+                (e2 - e < 64 && __is_pow2_multiple(n, e2 - e))
+            );
+        } else {
+            /* for negative exponent, adjust calculation with inverse powers of 5 */
+            e2 = FLOOR_LOG2(n) + e - CEIL_LOG2_POW5(-e) - (DOUBLE_MANTISSA_BITS + 1);
+            i = e2 - e + CEIL_LOG2_POW5(-e) - 1 + DOUBLE_POW5_INV_BITCOUNT;
+            n2 = mul_shift64(n, DOUBLE_POW5_INV_SPLIT[-e], i);
+            trailing_zeros = __is_pow5_multiple(n, -e);
+        }
+
+        /* compute the final IEEE exponent */
+        ieee_e2 = (uint32_t) max32(0, e2 + DOUBLE_EXPONENT_BIAS + FLOOR_LOG2(n2));
+
+        if (ieee_e2 > 0x7fe) {
+            /* exponent is too large, return +/-Infinity */
+            ieee = (
+                (((uint64_t) neg) << (DOUBLE_EXPONENT_BITS + DOUBLE_MANTISSA_BITS)) |
+                (0x7ffULL << DOUBLE_MANTISSA_BITS)
+            );
+            memcpy(& ret, & ieee, sizeof(ret));
+        } else {
+            /* compute how much n2 needs to be shifted */
+            int32_t shift = (
+                (ieee_e2 == 0) ? 1 : ieee_e2
+            ) - e2 - DOUBLE_EXPONENT_BIAS - DOUBLE_MANTISSA_BITS;
+
+            uint64_t last_removed_bit = (n2 >> (shift - 1)) & 1;
+
+            /* recompute using the exact output exponent ieee_e2 */
+            trailing_zeros &= (n2 & ((1ull << (shift - 1)) - 1)) == 0;
+
+            /* rounding up is necessary if the exact value is more than 0.5
+               above the value computed, which is equivalent to checking if
+               the last removed bit is 1 and whether the value was not just
+               trailing zeros */
+            int round_up = (
+                (last_removed_bit != 0) &&
+                (! trailing_zeros || (((n2 >> shift) & 1) != 0))
+            );
+
+            ieee = (n2 >> shift) + round_up;
+            ieee &= (1ULL << DOUBLE_MANTISSA_BITS) - 1;
+            ieee_e2 += (ieee == 0 && round_up);
+            ieee |= (
+                (((uint64_t) neg) << DOUBLE_EXPONENT_BITS) |
+                (uint64_t) ieee_e2
+            ) << DOUBLE_MANTISSA_BITS;
+
+            memcpy(& ret, & ieee, sizeof(ret));
+        }
+    }
+
+    return ret;
+}
+
+/* -------------------------------------------------------------------------- */
 
 #endif

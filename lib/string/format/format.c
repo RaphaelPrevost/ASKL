@@ -167,13 +167,13 @@ ASKL_API int string_peek_fmt(String *string, const char *fmt, ...)
     if (! string || ! string->data || ! fmt) return -1;
 
     va_start(args, fmt);
+    ret = m_vsnscanf(string->data, string->len, fmt, args);
+    va_end(args);
 
-    if (! (ret = m_vsnscanf(string->data, string->len, fmt, args)) ) {
+    if (ret <= 0) {
         debug("string_peek_fmt(): wrong format or vsnscanf() error.\n");
         return -1;
     }
-
-    va_end(args);
 
     return 0;
 }
@@ -190,17 +190,15 @@ ASKL_API int string_fetch_fmt(String *string, const char *fmt, ...)
     if (! string || ! string->data || ! fmt) return -1;
 
     va_start(args, fmt);
+    ret = m_vsnscanf(string->data, string->len, fmt, args);
+    va_end(args);
 
-    if (! (ret = m_vsnscanf(string->data, string->len, fmt, args)) ) {
+    if (ret <= 0) {
         debug("string_fetch_fmt(): wrong format or vsnscanf() error.\n");
         return -1;
     }
 
-    string_cut(string, 0, ret, NULL);
-
-    va_end(args);
-
-    return 0;
+    return string_cut(string, 0, ret, NULL);
 }
 
 /* -------------------------------------------------------------------------- */

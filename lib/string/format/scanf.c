@@ -90,13 +90,14 @@
 #define SIZEINT     0x0100  /* z: (signed) size_t */
 
 /* -- Concrete Server extensions -- */
-#define TIMEINT     0x02000  /* t: time_t */
-#define BINARY      0x04000  /* b: binary type, system endian */
-#define BIG         0x08000  /* B: force big endian */
-#define LITTLE      0x10000  /* bb: force little endian */
-#define TRUNK       0x20000  /* t,T: truncate binary (get lower/higher bytes) */
-#define HIBYTES     0x40000  /* tH: truncate and get higher bytes */
-#define LOBYTES     0x80000  /* tL: truncate and get lower bytes */
+#define TIMEINT     0x004000  /* t: time_t */
+#define BINARY      0x008000  /* b: binary type, system endian */
+#define BIG         0x010000  /* B: force big endian */
+#define LITTLE      0x020000  /* bb: force little endian */
+#define TRUNK       0x040000  /* t,T: truncate binary (get lower/higher bytes) */
+#define HIBYTES     0x080000  /* tH: truncate and get higher bytes */
+#define LOBYTES     0x100000  /* tL: truncate and get lower bytes */
+#define SIZEWIDTH   0x200000  /* $: the width is the size of the buffer */
 
 /* -- End of Concrete Server extensions -- */
 
@@ -268,6 +269,7 @@ literal:
             goto again;
         case '$':
             width = va_arg(ap, size_t);
+            flags |= SIZEWIDTH;
             goto again;
         /* -- End of Concrete Server extensions -- */
 
@@ -429,6 +431,10 @@ literal:
 
         case CT_CCL:
             /* scan a (nonempty) character class (sets NOSKIP) */
+            if (flags & SIZEWIDTH) {
+                if (width < 2) goto match_failure;
+                width --;
+            }
             if (width == 0)
                 width = (size_t)~0;	/* `infinity' */
             /* take only those things in the class */
@@ -469,6 +475,10 @@ literal:
 
         case CT_STRING:
             /* like CCL, but zero-length string OK, & no NOSKIP */
+            if (flags & SIZEWIDTH) {
+                if (width < 2) goto match_failure;
+                width --;
+            }
             if (width == 0)
                 width = (size_t)~0;
             if (flags & SUPPRESS) {

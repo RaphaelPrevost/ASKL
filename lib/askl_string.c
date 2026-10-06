@@ -193,9 +193,7 @@ ASKL_API int string_fetch_buffer(String *string, char *out, size_t len)
 
     if (! string || ! string->data || ! out || ! len) return -1;
 
-    string_cut(string, 0, len, out);
-
-    return 0;
+    return string_cut(string, 0, len, out);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -744,7 +742,7 @@ ASKL_API int string_shrink(String *string, size_t size)
 
 static String *_splice(String *to, off_t o, const char * from, size_t l)
 {
-    String *parent = to;
+    String *parent = NULL;
     int within = 0, alloc = 0;
     ptrdiff_t within_offset = 0;
 
@@ -762,11 +760,14 @@ static String *_splice(String *to, off_t o, const char * from, size_t l)
         if (! (to = string_alloc(NULL, l)) ) {
             debug("string_splice(): allocation failure.\n");
             goto _error;
-        } else alloc = 1;
-    } else while (parent->parent) parent = parent->parent;
+        }
+        alloc = 1;
+    }
+
+    for (parent = to; parent->parent; parent = parent->parent);
 
     /* check if the source is inside the destination */
-    if ( (from >= parent->data) && (from < string_end(parent)) )
+    if (parent->data && from >= parent->data && from < string_end(parent))
         within = 1, within_offset = from - parent->data;
 
     /* reject out of bound offsets and resize the destination string */
@@ -809,6 +810,11 @@ ASKL_API String *string_splice(String *to, off_t o, const char *from, size_t l)
     String *ret = NULL;
     unsigned int i = 0, deleted = 0;
 
+    if (! to && o) {
+        debug("string_splice(): offset into a NULL destination.\n");
+        return NULL;
+    }
+
     if ( (ret = _splice(to, o, from, l)) ) {
         if (o) {
             /* preserve tokens before the offset */
@@ -844,10 +850,10 @@ static void _update_size(String *s, ssize_t diff)
 ASKL_API int string_cut(String *string, off_t offset, size_t length, char *out)
 {
     /** @brief remove a subsection of a string */
-    unsigned int i = 0, j = 0;
-    off_t off = 0, end = 0;
-    int within = -1, after = -1, straddling = 0;
-    String *parent = string, *top = NULL, *last = NULL;
+
+    off_t off = 0, end = 0, a = 0, b = 0;
+    unsigned int i = 0, j = 0, n = 0;
+    String *parent = string, *s = NULL, *t = NULL, *p = NULL;
 
     if (! string || offset < 0 || ! length || offset + length > string->len) {
         debug("string_cut(): bad parameters.\n");
@@ -859,80 +865,53 @@ ASKL_API int string_cut(String *string, off_t offset, size_t length, char *out)
 
     off = offset + string->data - parent->data;
     end = off + length;
-    top = parent;
 
     /* copy the subsection */
     if (out) memmove(out, parent->data + off, length);
 
-    /* if the subsection is actually the last token, cut to the chase */
-    if (parent->count && (last_token(parent)->data == parent->data + off)) {
-        if (likely(string_end(last_token(parent)) == parent->data + end))
-            goto _update_length;
-    }
-
-    /* find the first tokens within or after the deleted subsection */
-    do {
-        straddling = 0;
-        for (i = 0; i < top->count; i ++) {
-            off_t token_off, token_end;
-            token_off = top->tokens[i].data - parent->data;
-            token_end = string_end(& top->tokens[i]) - parent->data;
-
-            if (within == -1 && token_off >= off && token_off < end) {
-                /* found the first token within the subsection */
-                if (token_end > end) {
-                    /* found a straddling token, check subtokens instead */
-                    top = & top->tokens[i];
-                    straddling = 1;
-                    break;
-                } else within = i;
-            } else if (after == -1 && token_off >= end) {
-                /* found the first token after the subsection */
-                after = i; break;
-            }
-        }
-    } while (straddling);
-
-    if (! _splice(parent, off, parent->data + end, parent->len + 1 - end))
+    if (! _splice(parent, off, parent->data + end, parent->len - end))
         return -1;
 
-    if (within > 0) {
-        /* truncate the last tokens before the subsection, if any */
-        for (last = & top->tokens[within - 1]; last->count; last = last_token(last)) {
-            int diff = parent->data + off - string_end(last_token(last));
-            if (diff > 0) {
-                last->len -= diff;
-                last->internal.capacity -= diff;
+    for (s = parent; ; ) {
+        if (i < s->count) {
+            t = & s->tokens[i ++];
+            a = t->data - parent->data; b = a + t->len;
+
+            if (a >= end) {
+                t->data -= length;
+            } else if (b > off) {
+                if (a >= off && b <= end) {
+                    for (p = string; p && p != t; p = p->parent);
+                    if (! p) t->data = NULL;
+                }
+                if (t->data) {
+                    if (a < off) t->len = (b > end) ? t->len - length : off - a;
+                    else { t->data = parent->data + off; t->len = b - end; }
+                    t->internal.capacity = t->len;
+                }
             }
+
+            if (t->count) { s = t; i = 0; }
+        } else {
+            for (i = n = 0; i < s->count; i ++) {
+                t = & s->tokens[i];
+                if (! t->data) { free(t->tokens); continue; }
+                if (n != i) {
+                    s->tokens[n] = *t;
+                    for (j = 0; j < t->count; j ++)
+                        s->tokens(n, j).parent = & s->tokens[n];
+                }
+                n ++;
+            }
+            s->count = n;
+
+            if (s == parent) break;
+
+            i = (s - s->parent->tokens) + 1; s = s->parent;
         }
     }
 
-    /* move the subsequent tokens, if any */
-    if (after > 0) {
-        for (i = after; i < top->count; i ++) {
-            _move_subtokens(& top->tokens[i], -length, NULL);
-            if (within != -1) {
-                if (within < (int) i) {
-                    string_free_token(& top->tokens[within]);
-                    top->tokens[within] = top->tokens[i];
-                    for (j = 0; j < top->tokens[within].count; j ++)
-                        top->tokens(within, j).parent = & top->tokens[within];
-                    within ++;
-                } else within = -1;
-            }
-        }
-    }
-
-    /* update the subtoken count */
-    if (within != -1 && after != -1) top->count = within;
-
-_update_length:
-    /* find the last subtoken aligned with the end of the parent string */
-    for (last = top; last->count; last = last_token(last))
-        if (string_end(last_token(last)) != string_end(parent)) break;
-
-    /* truncate from that last subtoken up to the parent string */
-    _update_size(last, -length);
+    _update_size(parent, -length);
 
     return 0;
 }
@@ -1040,7 +1019,7 @@ ASKL_API int string_upper(String *string)
     }
 
     for (i = 0; i < string->len && string->data[i]; i ++)
-        string->data[i] = toupper(string->data[i]);
+        string->data[i] = toupper((unsigned char) string->data[i]);
 
     /* since it is an in place transformation, keep existings tokens */
 
@@ -1067,7 +1046,7 @@ ASKL_API int string_lower(String *string)
     }
 
     for (i = 0; i < string->len && string->data[i]; i ++)
-        string->data[i] = tolower(string->data[i]);
+        string->data[i] = tolower((unsigned char) string->data[i]);
 
     /* since it is an in place transformation, keep existings tokens */
 
@@ -1235,8 +1214,6 @@ ASKL_API int string_split(String *s, const char *pattern, size_t len)
                 s->tokens = t; s->internal.tokens_capacity = s->count + j;
             }
 
-            if (s->count) p = t[s->count - 1].data - s->data;
-
             /* write the tokens */
             for (i = s->count; i < s->count + j; i ++, p = o + len) {
                 /* the token inherit parent's flags and set the "no free" bit */
@@ -1317,7 +1294,8 @@ ASKL_API int string_merge(String *string, const char *pattern, size_t len)
             known_good = i + 1;
             if (likely(len == 1))
                 *((char *) string_end(& string->tokens[i])) = *pattern;
-            else memcpy((char *) string_end(& string->tokens[i]), pattern, len);
+            else if (len)
+                memcpy((char *) string_end(& string->tokens[i]), pattern, len);
         }
     }
 
@@ -1342,7 +1320,11 @@ ASKL_API int string_merge(String *string, const char *pattern, size_t len)
 
             if (likely(len == 1))
                 *((char *) string->tokens[last + 1].data - len) = *pattern;
-            else memcpy((char *) string->tokens[last + 1].data - len, pattern, len);
+            else if (len) {
+                memcpy(
+                    (char *) string->tokens[last + 1].data - len, pattern, len
+                );
+            }
         }
 
         _update_size(string, new_size - string->len);
@@ -1361,7 +1343,8 @@ ASKL_API int string_merge(String *string, const char *pattern, size_t len)
 
             if (likely(len == 1))
                 *((char *) string->tokens[i + 1].data - len) = *pattern;
-            else memcpy((char *) string->tokens[i + 1].data - len, pattern, len);
+            else if (len)
+                memcpy((char *) string->tokens[i + 1].data - len, pattern, len);
         }
 
         string_resize(string, new_size);
@@ -1382,9 +1365,12 @@ ASKL_API String *string_replace_all(
 {
     /** @brief replace all occurences of a substring in a string */
 
-    size_t count = 0;
+    size_t count = 0, len = 0, n = 0, newlen = 0;
     off_t *offset = NULL, off = 0, src = 0, dst = 0;
+    ssize_t diff = 0;
     unsigned int i = 0;
+    char *copy = NULL;
+    String *root = NULL;
 
     /* a NULL replacement string is allowed (deletion) */
     if (! string || ! string->data || ! search || ! slen) {
@@ -1392,8 +1378,10 @@ ASKL_API String *string_replace_all(
         return NULL;
     }
 
+    if (! rep) rlen = 0;
+
     /* we can't replace a substring longer than the source string */
-    if (string->len <= slen + 1) {
+    if (string->len < slen) {
         debug("string_replace_all(): search string out of bound.\n");
         return NULL;
     }
@@ -1416,42 +1404,65 @@ ASKL_API String *string_replace_all(
         goto _err_nfnd;
     }
 
-    /* XXX ensure the string has enough room for the replacement
-       we could rely on string_splice for the resizing, but we really don't
-       want subsequent calls to string_splice() to fail with a possible
-       out-of-memory error and end up with a garbled string */
-    if (string_extend(string, string->len + count * (rlen - slen)) == -1) {
+    len = string->len;
+    diff = (ssize_t) count * ((ssize_t) rlen - (ssize_t) slen);
+    if (diff < 0) newlen = len - (size_t) -diff; else newlen = len + diff;
+
+    /* nothing left */
+    if (! newlen) {
+        free(offset);
+        return (string_cut(string, 0, len, NULL) == -1) ? NULL : string;
+    }
+
+    /* a replacement taken from the string itself must survive the moves */
+    for (root = string; root->parent; root = root->parent);
+    if (rep && rlen && rep >= root->data && rep < string_end(root)) {
+        if (! (copy = malloc(rlen)) ) {
+            perror(ERR(string_replace_all, malloc));
+            goto _err_size;
+        }
+        memcpy(copy, rep, rlen); rep = copy;
+    }
+
+    /* grow the string first, so a failed resize cannot leave a garbled
+       string behind; a shrunk token moves the data following it afterwards */
+    if (diff > 0 && string_extend(string, newlen) == -1) {
         debug("string_replace_all(): resize failure.\n");
         goto _err_size;
     }
 
-    /* perform the replacement */
-    for (i = 0; i < count; i ++) {
-        /* copy the data between the strings that are going to be replaced */
-        if (! string_splice(string, dst, string->data + src, offset[i] - src))
-            goto _err_move;
-        dst += offset[i] - src; src = offset[i] + slen;
+    string_free_token(string);
 
-        /* loop no further without proper replacement string */
-        if (! rep || ! rlen) continue;
-
-        /* replace the string */
-        if (! string_splice(string, dst, rep, rlen)) goto _err_move;
-        dst += rlen;
+    /* perform the replacement, in the direction that never overwrites
+       data which has not been moved yet */
+    if (rlen <= slen) {
+        for (i = 0; i < count; i ++) {
+            memmove(string->data + dst, string->data + src, offset[i] - src);
+            dst += offset[i] - src; src = offset[i] + slen;
+            if (rlen) memcpy(string->data + dst, rep, rlen);
+            dst += rlen;
+        }
+        memmove(string->data + dst, string->data + src, len - src);
+    } else {
+        src = len; dst = newlen;
+        for (i = count; i --; ) {
+            n = src - (offset[i] + slen);
+            dst -= n; src -= n;
+            memmove(string->data + dst, string->data + src, n);
+            dst -= rlen; memcpy(string->data + dst, rep, rlen);
+            src = offset[i];
+        }
     }
 
-    _update_size(string, count * (rlen - slen));
+    if (diff < 0) string_resize(string, newlen);
+    else if (! string->parent) _update_size(string, diff);
 
-    /* ensure the string is NUL terminated */
-    if (! string->parent) string->data[string->len] = '\0';
-
-    free(offset);
+    free(copy); free(offset);
 
     return string;
 
-_err_move: /* this should never happen */
-    debug("string_replace_all(): string_splice() failed !\n");
-_err_size: /* string_extend() failure */
+_err_size: /* allocation or resize failure */
+    free(copy);
 _err_nfnd: /* not found */
     free(offset);
     return NULL;
@@ -1585,10 +1596,7 @@ ASKL_API String *string_suppr_token(String *s, unsigned int i)
         return NULL;
     }
 
-    if (string_cut(s, s->tokens[i].data - s->data, s->tokens[i].len, NULL) == -1)
-        return NULL;
-
-    if (i == -- s->count && ! s->parent) s->data[s->len] = '\0';
+    string_cut(s, s->tokens[i].data - s->data, s->tokens[i].len, NULL);
 
     return NULL;
 }
@@ -1607,7 +1615,7 @@ ASKL_API String *string_pop_token(String *s)
     if (! (ret = string_alloc(s->tokens[0].data, s->tokens[0].len)) )
         return NULL;
 
-    string_cut(& s->tokens[0], 0, s->tokens[0].len, NULL);
+    string_cut(s, s->tokens[0].data - s->data, s->tokens[0].len, NULL);
 
     return ret;
 }
@@ -1638,12 +1646,12 @@ ASKL_API int string_parse(String *string, const char *pattern, size_t len)
         return -1;
     }
 
-    size = SIZE(string);
-
-    if (size * sizeof(*off) < size) {
-        debug("string_parse(): integer overflow.\n");
-        return -1;
+    if (pcre_fullinfo(regex, NULL, PCRE_INFO_CAPTURECOUNT, & r) || r < 0) {
+        debug("string_parse(): cannot count the captures.\n");
+        goto _err_malloc;
     }
+
+    size = (r + 1) * 3;
 
     if (! (off = malloc(size * sizeof(*off))) ) {
         perror(ERR(string_parse, malloc));
@@ -1663,7 +1671,7 @@ ASKL_API int string_parse(String *string, const char *pattern, size_t len)
         /* found something, add a token and possibly subtokens */
         if (! (new_token = realloc(token, (i + 1) * sizeof(*token))) ) {
             perror(ERR(string_parse, realloc));
-            if (token) while (i --) free(token[i].token); free(token);
+            if (token) while (i --) free(token[i].tokens); free(token);
             goto _err_token;
         }
 

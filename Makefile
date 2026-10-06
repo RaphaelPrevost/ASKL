@@ -55,8 +55,7 @@ DBG     = gdb
 # -D_ENABLE_PRIVILEGE_SEPARATION  : drop privileges in the server process
 # -D_ENABLE_BUILTIN_PLUGIN        : embed a default plugin
 # -D_ENABLE_CONFIG                : XML configuration file
-# -D_ENABLE_JSON                  : enable builtin JSON tokenizer
-# -D_ENABLE_PARSER                : enable builtin JSON parser
+# -D_ENABLE_JSON                  : enable builtin JSON tokenizer and index
 # -D_USE_BIG_FDS=<int>            : enable the use of more than FD_SETSIZE fds
 
 CONFIG  = -D_ENABLE_SERVER \
@@ -68,7 +67,6 @@ CONFIG  = -D_ENABLE_SERVER \
           -D_ENABLE_FILE \
           -D_ENABLE_PCRE \
           -D_ENABLE_JSON \
-          -D_ENABLE_PARSER \
           -D_ENABLE_CONFIG \
           -D_BUILTIN_MODULE \
           -D_USE_BIG_FDS=4095
@@ -81,7 +79,8 @@ OBJLIB  = $(addsuffix .o, $(basename $(wildcard lib/*.c))) \
           $(addsuffix .o, $(basename $(wildcard lib/string/*.c))) \
 		  $(addsuffix .o, $(basename $(wildcard lib/string/format/*.c))) \
           lib/compat/askl_compat_layer.o
-OBJTEST = $(addsuffix .o, $(basename $(wildcard test/*.c)))
+OBJTEST = $(addsuffix .o, $(basename $(wildcard test/*.c))) \
+          $(addsuffix .o, $(basename $(wildcard test/unit/*.c)))
 OBJPROF = $(addsuffix .gcno, $(basename $(wildcard lib/*.c))) \
           $(addsuffix .gcno, $(basename $(wildcard lib/util/*.c))) \
           $(addsuffix .gcno, $(basename $(wildcard test/*.c))) \
@@ -89,6 +88,12 @@ OBJPROF = $(addsuffix .gcno, $(basename $(wildcard lib/*.c))) \
           $(addsuffix .o, $(basename $(wildcard lib/string/*.c))) \
 		  $(addsuffix .o, $(basename $(wildcard lib/string/format/*.c))) \
           $(addsuffix .gcda, $(basename $(wildcard test/*.c))) \
+          $(addsuffix .gcno, $(basename $(wildcard test/unit/*.c))) \
+          $(addsuffix .gcda, $(basename $(wildcard test/unit/*.c))) \
+          $(addsuffix .gcno, $(basename $(wildcard lib/string/*.c))) \
+          $(addsuffix .gcda, $(basename $(wildcard lib/string/*.c))) \
+          $(addsuffix .gcno, $(basename $(wildcard lib/string/format/*.c))) \
+          $(addsuffix .gcda, $(basename $(wildcard lib/string/format/*.c))) \
           lib/compat/askl_compat_layer.gcno \
 		  lib/compat/askl_compat_layer.gcda \
 		  *.gcno *.gcda \
@@ -105,7 +110,16 @@ MODULES = $(shell find plugins/* -type d | grep -v .svn)
 # make all    : "
 # make modules: "
 # make debug  : enable DEBUG build options
-# make test   : run the unit tests and enable the DEBUG build options
+# make test   : run the unit tests in a debugger, with the DEBUG build options
+# make check  : build and run the unit tests (fast tier), TAP output
+#               make check TEST="string codecs.base64" selects suites or cases
+# make check-slow     : same, including the slow tier
+# make check-asan     : same, under AddressSanitizer and UBSan
+# make check-tsan     : same, under ThreadSanitizer
+# make check-noatomics: same, with the mutex-only lock and queue fallbacks
+# make check-coverage : same, and write a line coverage report in coverage/
+# NOTE: run make clean before switching between check-* targets, the object
+#       files are shared between them
 
 # Build settings:
 # FINAL corresponds to production settings
@@ -146,27 +160,30 @@ HAS_MYSQL    =
 HAS_SQLITE   =
 HAS_ICONV    =
 
-# GCC options
-ifeq ($(CC),gcc)
-GCC_ALIASED  = $(shell gcc --version | head -1 | cut -d\  -f1)
-GCC_CLANG    = $(shell gcc --version | grep -q clang; echo $$?)
-GCC_MAJ      = $(shell gcc --version | head -1 | cut -d\  -f3 | cut -d. -f1)
-GCC_MIN      = $(shell gcc --version | head -1 | cut -d\  -f3 | cut -d. -f2)
-GCC_INC      = gcc -o /dev/null -E -xc - 2> /dev/null
-HAS_DL       = $(shell echo '\#include <dlfcn.h>' | $(GCC_INC); echo $$?)
-HAS_RL       = $(shell echo '\#include <readline/readline.h>' | $(GCC_INC); echo $$?)
-HAS_SSL      = $(shell echo '\#include <openssl/ssl.h>' | $(GCC_INC); echo $$?)
-HAS_SHADOW   = $(shell echo '\#include <shadow.h>' | $(GCC_INC); echo $$?)
-HAS_ZLIB     = $(shell echo '\#include <zlib.h>' | $(GCC_INC); echo $$?)
-HAS_POLL     = $(shell echo '\#include <poll.h>' | $(GCC_INC); echo $$?)
-HAS_PCRE     = $(shell echo '\#include <pcre.h>' | $(GCC_INC); echo $$?)
+# compiler identification
+GCC_ALIASED  = $(shell $(CC) --version | head -1 | cut -d\  -f1)
+GCC_CLANG    = $(shell $(CC) --version | grep -q clang; echo $$?)
+GCC_MAJ      = $(shell $(CC) --version | head -1 | cut -d\  -f3 | cut -d. -f1)
+GCC_MIN      = $(shell $(CC) --version | head -1 | cut -d\  -f3 | cut -d. -f2)
+# header probes: preprocess an empty file that force-includes the header
+# (a literal '#include' cannot be echoed from $(shell) without leaving a
+# stray backslash behind, which made every probe succeed)
+GCC_INC      = $(CC) -E -xc -o /dev/null -include
+HAS_DL       = $(shell $(GCC_INC) dlfcn.h /dev/null 2> /dev/null; echo $$?)
+HAS_RL       = $(shell $(GCC_INC) readline/readline.h /dev/null 2> /dev/null; echo $$?)
+HAS_SSL      = $(shell $(GCC_INC) openssl/ssl.h /dev/null 2> /dev/null; echo $$?)
+HAS_SHADOW   = $(shell $(GCC_INC) shadow.h /dev/null 2> /dev/null; echo $$?)
+HAS_ZLIB     = $(shell $(GCC_INC) zlib.h /dev/null 2> /dev/null; echo $$?)
+HAS_POLL     = $(shell $(GCC_INC) poll.h /dev/null 2> /dev/null; echo $$?)
+HAS_PCRE     = $(shell $(GCC_INC) pcre.h /dev/null 2> /dev/null; echo $$?)
 HAS_LIBXML   = $(shell which xml2-config 2> /dev/null)
 HAS_MYSQL    = $(shell which mysql_config 2> /dev/null)
-HAS_SQLITE   = $(shell echo '\#include <sqlite3.h>' | $(GCC_INC); echo $$?)
-HAS_ICONV    = $(shell echo '\#include <iconv.h>' | $(GCC_INC); echo $$?)
+HAS_SQLITE   = $(shell $(GCC_INC) sqlite3.h /dev/null 2> /dev/null; echo $$?)
+HAS_ICONV    = $(shell $(GCC_INC) iconv.h /dev/null 2> /dev/null; echo $$?)
 
+# GCC options
 ifeq ($(GCC_ALIASED),gcc)
-FLAGS += -findirect-inlining -posix
+FLAGS += -findirect-inlining
 # disable some judgemental warnings
 ifeq ($(shell test $(GCC_MAJ) -ge 6; echo $$?),0)
 FLAGS += -Wno-misleading-indentation
@@ -174,7 +191,6 @@ ifeq ($(shell test $(GCC_MAJ) -ge 7; echo $$?),0)
 FLAGS += -Wno-implicit-fallthrough
 ifeq ($(shell test $(GCC_MAJ) -ge 8; echo $$?),0)
 FLAGS += -Wno-cast-function-type
-endif
 endif
 endif
 endif
@@ -197,8 +213,8 @@ ifneq ($(SHAREDIR), )
 CONFIG += -DSHAREDIR=$(SHAREDIR)
 endif
 
-# position independent code is required for x86_64 libraries
-ifeq ($(ARCH), x86_64)
+# position independent code is required for x86_64 and AArch64 libraries
+ifneq ($(filter $(ARCH), x86_64 aarch64 arm64),)
 LIBFLAGS += -fPIC
 endif
 
@@ -314,14 +330,19 @@ endif
 endif
 
 ifeq ($(DBG), gdb)
-DBG_PARMS = -silent ./$(DBG_BIN) -ex 'handle SIGPIPE nostop' -ex r
+DBG_PARMS = -silent -ex 'handle SIGPIPE nostop' -ex r \
+            --args ./$(DBG_BIN) --no-fork $(TEST)
 else
 ifeq ($(DBG), lldb)
-DBG_PARMS = ./$(DBG_BIN) -o r
+DBG_PARMS = -o r -- ./$(DBG_BIN) --no-fork $(TEST)
 endif
 endif
 
-.PHONY: all debug lib dbglib server dbgserver modules test install clean
+# the unit tests binary, run from the build tree
+CHECK = LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./$(DBG_BIN)
+
+.PHONY: all debug lib dbglib server dbgserver modules test install clean \
+        check check-slow check-asan check-tsan check-noatomics check-coverage
 
 # Build targets
 
@@ -358,6 +379,19 @@ test: BUILD = $(DEBUG)
 # same than test, but with optimizations enabled
 testfinal: BUILD = $(FINAL)
 
+# build the unit tests and run the fast tier
+check: BUILD = $(DEBUG)
+# same, including the slow tier
+check-slow: BUILD = $(DEBUG)
+# same, under AddressSanitizer and UndefinedBehaviorSanitizer
+check-asan: BUILD = $(DEBUG) -fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer
+# same, under ThreadSanitizer (cannot be combined with check-asan)
+check-tsan: BUILD = $(DEBUG) -fsanitize=thread
+# same, with the mutex-only fallbacks of the lock and the queue
+check-noatomics: BUILD = $(DEBUG) -DASKL_NO_ATOMICS
+# same, and generate a line coverage report
+check-coverage: BUILD = $(DEBUG) --coverage
+
 # Build rules
 .c.o:
 	@echo "CC: $@"
@@ -391,17 +425,52 @@ modules: $(BIN) lib$(LIB)
 		-L. -l$(LIB) -Ilib -o $${PLG}.so; \
 	done;
 
-test: CFLAGS = $(FLAGS)
-test: $(OBJTEST)
+$(DBG_BIN): $(OBJTEST)
+	@echo "LD: $(DBG_BIN)"
 	@$(CC) $(OBJTEST) $(CFLAGS) $(CONFIG) $(LIBS) -L. -l$(LIB) -o $(DBG_BIN)
+
+test: CFLAGS = $(FLAGS)
+test: $(DBG_BIN)
 	@echo "TEST"
-	@-(LD_LIBRARY_PATH=. $(DBG) $(DBG_PARMS));
+	@-(LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. $(DBG) $(DBG_PARMS));
 
 testfinal: CFLAGS = $(FLAGS)
-testfinal: $(OBJTEST)
-	@$(CC) $(OBJTEST) $(CFLAGS) $(CONFIG) $(LIBS) -L. -l$(LIB) -o $(DBG_BIN)
+testfinal: $(DBG_BIN)
 	@echo "TEST"
-	@-(LD_LIBRARY_PATH=. ./$(DBG_BIN))
+	@-($(CHECK))
+
+check check-slow check-asan check-tsan check-noatomics check-coverage: CFLAGS = $(FLAGS)
+
+check: $(DBG_BIN)
+	@echo "CHECK"
+	@$(CHECK) $(CHECKFLAGS) $(TEST)
+
+check-slow: $(DBG_BIN)
+	@echo "CHECK (slow tier)"
+	@$(CHECK) --slow $(CHECKFLAGS) $(TEST)
+
+check-asan: $(DBG_BIN)
+	@echo "CHECK (AddressSanitizer, UndefinedBehaviorSanitizer)"
+	@$(CHECK) $(CHECKFLAGS) $(TEST)
+
+check-tsan: $(DBG_BIN)
+	@echo "CHECK (ThreadSanitizer)"
+	@$(CHECK) $(CHECKFLAGS) $(TEST)
+
+check-noatomics: $(DBG_BIN)
+	@echo "CHECK (no atomics)"
+	@$(CHECK) $(CHECKFLAGS) $(TEST)
+
+check-coverage: $(DBG_BIN)
+	@echo "CHECK (coverage)"
+	@$(CHECK) $(CHECKFLAGS) $(TEST); status=$$?; \
+	echo "COVERAGE: coverage/index.html"; \
+	lcov --quiet --capture --directory lib --output-file coverage.info \
+	 --exclude '*/lib/compat/*' --exclude '*/lib/string/format/*' \
+	 --exclude '/usr/*' --ignore-errors inconsistent,unused,negative \
+	&& genhtml --quiet coverage.info --output-directory coverage \
+	&& lcov --summary coverage.info || status=1; \
+	exit $$status
 
 install: modules
 	@echo "INSTALL"
@@ -415,19 +484,19 @@ install: modules
 json_checker:
 	@echo "JSON_CHECKER"
 	@$(CC) \
-	-D_ENABLE_JSON -D_ENABLE_TRIE -D_ENABLE_PARSER \
+	-D_ENABLE_JSON -D_ENABLE_TRIE \
 	$(FINAL) $(LIBFINAL) -lpthread \
 	lib/compat/askl_compat_layer.c lib/askl_string.c lib/askl_cbtrie.c \
-	lib/askl_variant.c lib/askl_rwlock.c lib/string/parser.c \
+	lib/askl_variant.c lib/askl_rwlock.c lib/string/parser.c lib/askl_json.c \
 	test/json/json_checker.c -o json_checker
 
 json_debug:
 	@echo "JSON_CHECKER (DEBUG)"
 	@$(CC) \
-	-D_ENABLE_JSON -D_ENABLE_TRIE -D_ENABLE_PARSER \
+	-D_ENABLE_JSON -D_ENABLE_TRIE \
 	$(DEBUG) -lpthread \
 	lib/compat/askl_compat_layer.c lib/askl_string.c lib/askl_cbtrie.c \
-	lib/askl_variant.c lib/askl_rwlock.c lib/string/parser.c \
+	lib/askl_variant.c lib/askl_rwlock.c lib/string/parser.c lib/askl_json.c \
 	test/json/json_checker.c -o json_checker
 
 hashbench:
@@ -443,13 +512,13 @@ clean:
 	@echo "CLEAN"
 	@rm -f $(BIN) lib$(LIB).$(LIBEXT) $(PLG).so \
 	$(OBJBIN) $(OBJLIB) $(OBJPLG) $(OBJTEST) $(OBJPROF) \
-	*~ lib/*~ lib/string/*~ lib/string/format/*~ \
-	lib/compat/*~ test/*~ $(DBG_BIN) \
+	*~ lib/*~ lib/string/*~ lib/string/format/*~ lib/json/*~ \
+	lib/compat/*~ test/*~ test/unit/*~ $(DBG_BIN) \
 	plugins/*.so plugins/*/*~ lib/*.o lib/util/*.o lib/compat/*.o test/*.o \
-	*.d lib/*.d lib/string/*.d lib/string/format/*.d \
-	lib/compat/*.d test/*.d plugins/*/*.d \
-	json_checker hashbench
-	@rm -rf *.dSYM plugins/*.dSYM
+	test/unit/*.o *.d lib/*.d lib/string/*.d lib/string/format/*.d \
+	lib/compat/*.d test/*.d test/unit/*.d plugins/*/*.d \
+	json_checker hashbench coverage.info
+	@rm -rf *.dSYM plugins/*.dSYM coverage
 
 -include $(OBJBIN:.o=.d)
 -include $(OBJLIB:.o=.d)

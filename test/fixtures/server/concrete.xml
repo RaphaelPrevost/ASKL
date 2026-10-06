@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE concrete PUBLIC "-//BURO.ASIA//CONCRETE//CONFIG" "concrete.dtd">
+<!-- the configuration of the server suite: two workers, no plugin; the
+     builtin module of the test binary provides the service. The debug
+     plugins section only exists because the DTD requires one. -->
+<concrete configuration="production">
+
+    <options profile="any">
+        <threads number="2" />
+    </options>
+
+    <plugins path="plugins" profile="debug">
+        <plugin image="none.so" id="none" />
+    </plugins>
+
+</concrete>

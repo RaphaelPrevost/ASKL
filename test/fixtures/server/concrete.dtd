@@ -1,0 +1,100 @@
+<!ENTITY % CONCRETE.version "-//BURO.ASIA//CONCRETE//CONFIG" >
+<!ENTITY % NS.prefixed "IGNORE" >
+<!ENTITY % CONCRETE.prefix "concrete" >
+<!ENTITY % CONCRETE.global.attrs.prefixed "INCLUDE" >
+
+<?doc type="doctype" role="title" { Concrete Configuration } ?>
+
+<!-- Root -->
+<!ELEMENT concrete (options?,databases*,plugins+,authentication*,users*,ruleset*) >
+<!ATTLIST concrete configuration (production | debug | any) "any" >
+
+<!-- Server options -->
+<!ELEMENT options (threads?,ssl?)+ >
+<!ATTLIST options profile (production | debug | any) "any" >
+
+<!ELEMENT threads EMPTY >
+<!ATTLIST threads number CDATA #REQUIRED >
+
+<!-- SSL default certificate, private key, CA file, password -->
+<!ELEMENT ssl EMPTY >
+<!ATTLIST ssl cert CDATA #IMPLIED
+              key CDATA #IMPLIED
+              ca CDATA #IMPLIED
+              password CDATA #IMPLIED >
+
+<!-- Databases list -->
+<!ELEMENT databases (database+) >
+<!ATTLIST databases profile (production | debug | any) "any" >
+
+<!-- Database configuration -->
+<!ELEMENT database (location?,credentials?,connections,option*) >
+<!ATTLIST database name CDATA #REQUIRED
+                   driver CDATA #REQUIRED
+                   id CDATA #REQUIRED >
+<!ELEMENT location EMPTY >
+<!ATTLIST location host CDATA #REQUIRED
+                   port CDATA #REQUIRED >
+<!ELEMENT credentials EMPTY >
+<!ATTLIST credentials login CDATA #REQUIRED
+                      password CDATA #REQUIRED >
+<!ELEMENT connections EMPTY >
+<!ATTLIST connections number CDATA #REQUIRED >
+
+<!-- Plugins list -->
+<!ELEMENT plugins (plugin+) >
+<!ATTLIST plugins path CDATA #REQUIRED
+                  profile (production | debug | any) "any" >
+
+<!-- Plugin configuration -->
+<!ELEMENT plugin (redundancy?,ssl?,(listen|option)*) >
+<!ATTLIST plugin image CDATA #REQUIRED
+                 id CDATA #REQUIRED >
+<!ELEMENT redundancy EMPTY >
+<!ATTLIST redundancy master CDATA #REQUIRED
+                     port CDATA #REQUIRED >
+<!ELEMENT listen EMPTY >
+<!ATTLIST listen port CDATA #REQUIRED
+                 type (tcp | udp | ssl) "tcp"
+                 addr CDATA #IMPLIED >
+
+<!-- Option -->
+<!ELEMENT option EMPTY >
+<!ATTLIST option name CDATA #REQUIRED
+                 value CDATA #IMPLIED >
+
+<!-- Authentication methods -->
+<!ELEMENT authentication (method+) >
+<!ATTLIST authentication profile (production | debug | any) "any" >
+<!ELEMENT method (driver?,option*) >
+<!ATTLIST method driver CDATA #REQUIRED
+                 name NMTOKEN #REQUIRED >
+
+<!-- Users credentials -->
+<!ELEMENT users (user+) >
+<!ATTLIST users profile (production | debug | any) "any" >
+<!ELEMENT user EMPTY >
+<!ATTLIST user name NMTOKEN #REQUIRED
+               password CDATA #REQUIRED >
+
+<!-- Ruleset -->
+<!ELEMENT ruleset (resource*) >
+<!ATTLIST ruleset policy (allow | deny) "deny"
+                  profile (production | debug | any) "any" >
+
+<!-- Resources -->
+<!ELEMENT resource (policy+) >
+<!ATTLIST resource match CDATA #REQUIRED >
+
+<!-- Policies -->
+<!ELEMENT policy (exception*) >
+<!ATTLIST policy default (allow | deny) "deny" >
+
+<!-- Exception -->
+<!ELEMENT exception (but*) >
+<!ATTLIST exception auth CDATA #REQUIRED
+                    user CDATA #IMPLIED
+                    blob CDATA #IMPLIED >
+<!ELEMENT but EMPTY >
+<!ATTLIST but user CDATA #IMPLIED
+              blob CDATA #IMPLIED >

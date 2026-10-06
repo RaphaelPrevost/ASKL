@@ -1,0 +1,17 @@
+# build artefacts
+*.o
+*.d
+*.so
+*.dylib
+askl
+test.out
+
+# coverage
+*.gcda
+*.gcno
+*.gcov
+coverage.info
+coverage/
+
+# editors
+*~

@@ -44,7 +44,7 @@ static const char _b58[] = "123456789ABCDEFGHJKLMNPQRSTUVWXYZ"
                            "abcdefghijkmnopqrstuvwxyz";
 
 /* decoding lookup table */
-static const char _d58[] = {
+static const int8_t _d58[] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  12 */
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  24 */
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  36 */
@@ -139,7 +139,7 @@ ASKL_API String *string_deb58s(const char *s, size_t size)
     size_t i = 0, zcount = 0, remain = 0;
     int j = 0, outlen = 0;
     uint64_t b = 0;
-    uint32_t c = 0, mask = 0;
+    uint32_t c = 0;
     String *ret = NULL;
 
     if (! s || ! size) {
@@ -163,31 +163,23 @@ ASKL_API String *string_deb58s(const char *s, size_t size)
     /* legitimate leading 0s */
     while (zcount < size && s[zcount] == '1') zcount ++;
 
-    if ( (remain = size & 3) ) mask = 0xffffffff << (remain * 8);
-
     for (i = zcount; i < size; i ++) {
         if ((int) (c = _D58(s[i])) == -1) goto _panic;
 
-        for (j = outlen - 1; j; j --) {
+        for (j = outlen - 1; j >= 0; j --) {
             b = ((uint64_t) r[j]) * 58 + c;
             c = (b & 0x3f00000000) >> 32;
             r[j] = b & 0xffffffff;
         }
 
         /* output was too large */
-        if (c || r[0] & mask) goto _panic;
+        if (c) goto _panic;
     }
 
-    c = r[(i = 0)]; ret->data = (char *) r;
+    ret->data = (char *) r;
 
-    switch (remain) {
-    case 3: { ret->data[i ++] = (c & 0xff0000) >> 16; }
-    case 2: { ret->data[i ++] = (c & 0xff00) >> 8; }
-    case 1: { ret->data[i ++] = (c & 0xff); j = 1; goto _loop; }
-    }
-
-    for (j = 0; j < outlen; j ++) {
-_loop:  c = r[j];
+    for (i = 0, j = 0; j < outlen; j ++) {
+        c = r[j];
         ret->data[i ++] = (c >> 0x18) & 0xff;
         ret->data[i ++] = (c >> 0x10) & 0xff;
         ret->data[i ++] = (c >> 0x08) & 0xff;
@@ -235,7 +227,7 @@ static const char _b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                            "0123456789+/";
 
 /* decoding lookup table */
-static const char _d64[] = {
+static const int8_t _d64[] = {
     -1, -1, -1, -1, -1, -1, -1, -1, -1, -2, -2, -1, /*  12 */
     -1, -2, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, /*  24 */
     -1, -1, -1, -1, -1, -1, -1, -1, -2, -1, -1, -1, /*  36 */
@@ -283,7 +275,7 @@ ASKL_API String *string_b64s(const char *s, size_t size, size_t linesize)
     }
 
     /* compute the size of the base64 encoded string, with a trailing NUL */
-    b64size = (((size + 3 - (size % 3)) / 3) * 4) + 1;
+    b64size = (((size + 2) / 3) * 4) + 1;
 
     /* add some room for CRLF depending on the linesize */
     if (linesize) b64size += ((b64size / linesize) * 2) + 2;
@@ -316,26 +308,30 @@ ASKL_API String *string_b64s(const char *s, size_t size, size_t linesize)
         }
     }
 
-    if ((size + 1 - i) && j + 4 < b64size) {
+    if (j + 4 < b64size) {
         /* add some padding */
         memset(r + j, '=', 4);
 
         /* process the remaining */
-        switch (size + 1 - i) {
-        case 4:
-        r[j + 3] = _b64[s[i + 2] & 0x3f];
+        switch (size - i) {
         case 3:
+        r[j + 3] = _b64[s[i + 2] & 0x3f];
         r[j + 2] = _b64[(s[i + 1] & 0x0f) << 2 | (s[i + 2] & 0xc0) >> 6];
-        case 2:
         r[j + 1] = _b64[(s[i] & 0x03) << 4 | (s[i + 1] & 0xf0) >> 4];
+        break;
+        case 2:
+        r[j + 2] = _b64[(s[i + 1] & 0x0f) << 2];
+        r[j + 1] = _b64[(s[i] & 0x03) << 4 | (s[i + 1] & 0xf0) >> 4];
+        break;
         case 1:
-        r[j] = _b64[(s[i] & 0xfc) >> 2]; j += 4;
+        r[j + 1] = _b64[(s[i] & 0x03) << 4];
         }
+        r[j] = _b64[(s[i] & 0xfc) >> 2]; j += 4;
     }
 
     /* add the last CRLF if a linesize was provided */
     if ( (linesize) && j + 2 < b64size) {
-        r[j] = '\r'; r[j + 1] = '\n';
+        r[j ++] = '\r'; r[j ++] = '\n';
     }
 
     /* package the buffer in a string_m */
@@ -343,7 +339,7 @@ ASKL_API String *string_b64s(const char *s, size_t size, size_t linesize)
         free(r);
     } else {
         ret->internal.flags = 0; ret->data = r;
-        ret->len = b64size - 1; ret->internal.capacity = b64size -1;
+        ret->len = j; ret->internal.capacity = b64size - 1;
         ret->internal.tokens_capacity = ret->count = 0;
         ret->tokens = NULL;
     }
@@ -395,7 +391,7 @@ ASKL_API String *string_deb64s(const char *s, size_t size)
     }
 
     /* discard trailing characters */
-    while (_d64[(unsigned char) s[size - 1]] == -1 && -- size);
+    while (_d64[(unsigned char) s[size - 1]] < 0 && -- size);
 
     for (i = 0; i < size; i ++) {
         int d = _d64[(unsigned char) s[i]];
@@ -484,7 +480,7 @@ ASKL_API char *string_rawurlencode(const char *url, size_t len, int flags)
     }
 
     do {
-        switch (_unsafe[(int) *p]) {
+        switch (_unsafe[(uint8_t) *p]) {
         case 1: /* unsafe chars */
         case 2: /* control chars */
         case 3: /* 0x7f */
@@ -526,13 +522,11 @@ ASKL_API int string_urlencode(String *url, int flags)
     len = strlen(encoded);
 
     /* replace the original data */
-    if (string_extend(url, len) == -1) {
+    if (! string_splice(url, 0, encoded, len)) {
         debug("string_urlencode(): cannot resize the string.\n");
         free(encoded);
         return -1;
     }
-
-    memcpy(url->data, encoded, len);
 
     free(encoded);
 

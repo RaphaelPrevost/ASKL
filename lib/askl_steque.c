@@ -34,9 +34,18 @@
  ******************************************************************************/
 
 #include "askl_steque.h"
+#include "arcane/bitops.c"
+
+#ifdef HAS_ATOMICS
+#define _NEXT_GET(n)    _atomic_ldar_ptr((void *_ATOMIC *) & (n)->next)
+#define _NEXT_SET(n, v) _atomic_stlr_ptr((void *_ATOMIC *) & (n)->next, (v))
+#else
+#define _NEXT_GET(n)    ((n)->next)
+#define _NEXT_SET(n, v) do { (n)->next = (v); } while (0)
+#endif
 
 typedef struct _Node {
-    struct _Node *next;
+    struct _Node *_ATOMIC next;
     void *data;
 } _Node;
 
@@ -181,7 +190,7 @@ ASKL_API int queue_enqueue(Queue *queue, void *ptr)
     pthread_mutex_lock(& queue->_tail_lock);
 
         /* swing the tail to the new node */
-        queue->_tail->next = node;
+        _NEXT_SET(queue->_tail, node);
         queue->_tail = node;
         /* if a thread was waiting to pop an element, wake it up */
         pthread_cond_signal(& queue->_empty);
@@ -201,7 +210,7 @@ ASKL_API int queue_empty(Queue *queue)
 
     pthread_mutex_lock(& queue->_head_lock);
 
-        ret = (! queue->_head->next);
+        ret = (! _NEXT_GET(queue->_head));
 
     pthread_mutex_unlock(& queue->_head_lock);
 
@@ -278,7 +287,7 @@ ASKL_API void *queue_pop(Queue *queue)
     /* use the Michael & Scott two-lock concurrent queue algorithm */
     pthread_mutex_lock(& queue->_head_lock);
 
-        node = queue->_head; next = node->next;
+        node = queue->_head; next = _NEXT_GET(node);
 
         /* pop the head and fetch the data */
         if (next) {

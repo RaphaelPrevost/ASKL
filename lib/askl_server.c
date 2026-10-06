@@ -69,7 +69,24 @@ struct _Response {
 /* server execution control */
 static pthread_mutex_t start_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t start = PTHREAD_COND_INITIALIZER;
-static int server_running = 0;
+static int _server_started = 0;
+static _ATOMIC int _server_running = 0;
+
+#ifdef HAS_ATOMICS
+#define server_running() _atomic_ldr(& _server_running)
+#define server_started() do { \
+    _atomic_stlr(& _server_running, 1); \
+    _server_started = 1; \
+} while (0)
+#define server_stopped() _atomic_stlr(& _server_running, 0)
+#else
+#define server_running() (_server_running)
+#define server_started() do { \
+    _server_running = 1; \
+    _server_started = 1; \
+} while (0)
+#define server_stopped() do { _server_running = 0; } while (0)
+#endif
 
 /* worker threads */
 static pthread_t *_thread;
@@ -259,6 +276,13 @@ ASKL_API int server_response_setdelay(Response *response, unsigned int seconds)
 
 /* -------------------------------------------------------------------------- */
 
+static int _server_enqueue_work(uint16_t sockid, void *response)
+{
+    return queue_enqueue(_work[sockid], response);
+}
+
+/* -------------------------------------------------------------------------- */
+
 ASKL_API Response *server_send_response(uint16_t sockid, Response *r)
 {
     /* basic sanity checks (destroy any broken task) */
@@ -267,21 +291,11 @@ ASKL_API Response *server_send_response(uint16_t sockid, Response *r)
         return server_response_free(r);
     }
 
-    /* check that there is an actual socket matching the id */
-    if (! socket_exists(sockid)) {
+    /* queue the task while the socket cannot go away */
+    if (socket_exists(sockid, _server_enqueue_work, r) == -1) {
         debug("server_send_response(): no such socket.\n");
         return server_response_free(r);
     }
-
-    /* allocate work queue if necessary */
-    if (! _work[sockid] && ! (_work[sockid] = queue_alloc()) ) {
-        debug("server_send_response(): socket work queue allocation failed.\n");
-        /* FIXME what should we do here ? silently drop the task ? */
-        return server_response_free(r);
-    }
-
-    /* queue the task */
-    queue_enqueue(_work[sockid], (void *) r);
 
     return NULL;
 }
@@ -388,17 +402,16 @@ static void _server_poll(void)
     Socket *s[_POLL_MAX], *new = NULL;
     int i = 0, pending = 0;
 
-    if (! server_running) return;
+    if (! server_running()) return;
 
     if (pthread_mutex_trylock(& _server_incoming) == 0) {
         pending = socket_queue_poll(_incoming, s, _POLL_MAX, 10);
         pthread_mutex_unlock(& _server_incoming);
 
         for (i = 0; i < pending; i ++) {
-            if (socket_incoming(s[i])) {
-                if ( (new = socket_accept(s[i])) )
+            if (socket_incoming(s[i]))
+                while ( (new = socket_accept(s[i])) )
                     server_enqueue_blocking(new);
-            }
             socket_release(s[i]); server_enqueue_listener(s[i]);
         }
     }
@@ -730,11 +743,11 @@ static void *_server_loop(UNUSED void *dummy)
 
     /* wait for it... */
     pthread_mutex_lock(& start_lock);
-        while (! server_running) pthread_cond_wait(& start, & start_lock);
+        while (! _server_started) pthread_cond_wait(& start, & start_lock);
     pthread_mutex_unlock(& start_lock);
 
     /* server worker threads main loop */
-    while (server_running) {
+    while (server_running()) {
         s = _server_receive(& buffer);
 
         /* clean the input buffer */
@@ -823,14 +836,11 @@ static int _server_reinit_cb(Socket *s)
     Response *r = NULL, *retransmit = NULL;
 
     /* flush the work queue */
-    if (_work[SOCKET_ID(s)]) {
-        while ( (r = queue_pop(_work[SOCKET_ID(s)])) ) {
-            if (r->op & SERVER_MSG_ACK && ! retransmit) {
-                retransmit = r; r = NULL;
-            }
-            r = server_response_free(r);
+    while ( (r = queue_pop(_work[SOCKET_ID(s)])) ) {
+        if (r->op & SERVER_MSG_ACK && ! retransmit) {
+            retransmit = r; r = NULL;
         }
-        _work[SOCKET_ID(s)] = queue_free(_work[SOCKET_ID(s)]);
+        r = server_response_free(r);
     }
 
     /* ensure the fragmentation buffer is clean */
@@ -897,6 +907,28 @@ static int _server_urgent_cb(Socket *s)
 
 /* -------------------------------------------------------------------------- */
 
+static int _server_pruned_cb(Socket *s)
+{
+    Response *r = NULL;
+
+    /* a socket with pending work may still be legitimate */
+    if (! SOCKET_IDLE(s)) return -1;
+
+    if (! (r = server_response_init(SERVER_MSG_END, MODULE_ID(s))) )
+        return -1;
+
+    if (queue_enqueue(_work[SOCKET_ID(s)], r) == -1) {
+        server_response_free(r);
+        return -1;
+    }
+
+    debug("_server_pruned_cb(): pruning idle socket %i.\n", SOCKET_ID(s));
+
+    return 0;
+}
+
+/* -------------------------------------------------------------------------- */
+
 static int _server_closed_cb(Socket *s)
 {
     Module *module = NULL;
@@ -915,11 +947,9 @@ static int _server_closed_cb(Socket *s)
         module_release(module);
     }
 
-    if (_work[SOCKET_ID(s)]) {
-        while ( (r = queue_pop(_work[SOCKET_ID(s)])) )
-            r = server_response_free(r);
-        _work[SOCKET_ID(s)] = queue_free(_work[SOCKET_ID(s)]);
-    }
+    /* flush the work queue */
+    while ( (r = queue_pop(_work[SOCKET_ID(s)])) )
+        r = server_response_free(r);
 
     /* ensure the fragmentation buffer is clean */
     _frag[SOCKET_ID(s)] = string_free(_frag[SOCKET_ID(s)]);
@@ -947,8 +977,6 @@ ASKL_API int server_init(void)
     unsigned int i = 0;
     pthread_attr_t attr;
     int builtin = 0;
-
-    monotonic_timer_init();
 
     /* greeting message */
     fprintf(stderr, "\nASKL.\n");
@@ -998,7 +1026,8 @@ ASKL_API int server_init(void)
          (socket_hook(HOOK_OPENED, _server_opened_cb) == -1) ||
          (socket_hook(HOOK_REINIT, _server_reinit_cb) == -1) ||
          (socket_hook(HOOK_URGENT, _server_urgent_cb) == -1) ||
-         (socket_hook(HOOK_CLOSED, _server_closed_cb) == -1)) {
+         (socket_hook(HOOK_CLOSED, _server_closed_cb) == -1) ||
+         (socket_hook(HOOK_PRUNED, _server_pruned_cb) == -1)) {
         fprintf(stderr, "server_init(): failed to hook the socket API.\n");
         goto _err_hook;
     }
@@ -1008,6 +1037,14 @@ ASKL_API int server_init(void)
     if (! (_readable = socket_queue_alloc()) ) goto _err_rdq;
     if (! (_writable = socket_queue_alloc()) ) goto _err_wrq;
     if (! (_incoming = socket_queue_alloc()) ) goto _err_inq;
+
+    /* allocate the work queues, one per socket identifier, for good */
+    for (i = 1; i < SOCKET_MAX; i ++) {
+        if (! (_work[i] = queue_alloc()) ) {
+            fprintf(stderr, "server_init(): work queue allocation failed.\n");
+            goto _err_work;
+        }
+    }
 
     #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
     if (configure(CONFDIR, "concrete.xml") == -1) {
@@ -1048,7 +1085,7 @@ ASKL_API int server_init(void)
 
     /* everything is ready, start the worker threads */
     pthread_mutex_lock(& start_lock);
-        server_running = 1;
+        server_started();
         pthread_cond_broadcast(& start);
     pthread_mutex_unlock(& start_lock);
 
@@ -1060,6 +1097,9 @@ _err_start:
 _err_config:
     module_api_exit();
     socket_api_exit();
+    i = SOCKET_MAX;
+_err_work:
+    while (-- i) _work[i] = queue_free(_work[i]);
     _incoming = socket_queue_free(_incoming);
 _err_inq:
     _writable = socket_queue_free(_writable);
@@ -1921,10 +1961,10 @@ ASKL_API void server_exit(void)
     unsigned int i = 0;
 
     /* if the server was never started to begin with, do nothing */
-    if (! server_running) return;
+    if (! server_running()) return;
 
     /* tell all the workers the server is going down... */
-    server_running = 0;
+    server_stopped();
 
     /* broadcast a shutdown message to all module */
     module_api_shutdown();
@@ -1933,9 +1973,18 @@ ASKL_API void server_exit(void)
         pthread_join(_thread[i], NULL);
     free(_thread);
 
+    /* the next incarnation gates its workers again */
+    _server_started = 0;
+
     /* close modules and any socket left open */
     socket_api_exit();
     module_api_exit();
+
+    /* the socket API outlives the server: unhook it */
+    for (i = HOOK_LISTEN; i <= HOOK_PRUNED; i <<= 1) socket_hook(i, NULL);
+
+    /* destroy the work queues, drained when their sockets were closed */
+    for (i = 1; i < SOCKET_MAX; i ++) _work[i] = queue_free(_work[i]);
 
     /* destroy all the queues */
     _blocking = socket_queue_free(_blocking);

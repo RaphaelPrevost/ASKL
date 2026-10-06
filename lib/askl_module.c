@@ -614,10 +614,11 @@ INTERNAL void module_api_shutdown(void)
 
 INTERNAL void module_api_exit(void)
 {
-    trie_free(_module_name);
-    map_free(_module);
+    _module_name = trie_free(_module_name);
+    _module = map_free(_module);
+    _random = random_free(_random);
 
-    free(_module_path);
+    free(_module_path); _module_path = NULL;
 
     pthread_rwlock_destroy(& _module_lock);
 }

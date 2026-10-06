@@ -83,7 +83,8 @@ typedef enum Socket_Hook {
     HOOK_OPENED = 0x04,
     HOOK_REINIT = 0x08,
     HOOK_URGENT = 0x10,
-    HOOK_CLOSED = 0x20
+    HOOK_CLOSED = 0x20,
+    HOOK_PRUNED = 0x40
 } Socket_Hook;
 
 /* enable SOCKET_UDP only if _ENABLE_UDP is set */
@@ -244,16 +245,24 @@ ASKL_API uint64_t socket_recvbytes(uint16_t id);
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int socket_exists(uint16_t id);
+ASKL_API int socket_exists(uint16_t id, int (*fn)(uint16_t, void *), void *arg);
 
 /**
  * @ingroup socket
- * @fn int socket_exists(int id)
+ * @fn int socket_exists(uint16_t id, int (*fn)(uint16_t, void *), void *arg)
  * @param id socket identifier
- * @return 1 if the socket exists, 0 otherwise
+ * @param fn function to call while the socket remains registered
+ * @param arg argument passed to @p fn
+ * @return -1 if the socket does not exist, otherwise the return value of @p fn
  *
- * This function checks if a socket is registered for the given ID.
+ * If a socket is registered under @p id, this function calls @p fn while
+ * holding the socket registry read lock. This guarantees that the socket
+ * cannot be deregistered until @p fn returns.
  *
+ * @p fn must be short-lived and must not perform any operation that opens
+ * or closes a socket.
+ *
+ * @see socket_acquire()
  */
 
 /* -------------------------------------------------------------------------- */
@@ -571,7 +580,7 @@ INTERNAL int socket_hook(Socket_Hook hook, int (*fn)(Socket *s));
  * @ingroup socket
  * @fn int socket_hook(Socket_Hook hook, int (*fn)(Socket *s))
  * @param hook the call to hook
- * @param fn the callback
+ * @param fn the callback, or NULL to remove the current one
  * @return 0 if all went fine, -1 otherwise
  *
  * This function allows to hook a callback to some socket API functions. The
@@ -586,6 +595,11 @@ INTERNAL int socket_hook(Socket_Hook hook, int (*fn)(Socket *s));
  * - HOOK_OPENED: called by socket_connect() when a connection is established
  * - HOOK_URGENT: called by socket_queue_poll() to handle OOB messages
  * - HOOK_CLOSED: called by socket_close() when a socket is destroyed
+ * - HOOK_PRUNED: called by socket_open() when no socket identifier is left,
+ *   with each idle inbound socket it proposes to prune
+ *
+ * @note the HOOK_PRUNED callback runs under the registry lock: it must be
+ * fast, and must not open or close a socket.
  *
  */
 

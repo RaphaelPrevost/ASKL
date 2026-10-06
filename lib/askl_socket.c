@@ -59,6 +59,7 @@ static int (*_socket_opened_hook)(Socket *) = NULL;
 static int (*_socket_reinit_hook)(Socket *) = NULL;
 static int (*_socket_urgent_hook)(Socket *) = NULL;
 static int (*_socket_closed_hook)(Socket *) = NULL;
+static int (*_socket_pruned_hook)(Socket *) = NULL;
 
 #ifdef _ENABLE_SSL
 
@@ -85,6 +86,8 @@ static ssize_t _socket_ssl_read(Socket *s, char *out, size_t len);
 
 ASKL_API int socket_api_init(void)
 {
+    monotonic_timer_init();
+
     if (pthread_rwlock_init(& _socket_lock, NULL)) {
         perror(ERR(socket_api_init, pthread_rwlock_init));
         return -1;
@@ -337,7 +340,7 @@ static ssize_t _socket_ssl_write(_Socket *s, const char *data, size_t len)
     switch (SSL_get_error(s->_ssl, ret)) {
         /* all went fine */
         case SSL_ERROR_NONE:
-            s->_tx += ret;
+            s->_tx += ret; s->_ts = _socket_clock();
             return ret;
         /* recoverable errors */
         case SSL_ERROR_WANT_READ:
@@ -399,6 +402,44 @@ static ssize_t _socket_ssl_read(_Socket *s, char *out, size_t len)
 /* Internal socket registration routines */
 /* -------------------------------------------------------------------------- */
 
+static void _socket_prune(void)
+{
+    /** @brief hand the two oldest inbound sockets never served, and the
+        served one idle the longest, to the hook */
+
+    unsigned int i = 0;
+    uint32_t now = 0;
+    int age = 0, oldest[3] = { 0 };
+    _Socket *s = NULL, *victim[3] = { NULL };
+
+    if (! _socket_pruned_hook) return;
+
+    now = _socket_clock();
+
+    pthread_rwlock_rdlock(& _socket_lock);
+
+        for (i = 1; i < SOCKET_MAX; i ++) {
+            /* XXX _state and _tx are read without the socket lock */
+            if (! (s = _socket[i]) || ! _SOCKET_INBOUND(s)) continue;
+            if ( (age = (int) (now - s->_ts)) <= 0) continue;
+
+            if (s->_tx) {
+                if (age > oldest[2]) { victim[2] = s; oldest[2] = age; }
+            } else if (age > oldest[0]) {
+                victim[1] = victim[0]; oldest[1] = oldest[0];
+                victim[0] = s; oldest[0] = age;
+            } else if (age > oldest[1]) { victim[1] = s; oldest[1] = age; }
+        }
+
+        if (victim[0]) _socket_pruned_hook(socket_public_interface(victim[0]));
+        if (victim[1]) _socket_pruned_hook(socket_public_interface(victim[1]));
+        if (victim[2]) _socket_pruned_hook(socket_public_interface(victim[2]));
+
+    pthread_rwlock_unlock(& _socket_lock);
+}
+
+/* -------------------------------------------------------------------------- */
+
 static int _socket_reg(_Socket *s, int type)
 {
     uint16_t sockid = 0;
@@ -422,6 +463,7 @@ static int _socket_reg(_Socket *s, int type)
         /* try to reuse an id */
         if (! (sockid = socket_dequeue(_free_ids)) ) {
             debug("_socket_reg(): all ids are in use !\n");
+            _socket_prune();
             return -1;
         }
     }
@@ -521,14 +563,21 @@ INTERNAL void socket_unlock(Socket *socket)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int socket_exists(uint16_t id)
+ASKL_API int socket_exists(uint16_t id, int (*fn)(uint16_t, void *), void *arg)
 {
-    if (! id || id >= SOCKET_MAX) {
+    int ret = -1;
+
+    if (! id || id >= SOCKET_MAX || ! fn) {
         debug("socket_exists(): bad parameters.\n");
-        return 0;
+        return -1;
     }
 
-    return !! _socket[id];
+    /* the socket cannot be deregistered while fn runs */
+    pthread_rwlock_rdlock(& _socket_lock);
+        if (_socket[id]) ret = fn(id, arg);
+    pthread_rwlock_unlock(& _socket_lock);
+
+    return ret;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -689,7 +738,7 @@ ASKL_API Socket *socket_open(const char *ip, const char *port, int type)
 {
     _Socket *new = NULL;
     struct addrinfo *info = NULL;
-    SOCKET sockfd = 0;
+    SOCKET sockfd = INVALID_SOCKET;
     /* XXX ioctl() param must be unsigned long for portability */
     unsigned long enabled = 1;
     int skip_fd = (type & SOCKET_NEW), blocking_io = (type & SOCKET_BIO);
@@ -774,7 +823,7 @@ _skip_fd:
     new->interface.callback = NULL;
 
     /* no data transmitted yet */
-    new->_tx = new->_rx = 0;
+    new->_tx = new->_rx = 0; new->_ts = _socket_clock();
 
     /* try to register the socket */
     if (_socket_reg(new, type) == -1) goto _err_reg;
@@ -797,9 +846,9 @@ _err_lock:
 _err_init:
     free(new);
 _err_alloc:
-    closesocket(sockfd);
+    if (sockfd != INVALID_SOCKET) closesocket(sockfd);
 _err_sock:
-    freeaddrinfo(info);
+    if (info) freeaddrinfo(info);
     return NULL;
 }
 
@@ -979,6 +1028,11 @@ ASKL_API Socket *socket_accept(Socket *sock)
     struct sockaddr *remote = NULL;
     socklen_t rlen = sizeof(*remote);
     SOCKET ret = INVALID_SOCKET;
+    #if defined(__linux__) || defined(__sun)
+    /* XXX ioctl() param must be unsigned long for portability */
+    unsigned long enabled = 1;
+    int mode = 0;
+    #endif
 
     if (! s || ~s->_state & _SOCKET_B || s->_flags & SOCKET_UDP) {
         debug("socket_accept(): bad parameters.\n");
@@ -1023,6 +1077,16 @@ ASKL_API Socket *socket_accept(Socket *sock)
        Ensure the proper family was recorded by accept(),
        because it will confuse getnameinfo() otherwise */
     remote->sa_family = (new->_flags & SOCKET_IP6) ? AF_INET6 : AF_INET;
+
+    #if defined(__linux__) || defined(__sun)
+    /* XXX
+       Ensure the socket mode is inherited from the listener, since
+       accept() does not carry O_NONBLOCK over on Linux and System V */
+    if ( (mode = fcntl(s->_fd, F_GETFL)) != -1 && mode & O_NONBLOCK) {
+        if (ioctl(ret, FIONBIO, & enabled) == -1)
+            _socket_perror(ERR(socket_accept, ioctl));
+    }
+    #endif
 
     new->_fd = ret;
     new->info->ai_addr = remote;
@@ -1110,7 +1174,7 @@ static ssize_t _socket_write(
         return ret;
     } else if (ret == 0) return SOCKET_ECLOSE;
 
-    s->_tx += ret;
+    s->_tx += ret; s->_ts = _socket_clock();
 
     return ret;
 }
@@ -1165,7 +1229,7 @@ ASKL_API ssize_t socket_sendfile(
                     return SOCKET_EAGAIN;
                 } else return SOCKET_EFATAL;
             } else {
-                out->_tx += written;
+                out->_tx += written; out->_ts = _socket_clock();
                 return written;
             }
         } else if (in->data && (*off + len) <= in->data->len) {
@@ -1351,7 +1415,7 @@ ASKL_API Socket *socket_close(Socket *sock)
 
 INTERNAL int socket_hook(Socket_Hook hook, int (*fn)(Socket *s))
 {
-    if (! hook || ! fn) return -1;
+    if (! hook) return -1;
 
     switch (hook) {
         case HOOK_LISTEN: _socket_listen_hook = fn; break;
@@ -1360,6 +1424,7 @@ INTERNAL int socket_hook(Socket_Hook hook, int (*fn)(Socket *s))
         case HOOK_REINIT: _socket_reinit_hook = fn; break;
         case HOOK_URGENT: _socket_urgent_hook = fn; break;
         case HOOK_CLOSED: _socket_closed_hook = fn; break;
+        case HOOK_PRUNED: _socket_pruned_hook = fn; break;
         default: return -1;
     }
 
@@ -1370,10 +1435,28 @@ INTERNAL int socket_hook(Socket_Hook hook, int (*fn)(Socket *s))
 /* Socket queues */
 /* -------------------------------------------------------------------------- */
 
+#ifdef HAS_ATOMICS
+#define _RING_LOCK(q)
+#define _RING_UNLOCK(q)
+#define _RING_LDR(p)         _atomic_ldr(p)
+#define _RING_LDAR(p)        _atomic_ldar(p)
+#define _RING_STLR(p, v)     _atomic_stlr((p), (v))
+#define _RING_CAS(p, a, b)   _atomic_cas((p), (int) (a), (int) (b))
+#else
+#define _RING_LOCK(q)        pthread_mutex_lock(& (q)->_lock)
+#define _RING_UNLOCK(q)      pthread_mutex_unlock(& (q)->_lock)
+#define _RING_LDR(p)         (*(p))
+#define _RING_LDAR(p)        (*(p))
+#define _RING_STLR(p, v)     do { *(p) = (v); } while (0)
+#define _RING_CAS(p, a, b)   (*(p) = (b), 1)
+#endif
+
+/* -------------------------------------------------------------------------- */
+
 ASKL_API Socket_Queue *socket_queue_alloc(void)
 {
     pthread_condattr_t attr;
-
+    unsigned int i = 0;
     Socket_Queue *ret = malloc(sizeof(*ret));
 
     if (! ret) {
@@ -1381,47 +1464,43 @@ ASKL_API Socket_Queue *socket_queue_alloc(void)
         return NULL;
     }
 
-    ret->_head_index = ret->_tail_index = 0;
+    ret->_enqueue = ret->_dequeue = 0;
+    ret->_waiters = 0;
 
-    if (pthread_mutex_init(& ret->_head_lock, NULL)) {
+    if (pthread_mutex_init(& ret->_lock, NULL)) {
         perror(ERR(socket_queue_alloc, pthread_mutex_init));
-        goto _err_head_lock;
-    }
-
-    if (pthread_mutex_init(& ret->_tail_lock, NULL)) {
-        perror(ERR(socket_queue_alloc, pthread_mutex_init));
-        goto _err_tail_lock;
+        goto _err_lock;
     }
 
     pthread_condattr_init(& attr);
-
     #if (! defined(WIN32) && ! defined(__APPLE__))
     /* use the monotonic clock on POSIX compliant systems */
     pthread_condattr_setclock(& attr, CLOCK_MONOTONIC);
     #endif
 
-    if (pthread_cond_init(& ret->_empty, & attr)) {
+    if (pthread_cond_init(& ret->_cond, & attr)) {
         perror(ERR(socket_queue_alloc, pthread_cond_init));
-        goto _err_cond_init;
+        goto _err_cond;
     }
 
-    if (! (ret->_ring = calloc(SOCKET_MAX + 1, sizeof(*ret->_ring))) ) {
+    if (! (ret->_ring = malloc(SOCKET_RING * sizeof(*ret->_ring))) ) {
         perror(ERR(socket_queue_alloc, malloc));
-        goto _err_ring_alloc;
+        goto _err_ring;
     }
+
+    /* every slot starts free for its first lap */
+    for (i = 0; i < SOCKET_RING; i ++) ret->_ring[i] = _RING_CELL(i, 0);
 
     pthread_condattr_destroy(& attr);
 
     return ret;
 
-_err_ring_alloc:
-    pthread_cond_destroy(& ret->_empty);
-_err_cond_init:
+_err_ring:
+    pthread_cond_destroy(& ret->_cond);
+_err_cond:
     pthread_condattr_destroy(& attr);
-    pthread_mutex_destroy(& ret->_tail_lock);
-_err_tail_lock:
-    pthread_mutex_destroy(& ret->_head_lock);
-_err_head_lock:
+    pthread_mutex_destroy(& ret->_lock);
+_err_lock:
     free(ret);
 
     return NULL;
@@ -1433,9 +1512,8 @@ ASKL_API Socket_Queue *socket_queue_free(Socket_Queue *q)
 {
     if (! q) return NULL;
 
-    pthread_mutex_destroy(& q->_head_lock);
-    pthread_mutex_destroy(& q->_tail_lock);
-    pthread_cond_destroy(& q->_empty);
+    pthread_mutex_destroy(& q->_lock);
+    pthread_cond_destroy(& q->_cond);
     free(q->_ring); free(q);
 
     return NULL;
@@ -1445,20 +1523,34 @@ ASKL_API Socket_Queue *socket_queue_free(Socket_Queue *q)
 
 ASKL_API int socket_enqueue(Socket_Queue *q, uint16_t id)
 {
+    unsigned int pos = 0, cell = 0;
+
     if (! q || ! id || id >= SOCKET_MAX) {
         debug("socket_enqueue(): bad parameters.\n");
         return -1;
     }
 
-    pthread_mutex_lock(& q->_tail_lock);
+    pthread_mutex_lock(& q->_lock);
 
-        q->_ring[q->_tail_index ++] = id;
-        if (q->_tail_index == SOCKET_MAX) q->_tail_index = 0;
-        q->_ring[q->_tail_index] = 0;
+        pos = q->_enqueue;
+        cell = _RING_LDAR(& q->_ring[pos & (SOCKET_RING - 1)]);
+
+        /* the slot is free once the consumer of the previous lap let go */
+        if (_RING_SEQ(cell) != (uint16_t) pos) {
+            pthread_mutex_unlock(& q->_lock);
+            debug("socket_enqueue(): queue full.\n");
+            return -1;
+        }
+
+        _RING_STLR(
+            & q->_ring[pos & (SOCKET_RING - 1)], _RING_CELL(pos + 1, id)
+        );
+        q->_enqueue = pos + 1;
+
         /* if a thread was waiting to pop an element, wake it up */
-        pthread_cond_signal(& q->_empty);
+        if (q->_waiters) pthread_cond_signal(& q->_cond);
 
-    pthread_mutex_unlock(& q->_tail_lock);
+    pthread_mutex_unlock(& q->_lock);
 
     return 0;
 }
@@ -1467,23 +1559,45 @@ ASKL_API int socket_enqueue(Socket_Queue *q, uint16_t id)
 
 ASKL_API uint16_t socket_dequeue(Socket_Queue *q)
 {
-    uint16_t ret = 0;
+    unsigned int pos = 0, cell = 0;
 
     if (! q) {
         debug("socket_dequeue(): bad parameters.\n");
         return 0;
     }
 
-    pthread_mutex_lock(& q->_head_lock);
+    _RING_LOCK(q);
 
-        if (q->_head_index == SOCKET_MAX) q->_head_index = 0;
+    do {
+        pos = _RING_LDR(& q->_dequeue);
+        cell = _RING_LDAR(& q->_ring[pos & (SOCKET_RING - 1)]);
+        /* the slot is filled for this lap or the queue is empty */
+        if (_RING_SEQ(cell) != (uint16_t) (pos + 1)) {
+            _RING_UNLOCK(q);
+            return 0;
+        }
+    } while (! _RING_CAS(& q->_dequeue, pos, pos + 1));
 
-        if ( (ret = q->_ring[q->_head_index]) )
-            q->_ring[q->_head_index ++] = 0;
+    /* free the slot for the next lap */
+    _RING_STLR(
+        & q->_ring[pos & (SOCKET_RING - 1)], _RING_CELL(pos + SOCKET_RING, 0)
+    );
 
-    pthread_mutex_unlock(& q->_head_lock);
+    _RING_UNLOCK(q);
 
-    return ret;
+    return cell;
+}
+
+/* -------------------------------------------------------------------------- */
+
+static int _ring_empty(Socket_Queue *q)
+{
+    uint16_t seq = 0, pos = 0;
+
+    pos = _RING_LDR(& q->_dequeue);
+    seq = _RING_SEQ(_RING_LDAR(& q->_ring[pos & (SOCKET_RING - 1)]));
+
+    return (seq != (uint16_t) (pos + 1));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1497,11 +1611,9 @@ ASKL_API int socket_queue_empty(Socket_Queue *q)
         return ret;
     }
 
-    pthread_mutex_lock(& q->_head_lock);
-
-        if (q->_ring[q->_head_index]) ret = 0;
-
-    pthread_mutex_unlock(& q->_head_lock);
+    _RING_LOCK(q);
+    ret = _ring_empty(q);
+    _RING_UNLOCK(q);
 
     return ret;
 }
@@ -1525,23 +1637,25 @@ ASKL_API void socket_queue_wait(Socket_Queue *q, unsigned int duration)
 
     ts.tv_sec += duration / 1000000;
     ts.tv_nsec += (duration % 1000000) * 1000;
-
-    pthread_mutex_lock(& q->_tail_lock);
-
-    if (socket_queue_empty(q)) {
-        #ifdef __APPLE__
-        pthread_cond_timedwait_relative_np(& q->_empty, & q->_tail_lock, & ts);
-        #else
-        pthread_cond_timedwait(& q->_empty, & q->_tail_lock, & ts);
-        #endif
+    if (ts.tv_nsec >= 1000000000) {
+        ts.tv_sec += 1;
+        ts.tv_nsec -= 1000000000;
     }
 
-    pthread_mutex_unlock(& q->_tail_lock);
+    pthread_mutex_lock(& q->_lock);
 
-    return;
+        q->_waiters ++;
+        if (_ring_empty(q)) {
+            #ifdef __APPLE__
+            pthread_cond_timedwait_relative_np(& q->_cond, & q->_lock, & ts);
+            #else
+            pthread_cond_timedwait(& q->_cond, & q->_lock, & ts);
+            #endif
+        }
+        q->_waiters --;
+
+    pthread_mutex_unlock(& q->_lock);
 }
-
-/* -------------------------------------------------------------------------- */
 
 INTERNAL int socket_queue_poll(
     Socket_Queue *q,
@@ -1550,7 +1664,7 @@ INTERNAL int socket_queue_poll(
     int timeout
 )
 {
-    unsigned int i = 0, j = 0, n = 0;
+    unsigned int i = 0, n = 0;
     int ret = 0;
     #if ! defined(_USE_BIG_FDS) || ! defined(HAS_POLL) || defined(WIN32)
     fd_set r, w, e;
@@ -1567,24 +1681,18 @@ INTERNAL int socket_queue_poll(
         return -1;
     }
 
-    /* pry the queue open */
-    pthread_mutex_lock(& q->_head_lock);
-    pthread_mutex_lock(& q->_tail_lock);
-
-    if (! q->_ring[q->_head_index]) goto _empty_queue;
-
     #if ! defined(_USE_BIG_FDS) || ! defined(HAS_POLL) || defined(WIN32)
     /* prepare to poll */
     FD_ZERO(& r); FD_ZERO(& w); FD_ZERO(& e);
     #endif
 
-    for (i = 0, j = q->_head_index; i < len; i ++, j ++) {
+    for (i = 0; i < len; i ++) {
         _Socket *current = NULL;
+        uint16_t id = 0;
 
-        if (j == SOCKET_MAX) j = 0; if (j == q->_tail_index) break;
-
-        /* acquire each socket and remove them from the queue */
-        s[i] = socket_acquire(q->_ring[j]); q->_ring[j] = 0;
+        /* take the sockets out of the queue and acquire them */
+        if (! (id = socket_dequeue(q)) ) break;
+        s[i] = socket_acquire(id);
         if (! (current = socket_private_interface(s[i])) ) {
             i --; continue;
         }
@@ -1627,12 +1735,7 @@ INTERNAL int socket_queue_poll(
     }
 
     /* no blocking sockets */
-    if ( (ret = n = i) == 0) goto _empty_queue;
-
-    q->_head_index = j;
-
-    pthread_mutex_unlock(& q->_tail_lock);
-    pthread_mutex_unlock(& q->_head_lock);
+    if ( (ret = n = i) == 0) return 0;
 
     /* poll */
     #if ! defined(_USE_BIG_FDS) || ! defined(HAS_POLL) || defined(WIN32)
@@ -1687,12 +1790,6 @@ _err_poll:
     }
 
     return -1;
-
-_empty_queue:
-    pthread_mutex_unlock(& q->_tail_lock);
-    pthread_mutex_unlock(& q->_head_lock);
-
-    return 0;
 }
 
 /* -------------------------------------------------------------------------- */

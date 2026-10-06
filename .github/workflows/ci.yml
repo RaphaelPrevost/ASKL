@@ -1,0 +1,119 @@
+# ASKL continuous integration
+#
+# Every job builds from a clean tree, then runs the unit tests through the
+# harness in test/runner.c (make check). The output is TAP; a non-zero exit
+# status means at least one test failed. Known failures are reported with a
+# TODO directive and do not fail the run.
+#
+# HAS_SSL=1 disables the OpenSSL code path on purpose: it does not compile
+# (see ASSESSMENT.md); the runners have the OpenSSL headers installed, which
+# the Makefile would otherwise detect.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-check:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux gcc
+            os: ubuntu-latest
+            cc: gcc
+            packages: full
+          - name: linux clang
+            os: ubuntu-latest
+            cc: clang
+            packages: full
+          - name: linux arm64 gcc
+            os: ubuntu-24.04-arm
+            cc: gcc
+            packages: full
+          # no optional library at all: exercises the Makefile probes and
+          # every #ifdef HAS_XXX fallback, invisible on a developer machine
+          - name: linux minimal
+            os: ubuntu-latest
+            cc: gcc
+            packages: none
+          - name: macos clang
+            os: macos-latest
+            cc: gcc
+            packages: full
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install optional libraries (Linux)
+        if: matrix.packages == 'full' && runner.os == 'Linux'
+        # libpcre3-dev (PCRE 8) has been dropped from recent distributions:
+        # without it the Makefile probe simply leaves the PCRE code out
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev libxml2-dev
+          sudo apt-get install -y libpcre3-dev || echo "no libpcre3-dev here"
+
+      - name: Install optional libraries (macOS)
+        if: matrix.packages == 'full' && runner.os == 'macOS'
+        run: |
+          brew install libxml2
+          brew install pcre || echo "no pcre formula here"
+
+      - name: Build the server, the library and the modules
+        run: make -j3 CC=${{ matrix.cc }} HAS_SSL=1
+
+      - name: Unit tests
+        run: |
+          make clean
+          make check -j3 CC=${{ matrix.cc }} HAS_SSL=1
+
+  sanitizers:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: address and undefined behaviour sanitizers
+            target: check-asan
+          - name: thread sanitizer
+            target: check-tsan
+          - name: mutex-only lock and queue
+            target: check-noatomics
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install optional libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev libxml2-dev
+          sudo apt-get install -y libpcre3-dev || echo "no libpcre3-dev here"
+
+      - name: Unit tests
+        # the instrumented legacy suites need more than the default timeout
+        run: ASKL_TEST_TIMEOUT=600 make ${{ matrix.target }} -j3 CC=clang HAS_SSL=1
+
+  coverage:
+    name: line coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install optional libraries and lcov
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zlib1g-dev libxml2-dev lcov
+          sudo apt-get install -y libpcre3-dev || echo "no libpcre3-dev here"
+
+      - name: Unit tests with coverage
+        run: make check-coverage -j3 HAS_SSL=1
+
+      - name: Publish the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/

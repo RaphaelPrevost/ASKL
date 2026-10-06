@@ -108,7 +108,7 @@ int64_t strtoll(const char *nptr, char **endptr, int base)
     int64_t newval;
 
     /* skip leading whitespace. */
-    end = (char *) nptr; while (isspace((int) end[0])) end++;
+    end = (char *) nptr; while (isspace((unsigned char) end[0])) end++;
 
     /* handle the sign, if any. */
     if (end[0] == '-') {

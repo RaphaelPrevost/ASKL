@@ -49,20 +49,73 @@ typedef struct _Trie Trie;
 
 typedef struct Trie_Leaf {
     uint16_t len;
-    uint16_t pad;
+    uint16_t own;
     Variant val;
     char key[];
 } Trie_Leaf;
 
+/**
+ * @ingroup trie
+ * @struct Trie_Leaf
+ *
+ * A trie leaf containing a complete key and its associated value.
+ *
+ * Leaves returned by lookup functions belong to the trie and remain valid
+ * only until the trie is modified.
+ */
+
+/* the value is a string stored in the leaf after its key, with its length
+   in the dword field of the variant: the trie never frees it on its own */
+#define TRIE_LEAF_INLINE 0x1
+
+typedef struct Trie_Cursor {
+    void *anchor;
+    void *_path;
+    size_t _depth;
+    size_t _alloc;
+    char *_key;
+    size_t _len;
+    size_t _size;
+} Trie_Cursor;
+
+/**
+ * @ingroup trie
+ * @struct Trie_Cursor
+ *
+ * State reused by successive prefix lookups.
+ *
+ * A zero-initialized cursor allows @ref trie_lookup_prefix_from() to resume
+ * below trie branches shared with the preceding lookup. @ref anchor is the
+ * narrowest subtree reached while consuming the most recent prefix and may be
+ * passed to @ref trie_anchor() or @ref trie_children_from().
+ *
+ * Cursor state, including @ref anchor, is invalidated by any trie modification.
+ * Release its allocated state with @ref trie_cursor_free().
+ */
+
 typedef struct Trie_Iterator {
-    Trie *trie;
-    uint8_t **_node;
-    size_t _node_alloc;
-    size_t _node_count;
     const char *key;
     size_t len;
     Variant val;
+    const char *child;
+    uint16_t child_len;
+    uint16_t divergence;
 } Trie_Iterator;
+
+/**
+ * @ingroup trie
+ * @struct Trie_Iterator
+ *
+ * State exposed by trie traversal functions.
+ *
+ * @ref key, @ref len and @ref val describe the current leaf. Child iteration
+ * additionally sets @ref child and @ref child_len to the immediate child
+ * represented by that leaf.
+ *
+ * @ref divergence is the earliest byte at which the current key may differ
+ * from the previously returned key. Bytes before that offset are known to be
+ * equal. A value of 0 means that no useful common-prefix bound is available.
+ */
 
 /* -------------------------------------------------------------------------- */
 
@@ -82,6 +135,26 @@ ASKL_API Trie *trie_alloc(void (*freeval)(Variant));
  * whenever an element is deleted from the trie.
  *
  * The trie should be destroyed with @ref trie_free() after use.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API int trie_disable_lock(Trie *t);
+
+/**
+ * @ingroup trie
+ * @fn int trie_disable_lock(Trie *t)
+ * @param t the trie
+ * @return 0 on success, -1 on error
+ *
+ * Permanently disable the trie's internal locking. The caller becomes
+ * responsible for synchronizing all subsequent operations.
+ *
+ * The function first acquires the write lock so existing operations complete
+ * before locking is disabled.
+ *
+ * @note Call this before publishing the trie to other threads. Locking cannot
+ *       be re-enabled.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -140,10 +213,10 @@ ASKL_API int trie_insert(Trie *t, const char *key, size_t len, Variant value);
  * If a @b freeval callback was specified when the trie was created, it will be
  * invoked to free the value when the entry is removed or when the trie is
  * destroyed.
- * 
+ *
  * @note Key lengths are limited to @c UINT16_MAX - 1 bytes. Passing a longer
  *       key causes @ref trie_insert() to fail with @c -1.
- * 
+ *
  * @see trie_remove
  *
  */
@@ -156,6 +229,23 @@ ASKL_API int trie_insert_prefix_list(
     Trie_Leaf **list,
     size_t count
 );
+
+/**
+ * @ingroup trie
+ * @fn int trie_insert_prefix_list(Trie *t, size_t prefix_len,
+ *                                 Trie_Leaf **list, size_t count)
+ * @param t trie
+ * @param prefix_len number of leading key bytes shared by the list
+ * @param list leaves to insert
+ * @param count number of leaves in @p list
+ * @return number of leaves inserted, or -1 on error
+ *
+ * Insert a list of preallocated leaves that share at least @p prefix_len key
+ * bytes.
+ *
+ * Duplicate leaves are discarded. Ownership of every leaf in @p list passes
+ * to this function, whether or not that leaf is inserted.
+ */
 
 /* -------------------------------------------------------------------------- */
 
@@ -204,6 +294,78 @@ ASKL_API int trie_has(Trie *t, const char *key, size_t len);
  * @return non-zero if @p key exists in the trie, or 0 otherwise
  *
  * This function checks whether an entry with the given key exists in the trie.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API const Trie_Leaf *trie_lookup_prefix(
+    Trie *t,
+    const char *prefix,
+    size_t len
+);
+
+/**
+ * @ingroup trie
+ * @fn const Trie_Leaf *trie_lookup_prefix(Trie *t, const char *prefix,
+ *                                         size_t len)
+ * @param t      a pointer to the trie
+ * @param prefix the prefix of the keys of interest
+ * @param len    the length of the prefix
+ * @return the leaf holding the smallest key starting with @p prefix, or
+ *         @c NULL if no key does
+ *
+ * This function finds the first key of the trie, in lexicographic order,
+ * starting with the given prefix, the prefix itself first when it is a
+ * key, in a single descent and without allocating anything, unlike
+ * @ref trie_each_prefix(). The leaf belongs to the trie: its key and
+ * value are valid until the trie is modified.
+ *
+ * @see trie_lookup_prefix_from()
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API const Trie_Leaf *trie_lookup_prefix_from(
+    Trie *t,
+    Trie_Cursor *cursor,
+    const char *prefix,
+    size_t len
+);
+
+/**
+ * @ingroup trie
+ * @fn const Trie_Leaf *trie_lookup_prefix_from(Trie *t, Trie_Cursor *cursor,
+ *                                              const char *prefix,
+ *                                              size_t len)
+ * @param t      a pointer to the trie
+ * @param cursor a cursor, zeroed before its first use, or @c NULL
+ * @param prefix the prefix of the keys of interest
+ * @param len    the length of the prefix
+ * @return the leaf holding the smallest key starting with @p prefix, or
+ *         @c NULL if no key does
+ *
+ * Like @ref trie_lookup_prefix(), but reuses @p cursor from the preceding
+ * lookup. When successive prefixes share leading bytes, traversal resumes
+ * below the corresponding cached branches instead of starting at the root.
+ *
+ * Initialize the cursor to zero before first use and release it with
+ * @ref trie_cursor_free(). Any trie modification invalidates its cached state.
+ *
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API Trie_Cursor *trie_cursor_free(Trie_Cursor *cursor);
+
+/**
+ * @ingroup trie
+ * @fn Trie_Cursor *trie_cursor_free(Trie_Cursor *cursor)
+ * @param cursor a cursor used with @ref trie_lookup_prefix_from()
+ * @return @c NULL
+ *
+ * This function releases what the cursor holds and zeroes it, so that it
+ * can be used again.
  *
  */
 
@@ -276,10 +438,9 @@ ASKL_API Variant trie_update(Trie *t, const char *key, size_t len, Variant v);
  * @return the previous value associated with the key, or a VARIANT_NULL
  *         value if the key did not previously exist
  *
- * This function stores the value @p v under the specified @p key. If the key
- * already exists, its associated value is replaced and the previous value is
- * returned. If the key does not exist, it is inserted into the trie and
- * VARIANT_NULL is returned.
+ * This function replaces the value associated with @p key by @p v and
+ * returns the previous value. If the key does not exist, the trie is left
+ * unchanged and VARIANT_NULL is returned.
  *
  * @note If the trie was created with a @b freeval callback, that callback is
  *       not invoked for the value being replaced. The caller becomes responsible
@@ -300,7 +461,7 @@ ASKL_API void trie_foreach(Trie *t, int (*f)(const char *, size_t, Variant));
  *
  * This function performs a full traversal of the trie and invokes the callback
  * @p f for every key/value pair stored in it. The walk is performed in
- * depth-first order and visits every leaf in the structure.
+ * lexicographic order and visits every leaf in the structure.
  *
  * If @p f returns @c -1, the corresponding key/value pair is removed from the
  * trie. If the trie was created with a @b freeval callback, that callback is
@@ -362,6 +523,153 @@ ASKL_API Trie_Iterator *trie_each_prefix(Trie *t, const char *pf, size_t len);
 
 /* -------------------------------------------------------------------------- */
 
+ASKL_API Trie_Iterator *trie_seek(Trie *t, const char *key, size_t len);
+
+/**
+ * @ingroup trie
+ * @fn Trie_Iterator *trie_seek(Trie *t, const char *key, size_t len)
+ *
+ * @param t   a pointer to the trie
+ * @param key the key to seek, which need not be in the trie
+ * @param len the length of the key
+ *
+ * @return an iterator positioned on the first entry whose key is greater
+ *         than or equal to @p key in lexicographic order, or @c NULL if
+ *         there is none or an error occurs
+ *
+ * This function starts an ordered traversal at the first key that is not
+ * lower than @p key: @ref trie_next() then yields the following keys in
+ * lexicographic order, as it does after @ref trie_each(). An empty key
+ * seeks the first entry. The iterator holds a read lock on the trie until
+ * the traversal ends or @ref trie_break() is called.
+ *
+ * Seeking is how a range is walked without visiting what precedes it, and
+ * how the children of a prefix are enumerated without visiting their
+ * descendants: seek past the last byte of a child to reach the next one.
+ *
+ * @see trie_each(), trie_each_prefix(), trie_next(), trie_break()
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API Trie_Iterator *trie_children(
+    Trie *t,
+    const char *prefix,
+    size_t len,
+    char separator
+);
+
+/**
+ * @ingroup trie
+ * @fn Trie_Iterator *trie_children(Trie *t, const char *prefix, size_t len,
+ *                                  char separator)
+ *
+ * @param t         a pointer to the trie
+ * @param prefix    the keys of interest start with this prefix
+ * @param len       the length of the prefix
+ * @param separator the byte that ends a child's name within a key
+ *
+ * @return an iterator positioned on the first child, or @c NULL if the
+ *         prefix has no key or an error occurs
+ *
+ * This function enumerates the children of a prefix, where a child is the
+ * part of a key that follows the prefix up to the next @p separator or the
+ * end of the key: for the keys "/a/b", "/a/b/c" and "/a/d" the children of
+ * "/a/" are "b" and "d". The trie itself knows nothing of separators, the
+ * caller chooses one, so that a JSON Pointer index is walked with '/'.
+ *
+ * The iterator exposes each child in @ref Trie_Iterator::child and
+ * @ref Trie_Iterator::child_len, while @ref Trie_Iterator::key holds the
+ * first key of that child in traversal order: the child's own key when it
+ * has one, in which case @ref Trie_Iterator::val is its value, or the key
+ * of its first descendant. @ref trie_next_child() moves to the next child
+ * without visiting the descendants of the current one, whatever their
+ * number. The read lock is held until the enumeration ends or
+ * @ref trie_break() is called.
+ *
+ * @see trie_next_child(), trie_seek(), trie_break()
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API void *trie_anchor(
+    Trie *t,
+    void *from,
+    const char *prefix,
+    size_t len
+);
+
+/**
+ * @ingroup trie
+ * @fn void *trie_anchor(Trie *t, void *from, const char *prefix, size_t len)
+ * @param t the trie
+ * @param from the anchor of a shorter prefix, or NULL for the whole trie
+ * @param prefix the prefix
+ * @param len its length
+ * @return the anchor of the prefix, NULL on error or if the trie is empty
+ *
+ * Return the narrowest subtree that can contain keys beginning with @p prefix.
+ * If @p from is non-NULL, traversal starts from that previously obtained
+ * anchor instead of the trie root.
+ *
+ * The returned pointer is an opaque traversal token. It may contain keys that
+ * do not match @p prefix, but every matching key lies within that subtree.
+ *
+ * @note An anchor remains valid only until the trie is modified.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API Trie_Iterator *trie_children_from(
+    Trie *t,
+    void *from,
+    const char *prefix,
+    size_t len,
+    char separator
+);
+
+/**
+ * @ingroup trie
+ * @fn Trie_Iterator *trie_children_from(Trie *t, void *from,
+ *                                      const char *prefix, size_t len,
+ *                                      char separator)
+ * @param t the trie
+ * @param from the anchor of the prefix or of a shorter one, see
+ *             @ref trie_anchor(), NULL for the whole trie
+ * @param prefix the prefix
+ * @param len its length
+ * @param separator the byte separating the components of the keys
+ * @return an iterator on the first child, or NULL
+ *
+ * Like @ref trie_children(), but bounds traversal and child-to-child seeks to
+ * @p from. Passing an anchor for the current prefix or one of its ancestors
+ * avoids restarting those operations from the trie root.
+ */
+
+/* -------------------------------------------------------------------------- */
+
+ASKL_API Trie_Iterator *trie_next_child(Trie_Iterator *iterator);
+
+/**
+ * @ingroup trie
+ * @fn Trie_Iterator *trie_next_child(Trie_Iterator *iterator)
+ *
+ * @param iterator @param iterator an iterator returned by @ref trie_children()
+ *                                 or @ref trie_children_from()
+ *
+ * @return the iterator positioned on the next child, or @c NULL when the
+ *         children are exhausted, in which case the iterator is released
+ *
+ * Advance to the next immediate child of the prefix used to create the
+ * iterator. Descendants of the current child are skipped.
+ *
+ * Returning NULL releases the iterator and its read lock.
+ *
+ * @see trie_children()
+ */
+
+/* -------------------------------------------------------------------------- */
+
 ASKL_API Trie_Iterator *trie_next(Trie_Iterator *iterator);
 
 /**
@@ -374,7 +682,7 @@ ASKL_API Trie_Iterator *trie_next(Trie_Iterator *iterator);
  * @return the same iterator positioned on the next leaf, or @c NULL if the end
  *         of the traversal is reached or an error occurred
  *
- * This function advances the iterator to the next leaf in depth-first order.
+ * This function advances the iterator to the next leaf in lexicographic order.
  * If another leaf is found, the iterator's @c key, @c len, and @c val fields
  * are updated accordingly. If there are no more leaves, the iterator is
  * automatically destroyed, its read lock is released, and @c NULL is returned.

@@ -47,6 +47,7 @@ typedef struct _Socket {
 
     uint64_t _tx;
     uint64_t _rx;
+    uint32_t _ts;
 
     uint32_t _tag;
 
@@ -95,6 +96,24 @@ STATIC_ASSERT(offsetof(_Socket, interface) == 0, interface_must_be_first);
 #define _SOCKET_E 0x0020    /* an error occured on this socket */
 #define _SOCKET_R 0x0040    /* the socket is readable */
 #define _SOCKET_W 0x0080    /* the socket is writable */
+
+/* accepted TCP sockets and virtual UDP sockets */
+#define _SOCKET_INBOUND(s) \
+    ((s)->_state & _SOCKET_I || \
+     ((s)->_flags & SOCKET_UDP && ! ((s)->_state & (_SOCKET_B | _SOCKET_O))))
+
+/* -------------------------------------------------------------------------- */
+
+static inline uint32_t _socket_clock(void)
+{
+    /** @brief the monotonic clock in seconds, for the socket stamps */
+
+    struct timespec ts;
+
+    monotonic_timer(& ts);
+
+    return ts.tv_sec;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Socket Helpers */
@@ -237,15 +256,20 @@ static inline int socket_outgoing(Socket *socket)
 /* Socket Queue internals */
 /* -------------------------------------------------------------------------- */
 
+#include "bitops.c"
+
+/* the ring holds packed cells: a 16 bit sequence over a 16 bit socket id */
+#define SOCKET_RING     8192
+#define _RING_CELL(seq, id) ((int) (((unsigned) (uint16_t) (seq) << 16) | (id)))
+#define _RING_SEQ(cell)     ((uint16_t) ((unsigned) (cell) >> 16))
+
 struct _Socket_Queue {
-    pthread_mutex_t _head_lock;
-    pthread_mutex_t _tail_lock;
-    pthread_cond_t _empty;
-
-    uint16_t _head_index;
-    uint16_t _tail_index;
-
-    uint16_t *_ring;
+    _ATOMIC int *_ring;
+    unsigned int _enqueue;      /* producers, under _lock */
+    int _waiters;               /* sleepers, under _lock */
+    pthread_mutex_t _lock;
+    pthread_cond_t _cond;
+    _ATOMIC int _dequeue;       /* consumers, lock-free */
 };
 
 /* -------------------------------------------------------------------------- */
