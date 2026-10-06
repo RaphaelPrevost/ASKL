@@ -1728,26 +1728,33 @@ _err_malloc:
 #endif
 /* -------------------------------------------------------------------------- */
 
-static void _free_token(String *string)
-{
-    unsigned int i = 0;
-
-    /* recursively clean the tokens' tokens, if any */
-    for (i = 0; i < string->count; i ++) {
-        if (likely(string->tokens[i].tokens))
-            _free_token(string->tokens + i);
-    }
-
-    free(string->tokens);
-}
-
 ASKL_API void string_free_token(String *string)
 {
-    if (string && string->tokens) {
-        _free_token(string);
-        string->tokens = NULL;
-        string->internal.tokens_capacity = string->count = 0;
+    String *s = string;
+    uint32_t i = 0;
+
+    if (! string || ! string->tokens) return;
+
+    while (1) {
+        if (i < s->count) {
+            if (s->tokens[i].tokens) {
+                s = s->tokens + i; i = 0;
+            } else i ++;
+        } else {
+            String *parent = s->parent;
+
+            free(s->tokens);
+            s->tokens = NULL;
+
+            if (s == string) break;
+
+            i = (uint32_t) (s - parent->tokens) + 1;
+            s = parent;
+        }
     }
+
+    string->internal.tokens_capacity = 0;
+    string->count = 0;
 }
 
 /* -------------------------------------------------------------------------- */
