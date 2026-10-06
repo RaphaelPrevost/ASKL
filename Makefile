@@ -298,9 +298,7 @@ ifeq ($(OS),Linux)
 LIBS   += -ldl -lrt
 # required for clang
 FLAGS  += -fgnu89-inline
-ifeq ($(CC),gcc)
 FLAGS  += -rdynamic
-endif
 SHARED += -shared
 MODULE += $(SHARED)
 endif

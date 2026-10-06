@@ -92,10 +92,15 @@ typedef struct Test_Suite {
 /* a case that ThreadSanitizer is known to fail on (a race in the code it
    exercises that is pinned in TEST_PROPOSALS.md): a known failure under
    ThreadSanitizer, a regular case in every other build */
-#if defined(__SANITIZE_THREAD__) || \
-    (defined(__has_feature) && __has_feature(thread_sanitizer))
+#if defined(__SANITIZE_THREAD__)
 #define TEST_RACY(name, fn, why) TEST_TODO(name, fn, why)
-#else
+#elif (defined(__has_feature))
+    #if __has_feature(thread_sanitizer)
+        #define TEST_RACY(name, fn, why) TEST_TODO(name, fn, why)
+    #endif
+#endif
+
+#ifndef TEST_RACY
 #define TEST_RACY(name, fn, why) TEST(name, fn)
 #endif
 
