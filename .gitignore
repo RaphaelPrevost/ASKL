@@ -13,5 +13,18 @@ test.out
 coverage.info
 coverage/
 
+# windows build artefacts (the vendored pthreadVC2.dll is tracked, so the
+# copy beside the binary is matched by its path, not by a pattern)
+*.obj
+*.pdb
+*.ilk
+*.exp
+win32/obj/
+win32/objtest/
+/libaskl.dll
+/libaskl.lib
+/test.exe
+/pthreadVC2.dll
+
 # editors
 *~

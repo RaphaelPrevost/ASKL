@@ -1,0 +1,125 @@
+################################################################################
+#  ASKL.                                                                       #
+#  Copyright (c) 2026 Raphael Prevost <raph@el.bzh>                            #
+#                                                                              #
+#  This software is a computer program whose purpose is to provide a           #
+#  framework for developing and prototyping network services.                  #
+#                                                                              #
+#  This software is governed by the CeCILL  license under French law and       #
+#  abiding by the rules of distribution of free software.  You can  use,       #
+#  modify and/ or redistribute the software under the terms of the CeCILL      #
+#  license as circulated by CEA, CNRS and INRIA at the following URL           #
+#  "http://www.cecill.info".                                                   #
+#                                                                              #
+#  As a counterpart to the access to the source code and  rights to copy,      #
+#  modify and redistribute granted by the license, users are provided only     #
+#  with a limited warranty  and the software's author,  the holder of the      #
+#  economic rights,  and the successive licensors  have only  limited          #
+#  liability.                                                                  #
+#                                                                              #
+#  In this respect, the user's attention is drawn to the risks associated      #
+#  with loading,  using,  modifying and/or developing or reproducing the       #
+#  software by the user in light of its specific status of free software,      #
+#  that may mean  that it is complicated to manipulate,  and  that  also       #
+#  therefore means  that it is reserved for developers  and  experienced       #
+#  professionals having in-depth computer knowledge. Users are therefore       #
+#  encouraged to load and test the software's suitability as regards their     #
+#  requirements in conditions enabling the security of their systems and/or    #
+#  data to be ensured and,  more generally, to use and operate it in the       #
+#  same conditions as regards security.                                        #
+#                                                                              #
+#  The fact that you are presently reading this means that you have had        #
+#  knowledge of the CeCILL license and that you accept its terms.              #
+#                                                                              #
+################################################################################
+
+# Native Windows build with the Microsoft toolchain, run from the top of the
+# tree:
+#
+#   nmake /F win32\Makefile.nmake            the library and the test binary
+#   nmake /F win32\Makefile.nmake check      the same, then run the tests
+#   nmake /F win32\Makefile.nmake objs       compile the library only
+#   nmake /F win32\Makefile.nmake clean
+#
+# ARCH selects the pthreads-win32 import library, x64 or x86; BUILD swaps the
+# debug options for the release ones. The optional libraries (OpenSSL, PCRE,
+# libxml2, zlib, iconv, MySQL, SQLite) are left out: every HAS_XXX is
+# undefined, so the code takes the same fallbacks as a build on a machine
+# without them.
+#
+# The library is a DLL and the test binary links against its import library,
+# so ASKL_API resolves to __declspec(dllexport) on one side and to
+# __declspec(dllimport) on the other.
+
+CC       = cl
+LINK     = link
+
+ARCH     = x64
+PTHREADS = lib/compat/libpthread-win32
+# the same path for cmd, whose copy does not take forward slashes
+PTHREADSW = lib\compat\libpthread-win32
+
+OBJDIR   = win32/obj
+TOBJDIR  = win32/objtest
+
+LIB      = libaskl
+BIN      = test.exe
+
+# _ENABLE_FILE is left out: the file API is incomplete, and its prototypes
+# take an m_auth, which m_security.h only declares with libxml2
+CONFIG   = /D_ENABLE_SERVER /D_ENABLE_UDP /D_ENABLE_SSL /D_ENABLE_RANDOM \
+           /D_ENABLE_HASHMAP /D_ENABLE_TRIE /D_ENABLE_PCRE \
+           /D_ENABLE_JSON /D_ENABLE_CONFIG /D_BUILTIN_MODULE \
+           /D_USE_BIG_FDS=4095
+
+# cl predefines _WIN32 but not WIN32, which is what askl.h keys on; the two
+# _CRT_ macros silence the deprecation of the standard names the tree uses
+BUILD    = /Od /Zi /DDEBUG
+FLAGS    = /nologo /std:c11 /W3 /MD $(BUILD) /DWIN32 \
+           /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_WARNINGS \
+           /Ilib /I$(PTHREADS)/include
+LFLAGS   = /nologo /LIBPATH:$(PTHREADS)/lib/$(ARCH)
+
+LIBSRC   = lib/askl_cbtrie.c lib/askl_htable.c lib/askl_json.c \
+           lib/askl_module.c lib/askl_random.c lib/askl_rwlock.c \
+           lib/askl_server.c lib/askl_socket.c lib/askl_steque.c \
+           lib/askl_string.c lib/askl_variant.c lib/m_config.c lib/m_db.c \
+           lib/m_file.c lib/m_http.c lib/m_security.c lib/string/codecs.c \
+           lib/string/crypto.c lib/string/parser.c \
+           lib/string/format/dtoa.c lib/string/format/float.c \
+           lib/string/format/format.c lib/string/format/printf.c \
+           lib/string/format/scanf.c lib/compat/askl_compat_layer.c
+
+TESTSRC  = test/runner.c test/legacy.c test/m_db_test.c test/m_file_test.c \
+           test/m_http_test.c test/unit/cbtrie.c test/unit/codecs.c \
+           test/unit/compliance.c test/unit/conformance.c \
+           test/unit/format.c test/unit/htable.c test/unit/json.c \
+           test/unit/jsonpath.c test/unit/queue.c test/unit/random.c \
+           test/unit/rwlock.c test/unit/server.c test/unit/socket.c \
+           test/unit/string.c test/unit/variant.c
+
+all: $(LIB).dll $(BIN)
+
+objs:
+	@if not exist $(OBJDIR) mkdir $(OBJDIR)
+	$(CC) $(FLAGS) $(CONFIG) /DBUILDING_DLL /Fo$(OBJDIR)/ /c $(LIBSRC)
+
+$(LIB).dll: objs
+	$(LINK) $(LFLAGS) /DLL /OUT:$(LIB).dll /IMPLIB:$(LIB).lib $(OBJDIR)/*.obj
+
+$(BIN): $(LIB).dll
+	@if not exist $(TOBJDIR) mkdir $(TOBJDIR)
+	$(CC) $(FLAGS) $(CONFIG) /Fo$(TOBJDIR)/ /c $(TESTSRC)
+	$(LINK) $(LFLAGS) /OUT:$(BIN) $(TOBJDIR)/*.obj $(LIB).lib
+	copy /Y $(PTHREADSW)\dll\$(ARCH)\pthreadVC2.dll . > nul
+
+check: $(BIN)
+	$(BIN)
+
+clean:
+	-@if exist $(OBJDIR) rmdir /S /Q $(OBJDIR)
+	-@if exist $(TOBJDIR) rmdir /S /Q $(TOBJDIR)
+	-@if exist $(LIB).dll del /Q $(LIB).dll $(LIB).lib $(LIB).exp
+	-@if exist $(BIN) del /Q $(BIN)
+	-@if exist pthreadVC2.dll del /Q pthreadVC2.dll
+	-@if exist vc140.pdb del /Q *.pdb *.ilk

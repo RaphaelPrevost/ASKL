@@ -40,6 +40,7 @@
     #include <sys/wait.h>
     #define HAS_FORK 1
 #else
+    #include <io.h>
     #define HAS_FORK 0
 #endif
 
@@ -82,7 +83,11 @@ extern const Test_Suite test_suite_random;
 #if defined(_ENABLE_SERVER) && defined(_BUILTIN_MODULE)
 extern const Test_Suite test_suite_server;
 #endif
+#if ((defined(_ENABLE_TRIE) || defined(_ENABLE_HTTP)) && \
+     defined(_ENABLE_FILE)) || defined(_ENABLE_DB)
+#define HAS_LEGACY 1
 extern const Test_Suite test_suite_legacy;
+#endif
 
 static const Test_Suite *_suites[] = {
     & test_suite_string,
@@ -112,7 +117,9 @@ static const Test_Suite *_suites[] = {
     #if defined(_ENABLE_SERVER) && defined(_BUILTIN_MODULE)
     & test_suite_server,
     #endif
+    #ifdef HAS_LEGACY
     & test_suite_legacy
+    #endif
 };
 
 #define SUITES (sizeof(_suites) / sizeof(*_suites))
@@ -128,11 +135,12 @@ typedef struct _Options {
     int verbose;
     int list;
     int fork;
+    int child;
     int filters;
     char **filter;
 } _Options;
 
-static _Options _opt = { 0, 0, 0, 0, 0, 1, 0, NULL };
+static _Options _opt = { 0, 0, 0, 0, 0, 1, 0, 0, NULL };
 
 /* failures recorded by CHECK() in the current test case */
 static int _failures = 0;
@@ -401,7 +409,141 @@ static int _run_isolated(
 }
 
 /* -------------------------------------------------------------------------- */
+#else
+/* -------------------------------------------------------------------------- */
+
+static int _run_isolated(
+    const Test_Suite *suite,
+    const Test_Case *c,
+    unsigned int timeout,
+    FILE *log,
+    char *reason,
+    size_t len
+)
+{
+    /** @brief run a test case in a child process, with a timeout */
+
+    STARTUPINFO startup_info;
+    PROCESS_INFORMATION process_info;
+    CHAR buffer[PATH_MAX], command[PATH_MAX + PATH_MAX];
+    HANDLE out = INVALID_HANDLE_VALUE;
+    DWORD bufsize = 0, status = 0;
+    int ret = -1;
+
+    fflush(NULL);
+
+    /* there is no fork() to hand the suite table to a child, so the child
+       is this binary again, told which case to run and reporting it back
+       through its exit status */
+    bufsize = GetModuleFileName(NULL, buffer, sizeof(buffer));
+    if (bufsize == 0 || bufsize == sizeof(buffer)) {
+        snprintf(reason, len, "cannot get the path to the executable");
+        return -1;
+    }
+
+    /* the child writes the output the parent shows for a failure */
+    out = (HANDLE) _get_osfhandle(_fileno(log));
+    if (out == INVALID_HANDLE_VALUE || ! SetHandleInformation(
+        out, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT
+    )) {
+        snprintf(reason, len, "cannot share the log with the child");
+        return -1;
+    }
+
+    snprintf(
+        command,
+        sizeof(command),
+        "\"%s\" --child -s %u %s.%s",
+        buffer, _opt.seed, suite->name, c->name
+    );
+
+    memset(& startup_info, 0, sizeof(startup_info));
+    memset(& process_info, 0, sizeof(process_info));
+    startup_info.cb = sizeof(startup_info);
+    startup_info.dwFlags = STARTF_USESTDHANDLES;
+    startup_info.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup_info.hStdOutput = startup_info.hStdError = out;
+
+    if (! CreateProcess(
+        buffer,                            /* module name */
+        command,                           /* command line */
+        NULL,                              /* process attr */
+        NULL,                              /* thread attr */
+        TRUE,                              /* inherit handles */
+        CREATE_NO_WINDOW,                  /* creation flags */
+        NULL,                              /* environment */
+        NULL,                              /* current directory */
+        & startup_info,                    /* startup info */
+        & process_info                     /* process info */
+    )) {
+        snprintf(reason, len, "cannot create the test process");
+        return -1;
+    }
+
+    CloseHandle(process_info.hThread);
+
+    if (WaitForSingleObject(
+        process_info.hProcess, timeout * 1000
+    ) == WAIT_TIMEOUT) {
+        TerminateProcess(process_info.hProcess, EXIT_FAILURE);
+        WaitForSingleObject(process_info.hProcess, INFINITE);
+        snprintf(reason, len, "timeout after %u s", timeout);
+        goto _err_process;
+    }
+
+    if (! GetExitCodeProcess(process_info.hProcess, & status)) {
+        snprintf(reason, len, "cannot read the exit status");
+        goto _err_process;
+    }
+
+    /* a crash leaves an NTSTATUS behind, 0xc0000005 and its family */
+    if (status == EXIT_SUCCESS) ret = 0;
+    else if (status == TEST_SKIPPED) ret = TEST_SKIPPED;
+    else if (status >= 0xc0000000)
+        snprintf(reason, len, "crashed, status 0x%08lx",
+                 (unsigned long) status);
+    else snprintf(reason, len, "exit status %lu", (unsigned long) status);
+
+_err_process:
+    CloseHandle(process_info.hProcess);
+
+    return ret;
+}
+
+/* -------------------------------------------------------------------------- */
 #endif
+/* -------------------------------------------------------------------------- */
+
+static int _run_child(void)
+{
+    /** @brief run the one selected case, for an isolating parent */
+
+    unsigned int i = 0, j = 0;
+    const Test_Suite *suite = NULL;
+    const Test_Case *c = NULL;
+    int ret = 0;
+
+    for (i = 0; i < SUITES; i ++) {
+        suite = _suites[i];
+        for (j = 0; j < suite->count; j ++) {
+            c = & suite->cases[j];
+
+            if (! _selected(suite, c)) continue;
+
+            ret = _run_case(suite, c);
+
+            fflush(NULL);
+
+            return (ret == 0) ? EXIT_SUCCESS :
+                   (ret == TEST_SKIPPED) ? TEST_SKIPPED : EXIT_FAILURE;
+        }
+    }
+
+    fprintf(stderr, "no test matches the selection\n");
+
+    return EXIT_FAILURE;
+}
+
 /* -------------------------------------------------------------------------- */
 
 static int _run(void)
@@ -454,7 +596,6 @@ static int _run(void)
                       (c->flags & TEST_FLAG_SLOW) ? TIMEOUT_SLOW : TIMEOUT_FAST;
             reason[0] = skip[0] = '\0';
 
-            #if HAS_FORK
             if (_opt.fork) {
                 if (! (log = tmpfile()) ) {
                     perror(ERR(_run, tmpfile));
@@ -465,9 +606,7 @@ static int _run(void)
                 );
                 if (ret == TEST_SKIPPED)
                     _skip_reason(log, skip, sizeof(skip));
-            } else
-            #endif
-            {
+            } else {
                 printf("# %s.%s\n", suite->name, c->name);
                 ret = _run_case(suite, c);
                 if (ret == TEST_SKIPPED)
@@ -549,6 +688,9 @@ static void _usage(const char *argv0)
         "  --slow      also run the slow tier (ASKL_TEST_SLOW=1)\n"
         "  --no-fork   run the tests in this process, without timeout\n"
         "              (for debuggers; ASKL_TEST_NOFORK=1)\n"
+        "  --child     run the one selected case and report it through the\n"
+        "              exit status, printing no TAP (internal: it is how a\n"
+        "              parent isolates a case where there is no fork())\n"
         "Every test runs in its own process; the output is TAP.\n",
         argv0
     );
@@ -582,6 +724,7 @@ int main(int argc, char **argv)
         else if (! strcmp(argv[i], "-v")) _opt.verbose = 1;
         else if (! strcmp(argv[i], "--slow")) _opt.slow = 1;
         else if (! strcmp(argv[i], "--no-fork")) _opt.fork = 0;
+        else if (! strcmp(argv[i], "--child")) _opt.child = 1;
         else if (! strcmp(argv[i], "-s") && i + 1 < argc)
             _opt.seed = (unsigned int) strtoul(argv[++ i], NULL, 10);
         else if (! strcmp(argv[i], "-t") && i + 1 < argc)
@@ -598,9 +741,11 @@ int main(int argc, char **argv)
 
     _opt.filter = filter;
 
-    #if ! HAS_FORK
-    _opt.fork = 0;
-    #endif
+    if (_opt.child) {
+        i = _run_child();
+        free(filter);
+        return i;
+    }
 
     if (_opt.list) {
         _list(); free(filter);

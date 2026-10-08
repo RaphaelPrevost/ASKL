@@ -34,6 +34,12 @@
  ******************************************************************************/
 
 #include "m_config.h"
+/* m_config.h only pulls askl.h in with libxml2, and the variable below is
+   declared there and expanded by PREFIX, CONFDIR and SHAREDIR whatever the
+   configuration: it must exist even when this file has no body */
+#include "askl.h"
+
+char *working_directory = NULL;
 
 /* -------------------------------------------------------------------------- */
 #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
@@ -65,9 +71,6 @@ static ASKL_LinkedMap *ssl_ctx = NULL;
 
 /* default configuration: profile="any" threads="SERVER_CONCURRENCY" */
 static struct _conf server_conf = { CONFIG_PROFILE_ANY, 0, SERVER_CONCURRENCY };
-
-/* the default working directory */
-char *working_directory = NULL;
 
 /* -------------------------------------------------------------------------- */
 

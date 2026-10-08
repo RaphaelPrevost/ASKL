@@ -40,6 +40,15 @@
    process isolation, timeouts and TAP reporting. remove an entry here
    once its suite has been ported to test/unit/ */
 
+/* nothing left to run once every entry below is configured out */
+#if (defined(_ENABLE_TRIE) || defined(_ENABLE_HTTP)) && defined(_ENABLE_FILE)
+#define HAS_LEGACY 1
+#elif defined(_ENABLE_DB)
+#define HAS_LEGACY 1
+#endif
+
+#ifdef HAS_LEGACY
+
 #ifdef _ENABLE_TRIE
 #ifdef _ENABLE_FILE
 extern int test_fs(void);
@@ -71,4 +80,14 @@ static const Test_Case _cases[] = {
 
 TEST_SUITE(test_suite_legacy, "legacy", NULL, NULL, _cases);
 
+/* -------------------------------------------------------------------------- */
+#else
+/* -------------------------------------------------------------------------- */
+
+#ifdef __GNUC__
+__attribute__ ((unused)) static int __dummy__ = 0;
+#endif
+
+/* -------------------------------------------------------------------------- */
+#endif
 /* -------------------------------------------------------------------------- */

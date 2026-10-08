@@ -64,12 +64,18 @@ CONFIG  = -D_ENABLE_SERVER \
           -D_ENABLE_RANDOM \
           -D_ENABLE_HASHMAP \
           -D_ENABLE_TRIE \
-          -D_ENABLE_FILE \
           -D_ENABLE_PCRE \
           -D_ENABLE_JSON \
           -D_ENABLE_CONFIG \
           -D_BUILTIN_MODULE \
           -D_USE_BIG_FDS=4095
+
+# the file API is incomplete and its prototypes take an m_auth, which
+# m_security.h only declares with libxml2: ENABLE_FILE=0 leaves it out
+ENABLE_FILE = 1
+ifeq ($(ENABLE_FILE),1)
+CONFIG += -D_ENABLE_FILE
+endif
 
 PLGCONF =
 
