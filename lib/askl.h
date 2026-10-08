@@ -82,6 +82,21 @@
 #include <stdarg.h>
 #include <limits.h>
 #include <locale.h>
+
+#if (! defined(_MSC_VER))
+    #include <unistd.h>
+#elif (_MSC_VER >= 1400)
+    #include <intrin.h>
+#endif
+
+#if (! defined(_MSC_VER) || _MSC_VER >= 1600)
+    #include <stdint.h>
+    #include <inttypes.h>
+    #if (_MSC_VER >= 1900)
+        #define HAVE_STRUCT_TIMESPEC
+    #endif
+#endif
+
 #include <pthread.h>
 #include <time.h>
 
@@ -99,16 +114,6 @@
       (defined(__sparc) || defined(__powerpc__) || defined(__ppc__) || \
        defined(__mc68000) || defined(__ARMEB__) || defined(__MIPSEB__))
     #define BIG_ENDIAN_HOST
-#endif
-
-#if ! defined(_MSC_VER) || _MSC_VER > 1300
-/* Microsoft Visual C++ 6.0 is missing these includes */
-#include <unistd.h>
-#include <stdint.h>
-#include <inttypes.h>
-#if _MSC_VER >= 1400
-#include <intrin.h>
-#endif
 #endif
 
 /* specific macros cleanup */
