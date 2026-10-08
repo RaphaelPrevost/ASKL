@@ -173,12 +173,14 @@
 
 typedef uint32_t unaligned_uint32_t;
 
-#ifndef _strtoi64
-    ASKL_API int64_t strtoll(const char *nptr, char **endptr, int base);
-    #define strtoull (uint64_t) strtoll
-#else
-    #define strtoll _strtoi64
-    #define strtoull (uint64_t) _strtoi64
+#if (! defined(_MSC_VER) || _MSC_VER < 1800)
+    #ifndef _strtoi64
+        ASKL_API int64_t strtoll(const char *nptr, char **endptr, int base);
+        #define strtoull (uint64_t) strtoll
+    #else
+        #define strtoll _strtoi64
+        #define strtoull (uint64_t) _strtoi64
+    #endif
 #endif
 
 #if (defined(_MSC_VER) && (_MSC_VER < 1800))

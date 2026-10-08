@@ -39,6 +39,12 @@
 
 #if (defined(_MSC_VER) && (_MSC_VER >= 1400))
 #include <intrin.h>
+#pragma intrinsic(_BitScanForward)
+#pragma intrinsic(_BitScanForward64)
+#pragma intrinsic(_BitScanReverse)
+#pragma intrinsic(_BitScanReverse64)
+#pragma intrinsic(_byteswap_ulong)
+#pragma intrinsic(_byteswap_uint64)
 #endif
 
 #define max32(a, b) \
@@ -104,8 +110,6 @@ static inline unsigned int __ctz(uint32_t i)
         #elif (defined(_MSC_VER) && (_MSC_VER >= 1400)) && \
               (defined(_M_IX86) || defined(_M_AMD64) || defined(_M_ARM))
 
-        #pragma intrinsic(_BitScanForward)
-
         _BitScanForward(& c, (unsigned long) i);
 
         #else
@@ -138,8 +142,6 @@ static inline unsigned int __ctzll(uint64_t i)
 
         #elif (defined(_MSC_VER) && (_MSC_VER >= 1400)) && \
               (defined(_M_X64) || defined(_M_AMD64) || defined(_M_ARM))
-
-        #pragma intrinsic(_BitScanForward64)
 
         unsigned long ret;
         _BitScanForward64(& ret, (unsigned __int64) i);
@@ -175,8 +177,6 @@ static inline unsigned int __clz(uint32_t i)
         
         #elif (defined(_MSC_VER) && (_MSC_VER >= 1400)) && \
               (defined(_M_IX86) || defined(_M_AMD64) || defined(_M_ARM))
-
-        #pragma intrinsic(_BitScanReverse)
 
         unsigned long ret;
 
@@ -219,8 +219,6 @@ static inline unsigned int __clzll(uint64_t i)
         
         #elif (defined(_MSC_VER) && (_MSC_VER >= 1400)) && \
               (defined(_M_X64) || defined(_M_AMD64) || defined(_M_ARM))
-
-        #pragma intrinsic(_BitScanReverse64)
 
         unsigned long ret;
 
@@ -265,8 +263,6 @@ static inline uint32_t __msb(uint32_t i)
     #elif (defined(_MSC_VER) && (_MSC_VER >= 1400)) && \
           (defined(_M_IX86) || defined(_M_AMD64) || defined(_M_ARM))
 
-    #pragma intrinsic(_BitScanReverse)
-
     unsigned long idx;
 
     _BitScanReverse(& idx, (unsigned long) i);
@@ -294,8 +290,6 @@ static inline uint32_t __bswap32(uint32_t i)
 
     #elif (defined(_MSC_VER) && (_MSC_VER >= 1400))
 
-    #pragma intrinsic(_byteswap_ulong)
-
     return _byteswap_ulong(i);
 
     #else
@@ -320,8 +314,6 @@ static inline uint64_t __bswap64(uint64_t i)
     return __builtin_bswap64(i);
 
     #elif (defined(_MSC_VER) && (_MSC_VER >= 1400))
-
-    #pragma intrinsic(_byteswap_uint64)
 
     return _byteswap_uint64(i);
 
@@ -433,8 +425,8 @@ static inline uint64_t umul128(uint64_t a, uint64_t b, uint64_t *high)
     *high = (uint64_t) (result >> 64);
     return (uint64_t) result;
     #elif (defined(_MSC_VER) && (_MSC_VER >= 1400)) && \
-          (defined(_M_X64) || defined(_M_AMD64) || defined(_M_ARM))
-    return __umul128(a, b, high);
+          (defined(_M_X64) || defined(_M_AMD64) || defined(_M_ARM64))
+    return _umul128(a, b, high);
     #else
     const uint32_t a_lo = (uint32_t) a;
     const uint32_t a_hi = (uint32_t) (a >> 32);

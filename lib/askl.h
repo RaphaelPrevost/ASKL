@@ -209,6 +209,8 @@
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
     #include <Shlwapi.h>
+    /* XXX objbase.h defines interface as struct for COM */
+    #undef interface
     #include <errno.h>
     #if ! defined(off_t) && defined(__WINE__)
         #define off_t _off_t
@@ -264,6 +266,13 @@
            registers to be suitable for callbacks */
         #define CALLBACK
     #endif
+#endif
+
+#ifndef likely
+    #define likely(x) (x)
+#endif
+#ifndef unlikely
+    #define unlikely(x) (x)
 #endif
 
 /* various OS dependant definitions */
