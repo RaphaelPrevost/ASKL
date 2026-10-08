@@ -39,6 +39,8 @@
 #ifdef WIN32 /* strtoll()/strtoull() compatibility */
 /* -------------------------------------------------------------------------- */
 
+#if (! defined(_MSC_VER) || _MSC_VER < 1800)
+
 #ifndef _strtoi64
 /* Code from cURL, copyright notice below: */
 
@@ -156,6 +158,8 @@ int64_t strtoll(const char *nptr, char **endptr, int base)
 
     return value;
 }
+#endif
+
 #endif
 
 /* -------------------------------------------------------------------------- */

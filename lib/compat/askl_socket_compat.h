@@ -107,6 +107,7 @@
 #if defined(_MSC_VER)
     /* include the needed libs */
     #pragma comment      ( lib, "ws2_32.lib" )
+    #pragma comment      ( lib, "mswsock.lib" )
     #pragma comment      ( lib, "pthreadVC2.lib" )
     #if (_MSC_VER < 1300)
         /* Microsoft Visual C++ 6 does not support POSIX networking functions */
