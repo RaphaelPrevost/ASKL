@@ -78,21 +78,6 @@ jobs:
         with:
           arch: x64
 
-      - name: Inspect the library search path
-        shell: cmd
-        run: |
-          echo LIB=%LIB%
-          echo.
-          echo --- SDK versions under Windows Kits\10\lib:
-          dir /b "C:\Program Files (x86)\Windows Kits\10\lib"
-          echo.
-          echo --- subdirectories of the version the toolchain selected:
-          dir /b "C:\Program Files (x86)\Windows Kits\10\lib\10.0.26100.0"
-          echo.
-          echo --- where ws2_32.lib actually is:
-          where /R "C:\Program Files (x86)\Windows Kits\10\lib" ws2_32.lib
-          exit /b 0
-
       # the library first: it tells us whether the MSVC paths still compile
       # without the link and the test binary getting in the way
       - name: Compile the library
