@@ -81,12 +81,18 @@ jobs:
       # the library first: it tells us whether the MSVC paths still compile
       # without the link and the test binary getting in the way
       - name: Compile the library
+        shell: cmd
         run: nmake /F win32\Makefile.nmake objs
 
       - name: Build the DLL and the test binary
-        run: nmake /F win32\Makefile.nmake
+        shell: cmd
+        run: |
+          set LIB=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64;%LIB%
+          echo LIB=%LIB%
+          nmake /F win32\Makefile.nmake
 
       - name: Unit tests
+        shell: cmd
         run: nmake /F win32\Makefile.nmake check
 
   sanitizers:
