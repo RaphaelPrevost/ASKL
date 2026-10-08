@@ -86,10 +86,7 @@ jobs:
 
       - name: Build the DLL and the test binary
         shell: cmd
-        run: |
-          set LIB=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64;%LIB%
-          echo LIB=%LIB%
-          nmake /F win32\Makefile.nmake
+        run: nmake /F win32\Makefile.nmake "SDKLIB=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64"
 
       - name: Unit tests
         shell: cmd
