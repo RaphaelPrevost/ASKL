@@ -85,8 +85,6 @@
 
 #if (! defined(_MSC_VER))
     #include <unistd.h>
-#elif (_MSC_VER >= 1400)
-    #include <intrin.h>
 #endif
 
 #if (! defined(_MSC_VER) || _MSC_VER >= 1600)
@@ -208,9 +206,6 @@
 #ifdef WIN32
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
-    #include <Shlwapi.h>
-    /* XXX objbase.h defines interface as struct for COM */
-    #undef interface
     #include <errno.h>
     #if ! defined(off_t) && defined(__WINE__)
         #define off_t _off_t

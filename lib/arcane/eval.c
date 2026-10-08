@@ -42,8 +42,6 @@
 /* the kinds of values an expression handles */
 #define V_NOTHING 0
 #define V_NULL    1
-/* oleauto.h defines V_BOOL for the VARIANT accessors */
-#undef V_BOOL
 #define V_BOOL    2
 #define V_NUM     3
 #define V_STR     4
