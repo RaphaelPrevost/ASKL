@@ -42,6 +42,8 @@
 /* the kinds of values an expression handles */
 #define V_NOTHING 0
 #define V_NULL    1
+/* oleauto.h defines V_BOOL for the VARIANT accessors */
+#undef V_BOOL
 #define V_BOOL    2
 #define V_NUM     3
 #define V_STR     4
@@ -1211,7 +1213,7 @@ static int _frame(_Eval *ev, uint8_t mode, const char *root, uint32_t len,
 
 /* -------------------------------------------------------------------------- */
 
-static int _close(_Eval *ev)
+static int _unwind(_Eval *ev)
 {
     /** @brief finish the top frame, restore its saved evaluator state,
         and pass its result to the parent frame */
@@ -2070,7 +2072,7 @@ static int _run(_Eval *ev)
             break;
 
         default:
-            if (_close(ev) == -1) return -1;
+            if (_unwind(ev) == -1) return -1;
         }
     }
 
@@ -2083,7 +2085,7 @@ static void _release(_Eval *ev)
 {
     /** @brief drop the frames and the arenas of an evaluation */
 
-    while (ev->nframes) _close(ev);
+    while (ev->nframes) _unwind(ev);
     trie_cursor_free(& ev->cursor);
     free(ev->typed); free(ev->ends);
     free(ev->nb.data); free(ev->wb.data); free(ev->sb.data);

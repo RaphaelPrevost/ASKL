@@ -105,7 +105,7 @@ static Socket *_listen(unsigned int flags, char *port, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static ssize_t _read(Socket *s, char *out, size_t len)
+static ssize_t _recv(Socket *s, char *out, size_t len)
 {
     /** @brief read, retrying while the socket asks for it */
 
@@ -122,7 +122,7 @@ static ssize_t _read(Socket *s, char *out, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static ssize_t _write(Socket *s, const char *data, size_t len)
+static ssize_t _send(Socket *s, const char *data, size_t len)
 {
     ssize_t r = 0;
     unsigned int i = 0;
@@ -184,25 +184,25 @@ static void *_server(void *arg)
         if (socket_ip(socket_get_id(client), srv->peer_host,
                       sizeof(srv->peer_host), & srv->peer_port) == -1) {
             srv->error = "socket_ip() failed on the accepted socket";
-            goto _close;
+            goto _shutdown;
         }
     }
 
-    srv->received = _read(client, srv->request, sizeof(srv->request));
+    srv->received = _recv(client, srv->request, sizeof(srv->request));
     if (srv->received < 0) {
         srv->error = "socket_read() failed";
-        goto _close;
+        goto _shutdown;
     }
 
-    if (_write(client, REPLY, sizeof(REPLY)) != sizeof(REPLY)) {
+    if (_send(client, REPLY, sizeof(REPLY)) != sizeof(REPLY)) {
         srv->error = "socket_write() of the reply failed";
-        goto _close;
+        goto _shutdown;
     }
 
     srv->rx = socket_recvbytes(socket_get_id(client));
     srv->tx = socket_sentbytes(socket_get_id(client));
 
-_close:
+_shutdown:
     if (client != srv->listener) socket_close(client);
 
     return NULL;
@@ -239,11 +239,11 @@ static int _round_trip(unsigned int flags)
     ASSERT_EQ_MEM(host, HOST, sizeof(HOST));
     ASSERT_EQ_UINT(peer, atoi(port));
 
-    r = _write(client, REQUEST, sizeof(REQUEST));
+    r = _send(client, REQUEST, sizeof(REQUEST));
     ASSERT_EQ_INT(r, sizeof(REQUEST));
     ASSERT_EQ_UINT(socket_sentbytes(id), sizeof(REQUEST));
 
-    r = _read(client, reply, sizeof(reply));
+    r = _recv(client, reply, sizeof(reply));
     ASSERT_EQ_INT(r, sizeof(REPLY));
     ASSERT_EQ_MEM(reply, REPLY, sizeof(REPLY));
     ASSERT_EQ_UINT(socket_recvbytes(id), sizeof(REPLY));
@@ -327,7 +327,7 @@ static int _nonblocking_peek_and_close(void)
                   SOCKET_EAGAIN);
     ASSERT_EQ_INT(socket_connect(client), 0);
 
-    ASSERT_EQ_INT(_write(accepted, REQUEST, sizeof(REQUEST)),
+    ASSERT_EQ_INT(_send(accepted, REQUEST, sizeof(REQUEST)),
                   sizeof(REQUEST));
 
     /* peek, then the same bytes are still there for read */
@@ -340,14 +340,14 @@ static int _nonblocking_peek_and_close(void)
     ASSERT_EQ_INT(r, sizeof(REQUEST));
     ASSERT_EQ_MEM(buffer, REQUEST, sizeof(REQUEST));
     memset(buffer, 0, sizeof(buffer));
-    ASSERT_EQ_INT(_read(client, buffer, sizeof(buffer)), sizeof(REQUEST));
+    ASSERT_EQ_INT(_recv(client, buffer, sizeof(buffer)), sizeof(REQUEST));
     ASSERT_EQ_MEM(buffer, REQUEST, sizeof(REQUEST));
     ASSERT_EQ_INT(socket_read(client, buffer, sizeof(buffer)),
                   SOCKET_EAGAIN);
 
     /* the peer goes away */
     ASSERT_NULL(socket_close(accepted));
-    ASSERT_EQ_INT(_read(client, buffer, sizeof(buffer)), SOCKET_ECLOSE);
+    ASSERT_EQ_INT(_recv(client, buffer, sizeof(buffer)), SOCKET_ECLOSE);
 
     ASSERT_NULL(socket_close(client));
     ASSERT_NULL(socket_close(listener));

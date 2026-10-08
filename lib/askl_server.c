@@ -761,6 +761,8 @@ static void *_server_loop(UNUSED void *dummy)
     }
 
     pthread_exit(NULL);
+
+    return NULL;
 }
 
 /* -------------------------------------------------------------------------- */

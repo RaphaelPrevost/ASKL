@@ -326,7 +326,7 @@ static int _exit_within(unsigned int ms)
 
 /* -------------------------------------------------------------------------- */
 
-static ssize_t _read(Socket *s, char *out, size_t len)
+static ssize_t _recv(Socket *s, char *out, size_t len)
 {
     ssize_t r = 0;
     unsigned int i = 0;
@@ -341,7 +341,7 @@ static ssize_t _read(Socket *s, char *out, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static ssize_t _write(Socket *s, const char *data, size_t len)
+static ssize_t _send(Socket *s, const char *data, size_t len)
 {
     ssize_t r = 0;
     unsigned int i = 0;
@@ -644,8 +644,8 @@ static int _reinit(void)
     _exited = 0; _listening = 0;
     if (_start(MODE_ECHO_END, 0) == -1) return -1;
     ASSERT_NOT_NULL(c = _connect(_port, 0));
-    ASSERT_EQ_INT(_write(c, "ping", 4), 4);
-    ASSERT_EQ_INT(_read(c, buffer, sizeof(buffer)), 4);
+    ASSERT_EQ_INT(_send(c, "ping", 4), 4);
+    ASSERT_EQ_INT(_recv(c, buffer, sizeof(buffer)), 4);
     ASSERT_EQ_MEM(buffer, "ping", 4);
     socket_close(c);
 
@@ -692,10 +692,10 @@ static int _echo_and_close(void)
     if (_start(MODE_ECHO_END, 0) == -1) return -1;
 
     ASSERT_NOT_NULL(c = _connect(_port, 0));
-    ASSERT_EQ_INT(_write(c, "ping", 4), 4);
-    ASSERT_EQ_INT(_read(c, buffer, sizeof(buffer)), 4);
+    ASSERT_EQ_INT(_send(c, "ping", 4), 4);
+    ASSERT_EQ_INT(_recv(c, buffer, sizeof(buffer)), 4);
     ASSERT_EQ_MEM(buffer, "ping", 4);
-    ASSERT_EQ_INT(_read(c, buffer, sizeof(buffer)), SOCKET_ECLOSE);
+    ASSERT_EQ_INT(_recv(c, buffer, sizeof(buffer)), SOCKET_ECLOSE);
     socket_close(c);
 
     ASSERT_EQ_INT(_wait_event(MODULE_EVENT_SOCKET_DISCONNECTED, 1), 0);
@@ -721,14 +721,14 @@ static int _send_with_ack(void)
     if (_start(MODE_ECHO_ACK, 0) == -1) return -1;
 
     ASSERT_NOT_NULL(c = _connect(_port, 0));
-    ASSERT_EQ_INT(_write(c, "first", 5), 5);
-    ASSERT_EQ_INT(_read(c, buffer, sizeof(buffer)), 5);
+    ASSERT_EQ_INT(_send(c, "first", 5), 5);
+    ASSERT_EQ_INT(_recv(c, buffer, sizeof(buffer)), 5);
     ASSERT_EQ_MEM(buffer, "first", 5);
     ASSERT_EQ_INT(_wait_event(MODULE_EVENT_REQUEST_TRANSMITTED, 1), 0);
 
     /* still open: a second exchange on the same connection */
-    ASSERT_EQ_INT(_write(c, "second", 6), 6);
-    ASSERT_EQ_INT(_read(c, buffer, sizeof(buffer)), 6);
+    ASSERT_EQ_INT(_send(c, "second", 6), 6);
+    ASSERT_EQ_INT(_recv(c, buffer, sizeof(buffer)), 6);
     ASSERT_EQ_MEM(buffer, "second", 6);
     ASSERT_EQ_INT(_wait_event(MODULE_EVENT_REQUEST_TRANSMITTED, 2), 0);
     ASSERT_EQ_UINT(_input_count(), 2);
@@ -752,10 +752,10 @@ static int _response_header_footer(void)
     if (_start(MODE_RESPONSE, 0) == -1) return -1;
 
     ASSERT_NOT_NULL(c = _connect(_port, 0));
-    ASSERT_EQ_INT(_write(c, "ping", 4), 4);
-    ASSERT_EQ_INT(_read(c, buffer, sizeof(buffer)), 6);
+    ASSERT_EQ_INT(_send(c, "ping", 4), 4);
+    ASSERT_EQ_INT(_recv(c, buffer, sizeof(buffer)), 6);
     ASSERT_EQ_MEM(buffer, "[ping]", 6);
-    ASSERT_EQ_INT(_read(c, buffer, sizeof(buffer)), SOCKET_ECLOSE);
+    ASSERT_EQ_INT(_recv(c, buffer, sizeof(buffer)), SOCKET_ECLOSE);
     socket_close(c);
 
     return _stop();
@@ -777,11 +777,11 @@ static int _several_clients(void)
     for (i = 0; i < 8; i ++) ASSERT_NOT_NULL(c[i] = _connect(_port, 0));
     for (i = 0; i < 8; i ++) {
         len = snprintf(message, sizeof(message), "client %u", i);
-        ASSERT_EQ_INT(_write(c[i], message, len), len);
+        ASSERT_EQ_INT(_send(c[i], message, len), len);
     }
     for (i = 0; i < 8; i ++) {
         len = snprintf(message, sizeof(message), "client %u", i);
-        if (_read(c[i], buffer, sizeof(buffer)) != len ||
+        if (_recv(c[i], buffer, sizeof(buffer)) != len ||
             memcmp(buffer, message, len)) {
             test_fail(__FILE__, __LINE__, "client %u: wrong echo", i);
             break;
@@ -945,8 +945,8 @@ static int _udp_echo(void)
     if (_start(MODE_ECHO_ACK, 1) == -1) return -1;
 
     ASSERT_NOT_NULL(c = _connect(_port, 1));
-    ASSERT_EQ_INT(_write(c, "ping", 4), 4);
-    ASSERT_EQ_INT(_read(c, buffer, sizeof(buffer)), 4);
+    ASSERT_EQ_INT(_send(c, "ping", 4), 4);
+    ASSERT_EQ_INT(_recv(c, buffer, sizeof(buffer)), 4);
     ASSERT_EQ_MEM(buffer, "ping", 4);
     ASSERT_EQ_UINT(_input_count(), 1);
     socket_close(c);

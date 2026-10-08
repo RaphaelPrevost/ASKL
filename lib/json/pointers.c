@@ -623,7 +623,7 @@ static int batch_add(JSONPath_Context *context, Trie_Leaf *leaf, size_t prefix)
     Variant val = leaf->val;
     char *copy = NULL;
 
-    if (unlikely(! context->current)) goto _inline;
+    if (unlikely(! context->current)) goto _detach;
 
     if (context->current->count == context->current->capacity) {
         Batch *new = NULL;
@@ -632,7 +632,7 @@ static int batch_add(JSONPath_Context *context, Trie_Leaf *leaf, size_t prefix)
             context->current,
             sizeof(*new) + (new_capacity) * sizeof(Trie_Leaf *)
         );
-        if (! new) goto _inline;
+        if (! new) goto _detach;
         new->capacity = new_capacity;
         context->current = new;
     }
@@ -643,7 +643,7 @@ static int batch_add(JSONPath_Context *context, Trie_Leaf *leaf, size_t prefix)
 
     return 0;
 
-_inline:
+_detach:
     if (leaf->own & TRIE_LEAF_INLINE) {
         /* detach an inline string before freeing the leaf */
         if (! (copy = malloc(val.metadata.fields.dword + 1)) ) {

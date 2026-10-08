@@ -306,7 +306,7 @@ static int _pool(_Compiler *c, const char *s, uint32_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static _Ctx *_open(_Compiler *c, uint8_t kind)
+static _Ctx *_enter(_Compiler *c, uint8_t kind)
 {
     _Ctx *ctx = NULL;
 
@@ -677,7 +677,7 @@ static int _segment(_Compiler *c, _Ctx *ctx)
     return 0;
 
 _bracket:
-    if (! (ctx = _open(c, C_BRACKET)) ) return -1;
+    if (! (ctx = _enter(c, C_BRACKET)) ) return -1;
     ctx->op = seg;
 
     return 0;
@@ -736,7 +736,7 @@ static int _selector(_Compiler *c, _Ctx *ctx)
         c->pos ++; ctx->last = OP_FILTER; ctx->filters ++;
         if (! _emit(c, OP_FILTER)) return -1;
         off = c->q->count - 1;
-        if (! (ctx = _open(c, C_EXPR)) ) return -1;
+        if (! (ctx = _enter(c, C_EXPR)) ) return -1;
         ctx->op = off; ctx->flags = X_LOGICAL;
         ctx->base = c->nstack; ctx->tbase = c->ntypes;
         return 0;
@@ -949,7 +949,7 @@ static int _expression(_Compiler *c, _Ctx *ctx)
             if (q == '$') op->flags = QUERY_ABS;
             off = c->q->count - 1;
             ctx->state = 1;
-            if (! (ctx = _open(c, C_SEGS)) ) return -1;
+            if (! (ctx = _enter(c, C_SEGS)) ) return -1;
             ctx->op = off; ctx->flags = 1;
             return 0;
         case '"':
@@ -982,7 +982,7 @@ static int _expression(_Compiler *c, _Ctx *ctx)
                 }
                 c->pos ++;
                 ctx->state = 1;
-                if (! (ctx = _open(c, C_ARGS)) ) return -1;
+                if (! (ctx = _enter(c, C_ARGS)) ) return -1;
                 ctx->last = fn;
                 return 0;
             }
@@ -1195,7 +1195,7 @@ static int _argument(_Compiler *c, _Ctx *ctx)
     }
 
     ctx->state = 1; ctx->count ++;
-    if (! (ctx = _open(c, C_EXPR)) ) return -1;
+    if (! (ctx = _enter(c, C_EXPR)) ) return -1;
     ctx->flags = _fn[fn].param[c->ctx[c->nctx - 2].count - 1];
     ctx->last = fn;
     ctx->base = c->nstack; ctx->tbase = c->ntypes;
@@ -1225,7 +1225,7 @@ static JSONPath_Query *_compile(const char *expr, size_t len)
     }
 
     c.pos = 1;
-    if (! (ctx = _open(& c, C_SEGS)) ) goto _err;
+    if (! (ctx = _enter(& c, C_SEGS)) ) goto _err;
     ctx->flags = 1;
 
     while (c.nctx) {
