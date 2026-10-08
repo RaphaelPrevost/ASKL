@@ -86,7 +86,11 @@ jobs:
 
       - name: Build the DLL and the test binary
         shell: cmd
-        run: nmake /F win32\Makefile.nmake "SDKLIB=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64"
+        run: |
+          set VCL=%VCToolsInstallDir%lib\x64
+          set UCL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%ucrt\x64
+          set SDL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64
+          nmake /F win32\Makefile.nmake "VCLIB=%VCL%" "UCRTLIB=%UCL%" "SDKLIB=%SDL%"
 
       - name: Unit tests
         shell: cmd

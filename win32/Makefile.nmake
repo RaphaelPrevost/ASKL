@@ -72,8 +72,11 @@ BUILD    = /Od /Zi /DDEBUG
 FLAGS    = /nologo /std:c11 /experimental:c11atomics /W3 /MD $(BUILD) /DWIN32 \
            /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_WARNINGS \
            /Ilib /I$(PTHREADS)\include
+VCLIB    = .
+UCRTLIB  = .
 SDKLIB   = .
-LFLAGS   = /nologo /LIBPATH:$(PTHREADS)\lib\$(ARCH) /LIBPATH:"$(SDKLIB)"
+LFLAGS   = /nologo /LIBPATH:$(PTHREADS)\lib\$(ARCH) /LIBPATH:"$(VCLIB)" \
+           /LIBPATH:"$(UCRTLIB)" /LIBPATH:"$(SDKLIB)"
 
 LIBSRC   = lib\askl_cbtrie.c lib\askl_htable.c lib\askl_json.c \
            lib\askl_module.c lib\askl_random.c lib\askl_rwlock.c \
