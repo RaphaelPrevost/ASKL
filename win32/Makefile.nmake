@@ -52,15 +52,9 @@
 # __declspec(dllimport) on the other.
 
 CC       = cl
-LINK     = link
 
 ARCH     = x64
-PTHREADS = lib/compat/libpthread-win32
-# the same path for cmd, whose copy does not take forward slashes
-PTHREADSW = lib\compat\libpthread-win32
-
-OBJDIR   = win32/obj
-TOBJDIR  = win32/objtest
+PTHREADS = lib\compat\libpthread-win32
 
 LIB      = libaskl
 BIN      = test.exe
@@ -77,49 +71,48 @@ CONFIG   = /D_ENABLE_SERVER /D_ENABLE_UDP /D_ENABLE_SSL /D_ENABLE_RANDOM \
 BUILD    = /Od /Zi /DDEBUG
 FLAGS    = /nologo /std:c11 /W3 /MD $(BUILD) /DWIN32 \
            /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_WARNINGS \
-           /Ilib /I$(PTHREADS)/include
-LFLAGS   = /nologo /LIBPATH:$(PTHREADS)/lib/$(ARCH)
+           /Ilib /I$(PTHREADS)\include
+LFLAGS   = /nologo /LIBPATH:$(PTHREADS)\lib\$(ARCH)
 
-LIBSRC   = lib/askl_cbtrie.c lib/askl_htable.c lib/askl_json.c \
-           lib/askl_module.c lib/askl_random.c lib/askl_rwlock.c \
-           lib/askl_server.c lib/askl_socket.c lib/askl_steque.c \
-           lib/askl_string.c lib/askl_variant.c lib/m_config.c lib/m_db.c \
-           lib/m_file.c lib/m_http.c lib/m_security.c lib/string/codecs.c \
-           lib/string/crypto.c lib/string/parser.c \
-           lib/string/format/dtoa.c lib/string/format/float.c \
-           lib/string/format/format.c lib/string/format/printf.c \
-           lib/string/format/scanf.c lib/compat/askl_compat_layer.c
+LIBSRC   = lib\askl_cbtrie.c lib\askl_htable.c lib\askl_json.c \
+           lib\askl_module.c lib\askl_random.c lib\askl_rwlock.c \
+           lib\askl_server.c lib\askl_socket.c lib\askl_steque.c \
+           lib\askl_string.c lib\askl_variant.c lib\m_config.c lib\m_db.c \
+           lib\m_file.c lib\m_http.c lib\m_security.c lib\string\codecs.c \
+           lib\string\crypto.c lib\string\parser.c \
+           lib\string\format\dtoa.c lib\string\format\float.c \
+           lib\string\format\format.c lib\string\format\printf.c \
+           lib\string\format\scanf.c lib\compat\askl_compat_layer.c
 
-TESTSRC  = test/runner.c test/legacy.c test/m_db_test.c test/m_file_test.c \
-           test/m_http_test.c test/unit/cbtrie.c test/unit/codecs.c \
-           test/unit/compliance.c test/unit/conformance.c \
-           test/unit/format.c test/unit/htable.c test/unit/json.c \
-           test/unit/jsonpath.c test/unit/queue.c test/unit/random.c \
-           test/unit/rwlock.c test/unit/server.c test/unit/socket.c \
-           test/unit/string.c test/unit/variant.c
+TESTSRC  = test\runner.c test\legacy.c test\m_db_test.c test\m_file_test.c \
+           test\m_http_test.c test\unit\cbtrie.c test\unit\codecs.c \
+           test\unit\compliance.c test\unit\conformance.c \
+           test\unit\format.c test\unit\htable.c test\unit\json.c \
+           test\unit\jsonpath.c test\unit\queue.c test\unit\random.c \
+           test\unit\rwlock.c test\unit\server.c test\unit\socket.c \
+           test\unit\string.c test\unit\variant.c
 
-all: $(LIB).dll $(BIN)
+all: $(BIN)
 
 objs:
-	@if not exist $(OBJDIR) mkdir $(OBJDIR)
-	$(CC) $(FLAGS) $(CONFIG) /DBUILDING_DLL /Fo$(OBJDIR)/ /c $(LIBSRC)
+	$(CC) $(FLAGS) $(CONFIG) /DBUILDING_DLL /c $(LIBSRC)
 
-$(LIB).dll: objs
-	$(LINK) $(LFLAGS) /DLL /OUT:$(LIB).dll /IMPLIB:$(LIB).lib $(OBJDIR)/*.obj
+$(LIB).dll:
+	$(CC) $(FLAGS) $(CONFIG) /DBUILDING_DLL /LD /Fe$(LIB).dll $(LIBSRC) \
+	/link $(LFLAGS)
 
 $(BIN): $(LIB).dll
-	@if not exist $(TOBJDIR) mkdir $(TOBJDIR)
-	$(CC) $(FLAGS) $(CONFIG) /Fo$(TOBJDIR)/ /c $(TESTSRC)
-	$(LINK) $(LFLAGS) /OUT:$(BIN) $(TOBJDIR)/*.obj $(LIB).lib
-	copy /Y $(PTHREADSW)\dll\$(ARCH)\pthreadVC2.dll . > nul
+	$(CC) $(FLAGS) $(CONFIG) /Fe$(BIN) $(TESTSRC) \
+	/link $(LFLAGS) $(LIB).lib
+	copy /Y $(PTHREADS)\dll\$(ARCH)\pthreadVC2.dll . > nul
 
 check: $(BIN)
 	$(BIN)
 
 clean:
-	-@if exist $(OBJDIR) rmdir /S /Q $(OBJDIR)
-	-@if exist $(TOBJDIR) rmdir /S /Q $(TOBJDIR)
+	-@if exist *.obj del /Q *.obj
 	-@if exist $(LIB).dll del /Q $(LIB).dll $(LIB).lib $(LIB).exp
 	-@if exist $(BIN) del /Q $(BIN)
 	-@if exist pthreadVC2.dll del /Q pthreadVC2.dll
-	-@if exist vc140.pdb del /Q *.pdb *.ilk
+	-@if exist *.pdb del /Q *.pdb
+	-@if exist *.ilk del /Q *.ilk
