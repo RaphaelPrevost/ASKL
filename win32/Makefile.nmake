@@ -72,7 +72,8 @@ BUILD    = /Od /Zi /DDEBUG
 FLAGS    = /nologo /std:c11 /experimental:c11atomics /W3 /MD $(BUILD) /DWIN32 \
            /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_WARNINGS \
            /Ilib /I$(PTHREADS)\include
-LFLAGS   = /nologo /LIBPATH:$(PTHREADS)\lib\$(ARCH)
+SDKLIB   = $(WindowsSdkDir)Lib\$(WindowsSDKLibVersion)um\$(ARCH)
+LFLAGS   = /nologo /LIBPATH:$(PTHREADS)\lib\$(ARCH) /LIBPATH:"$(SDKLIB)"
 
 LIBSRC   = lib\askl_cbtrie.c lib\askl_htable.c lib\askl_json.c \
            lib\askl_module.c lib\askl_random.c lib\askl_rwlock.c \
@@ -98,6 +99,7 @@ objs:
 	$(CC) $(FLAGS) $(CONFIG) /DBUILDING_DLL /c $(LIBSRC)
 
 $(LIB).dll:
+	@echo SDKLIB is [$(SDKLIB)]
 	$(CC) $(FLAGS) $(CONFIG) /DBUILDING_DLL /LD /Fe$(LIB).dll $(LIBSRC) \
 	/link $(LFLAGS)
 
