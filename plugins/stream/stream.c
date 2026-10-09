@@ -40,7 +40,7 @@ static uint32_t module_token = 0;
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API unsigned int module_api(void)
+ASKL_MOD unsigned int module_api(void)
 {
     unsigned int required_api_revision = 1390;
     return required_api_revision;
@@ -55,7 +55,7 @@ INTERNAL uint32_t module_get_token(void)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int module_init(uint32_t id, int argc, char **argv)
+ASKL_MOD int module_init(uint32_t id, int argc, char **argv)
 {
     if (module_token) {
         fprintf(stderr, "Stream: module already loaded.\n");
@@ -95,7 +95,7 @@ _init_conf_failure:
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_input_handler(
+ASKL_MOD void module_input_handler(
     uint16_t socket_id,
     uint16_t ingress_id,
     String *data
@@ -171,7 +171,7 @@ ASKL_API void module_input_handler(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_event_handler(
+ASKL_MOD void module_event_handler(
     uint16_t socket_id,
     uint16_t ingress_id,
     Module_Event event,
@@ -242,7 +242,7 @@ ASKL_API void module_event_handler(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_exit(void)
+ASKL_MOD void module_exit(void)
 {
     stream_socket_exit();
     stream_config_exit();

@@ -82,7 +82,7 @@
 /* MANDATORY MODULE CALLBACKS */
 /* -------------------------------------------------------------------------- */
 
-ASKL_API unsigned int module_api(void);
+ASKL_MOD unsigned int module_api(void);
 
 /**
  * @ingroup module
@@ -97,7 +97,7 @@ ASKL_API unsigned int module_api(void);
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int module_init(uint32_t id, int argc, char **argv);
+ASKL_MOD int module_init(uint32_t id, int argc, char **argv);
 
 /**
  * @ingroup module
@@ -128,7 +128,7 @@ INTERNAL uint32_t module_get_token(void);
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_input_handler(
+ASKL_MOD void module_input_handler(
     uint16_t socket_id,
     uint16_t ingress_id,
     String *data
@@ -160,7 +160,7 @@ ASKL_API void module_input_handler(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_exit(void);
+ASKL_MOD void module_exit(void);
 
 /**
  * @ingroup module
@@ -176,7 +176,7 @@ ASKL_API void module_exit(void);
 /* OPTIONAL MODULE CALLBACKS */
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_event_handler(
+ASKL_MOD void module_event_handler(
     uint16_t id,
     uint16_t ingress_id,
     Module_Event event,

@@ -1231,7 +1231,7 @@ static uint32_t module_token = 0;
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API unsigned int module_api(void)
+ASKL_MOD unsigned int module_api(void)
 {
     unsigned int required_api_revision = 1390;
     return required_api_revision;
@@ -1239,7 +1239,7 @@ ASKL_API unsigned int module_api(void)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
+ASKL_MOD int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 {
     /* XXX
        It is possible to check if a module has already been loaded once by
@@ -1289,7 +1289,7 @@ ASKL_API int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_input_handler(
+ASKL_MOD void module_input_handler(
     uint16_t socket_id,
     UNUSED uint16_t ingress_id,
     String *data
@@ -1307,7 +1307,7 @@ ASKL_API void module_input_handler(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_event_handler(
+ASKL_MOD void module_event_handler(
     UNUSED uint16_t socket_id,
     UNUSED uint16_t ingress_id,
     int event
@@ -1337,7 +1337,7 @@ ASKL_API void module_event_handler(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_exit(void)
+ASKL_MOD void module_exit(void)
 {
     fprintf(stderr, "BUILTIN: successfully unloaded.\n");
 }

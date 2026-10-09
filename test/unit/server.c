@@ -88,14 +88,14 @@ static void _set_done(int *done);
 
 /* -------------------------------------------------------------------------- */
 
-CALLBACK unsigned int module_api(void)
+ASKL_MOD unsigned int module_api(void)
 {
     return 1390;
 }
 
 /* -------------------------------------------------------------------------- */
 
-CALLBACK int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
+ASKL_MOD int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 {
     int flags = SOCKET_SERVER | (_udp ? SOCKET_UDP : 0);
 
@@ -112,7 +112,7 @@ CALLBACK int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-CALLBACK void module_input_handler(
+ASKL_MOD void module_input_handler(
     uint16_t socket_id,
     UNUSED uint16_t ingress_id,
     String *data
@@ -154,7 +154,7 @@ CALLBACK void module_input_handler(
 
 /* -------------------------------------------------------------------------- */
 
-CALLBACK void module_event_handler(
+ASKL_MOD void module_event_handler(
     uint16_t socket_id,
     UNUSED uint16_t ingress_id,
     Module_Event event,
@@ -173,7 +173,7 @@ CALLBACK void module_event_handler(
 
 /* -------------------------------------------------------------------------- */
 
-CALLBACK void module_exit(void)
+ASKL_MOD void module_exit(void)
 {
     _set_done(& _exited);
 }

@@ -296,11 +296,10 @@
 #endif
 
 /* modules entrypoints */
-#undef CALLBACK
 #ifdef WIN32
-    #define CALLBACK __declspec(dllexport)
+    #define ASKL_MOD __declspec(dllexport)
 #else
-    #define CALLBACK ASKL_API
+    #define ASKL_MOD ASKL_API
 #endif
 
 /* environment */
