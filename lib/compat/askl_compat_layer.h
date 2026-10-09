@@ -42,14 +42,23 @@
 #undef ASKL_MINIMAL
 
 #if defined(_USE_BIG_FDS)
-    #if ( (_USE_BIG_FDS > FD_SETSIZE) && defined(HAS_POLL) )
-        /* can not allow more than SOCKET_MAX descriptors */
-        #if (_USE_BIG_FDS > 0x0FFF)
-            #warning "Can not allow more than SOCKET_MAX descriptors."
-            #undef _USE_BIG_FDS
-            #define _USE_BIG_FDS 0x0FFF
-        #endif
+    /* can not allow more than SOCKET_MAX descriptors */
+    #if (_USE_BIG_FDS > 0x0FFF)
+        #warning "Can not allow more than SOCKET_MAX descriptors."
+        #undef _USE_BIG_FDS
+        #define _USE_BIG_FDS 0x0FFF
+    #endif
 
+    #if defined(WIN32)
+        /* XXX select(2) FD_SETSIZE is not limited by the Windows kernel */
+        #ifndef FD_SETSIZE
+            #if (_USE_BIG_FDS > 1024)
+                #define FD_SETSIZE 1024
+            #else
+                #define FD_SETSIZE _USE_BIG_FDS
+            #endif
+        #endif
+    #elif ( (_USE_BIG_FDS > FD_SETSIZE) && defined(HAS_POLL) )
         /* redefine FD_SETSIZE to its maximal value */
         #ifndef FD_SETSIZE
             #define FD_SETSIZE _USE_BIG_FDS
