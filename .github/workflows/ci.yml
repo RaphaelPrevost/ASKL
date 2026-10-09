@@ -92,6 +92,13 @@ jobs:
           set SDL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64
           nmake /F win32\Makefile.nmake "VCLIB=%VCL%" "UCRTLIB=%UCL%" "SDKLIB=%SDL%"
 
+      # the vendored pthreadVC2.dll of pthreads-win32 2.9.1 was built in
+      # 2012 against the Visual C++ 2010 runtime, which it imports by name;
+      # a VS2022 image carries vcruntime140 and ucrtbase, not MSVCR100, and
+      # the loader then fails test.exe with 0xc0000135 (DLL not found)
+      - name: Install the Visual C++ 2010 runtime
+        run: choco install vcredist2010 -y --no-progress
+
       - name: Unit tests
         shell: cmd
         run: nmake /F win32\Makefile.nmake check
