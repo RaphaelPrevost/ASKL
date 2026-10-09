@@ -92,7 +92,7 @@ static void _fs_refcount_breaklock(m_file *ref)
 
 /* -------------------------------------------------------------------------- */
 
-static Variant CALLBACK _fs_refcount_acquire(Variant v)
+static Variant _fs_refcount_acquire(Variant v)
 {
     m_file *ref = variant_to_pointer(v);
 

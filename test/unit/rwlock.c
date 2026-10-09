@@ -151,7 +151,7 @@ static void _barrier_wait(_Barrier *b)
 
 /* -------------------------------------------------------------------------- */
 
-static void _enter(int writer)
+static void _monitor_enter(int writer)
 {
     /** @brief account for a critical section and check exclusivity */
 
@@ -168,7 +168,7 @@ static void _enter(int writer)
 
 /* -------------------------------------------------------------------------- */
 
-static void _leave(int writer)
+static void _monitor_leave(int writer)
 {
     pthread_mutex_lock(& _monitor.mutex);
     if (writer) _writers --; else _readers --;
@@ -246,9 +246,9 @@ static void *_reader(void *arg)
     w->result = lock_rdlock(w->lock);
     w->order = _next_sequence();
     if (w->result == 0) {
-        _enter(0);
+        _monitor_enter(0);
         usleep(1000);
-        _leave(0);
+        _monitor_leave(0);
         lock_unlock(w->lock);
     }
     _shared_add(w->done, 1);
@@ -265,9 +265,9 @@ static void *_writer(void *arg)
     w->result = lock_wrlock(w->lock);
     w->order = _next_sequence();
     if (w->result == 0) {
-        _enter(1);
+        _monitor_enter(1);
         usleep(1000);
-        _leave(1);
+        _monitor_leave(1);
         lock_unlock(w->lock);
     }
     _shared_add(w->done, 1);
@@ -314,14 +314,14 @@ static int _writer_and_readers_wait(void)
 
     /* readers hold, a writer arrives */
     ASSERT_EQ_INT(lock_rdlock(lock), 0);
-    _enter(0);
+    _monitor_enter(0);
     memset(w, 0, sizeof(w));
     w[0].lock = lock; w[0].done = & done;
     ASSERT_EQ_INT(pthread_create(& threads[0], NULL, _writer, & w[0]), 0);
     usleep(50000);
     ASSERT_EQ_INT(_shared_get(& done), 0);
     ASSERT_EQ_INT(_LOCKWFLAG_GET(lock) & WRWAITER, WRWAITER);
-    _leave(0);
+    _monitor_leave(0);
     lock_unlock(lock);
     ASSERT_EQ_INT(_shared_wait(& done, 1, TIMEOUT_MS), 0);
     pthread_join(threads[0], NULL);
@@ -331,7 +331,7 @@ static int _writer_and_readers_wait(void)
 
     /* a writer holds, readers arrive */
     ASSERT_EQ_INT(lock_wrlock(lock), 0);
-    _enter(1);
+    _monitor_enter(1);
     _shared_add(& done, -1);
     for (i = 1; i < 3; i ++) {
         w[i].lock = lock; w[i].done = & done;
@@ -341,7 +341,7 @@ static int _writer_and_readers_wait(void)
     ASSERT_EQ_INT(_shared_get(& done), 0);
     ASSERT_EQ_INT(_LOCKWFLAG_GET(lock) & 0xfff, 0);
     ASSERT_TRUE(_LOCKWFLAG_GET(lock) & ~0xfff);
-    _leave(1);
+    _monitor_leave(1);
     lock_unlock(lock);
     ASSERT_EQ_INT(_shared_wait(& done, 2, TIMEOUT_MS), 0);
     for (i = 1; i < 3; i ++) pthread_join(threads[i], NULL);
@@ -390,7 +390,7 @@ static int _upgrade_waits_for_readers(void)
     _shared_add(& done, 1);
     ASSERT_EQ_INT(lock_upgrade(lock), 0);
     ASSERT_EQ_INT(_LOCKSTATE_GET(lock), UPGRADED);
-    _enter(1);
+    _monitor_enter(1);
     mine = _next_sequence();
 
     /* a reader arriving now must wait for the restore */
@@ -398,7 +398,7 @@ static int _upgrade_waits_for_readers(void)
     usleep(50000);
     ASSERT_EQ_INT(_shared_get(& arrived), 0);
     ASSERT_EQ_INT(_LOCKSTATE_GET(lock), UPGRADED);
-    _leave(1);
+    _monitor_leave(1);
     lock_restore(lock);
     ASSERT_EQ_INT(_shared_wait(& arrived, 1, TIMEOUT_MS), 0);
     pthread_join(threads[1], NULL);
@@ -445,16 +445,16 @@ static void *_upgrader(void *arg)
     for (i = 0; i < ROUNDS; i ++) {
         _barrier_wait(w->barrier);
         if (lock_rdlock(w->lock) == -1) break;
-        _enter(0);
+        _monitor_enter(0);
         for (spin = 0; spin < 200 && ! _all_readers_in(); spin ++) usleep(10);
-        _leave(0);
+        _monitor_leave(0);
         if (lock_upgrade(w->lock) == -1) break;
-        _enter(1);
+        _monitor_enter(1);
         w->rounds ++;
-        _leave(1);
+        _monitor_leave(1);
         lock_restore(w->lock);
-        _enter(0);
-        _leave(0);
+        _monitor_enter(0);
+        _monitor_leave(0);
         lock_unlock(w->lock);
     }
     w->result = (i == ROUNDS) ? 0 : -1;
@@ -616,24 +616,24 @@ static void *_stresser(void *arg)
         n = (seed >> 16) % 10;
         if (n < 6) {
             if (lock_rdlock(w->lock) == -1) break;
-            _enter(0);
-            _leave(0);
+            _monitor_enter(0);
+            _monitor_leave(0);
             lock_unlock(w->lock);
         } else if (n < 8) {
             if (lock_rdlock(w->lock) == -1) break;
-            _enter(0);
-            _leave(0);
+            _monitor_enter(0);
+            _monitor_leave(0);
             if (lock_upgrade(w->lock) == -1) break;
-            _enter(1);
-            _leave(1);
+            _monitor_enter(1);
+            _monitor_leave(1);
             lock_restore(w->lock);
-            _enter(0);
-            _leave(0);
+            _monitor_enter(0);
+            _monitor_leave(0);
             lock_unlock(w->lock);
         } else {
             if (lock_wrlock(w->lock) == -1) break;
-            _enter(1);
-            _leave(1);
+            _monitor_enter(1);
+            _monitor_leave(1);
             lock_unlock(w->lock);
         }
         w->rounds ++;

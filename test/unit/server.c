@@ -88,14 +88,14 @@ static void _set_done(int *done);
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API unsigned int module_api(void)
+CALLBACK unsigned int module_api(void)
 {
     return 1390;
 }
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
+CALLBACK int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 {
     int flags = SOCKET_SERVER | (_udp ? SOCKET_UDP : 0);
 
@@ -112,7 +112,7 @@ ASKL_API int module_init(uint32_t id, UNUSED int argc, UNUSED char **argv)
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_input_handler(
+CALLBACK void module_input_handler(
     uint16_t socket_id,
     UNUSED uint16_t ingress_id,
     String *data
@@ -154,7 +154,7 @@ ASKL_API void module_input_handler(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_event_handler(
+CALLBACK void module_event_handler(
     uint16_t socket_id,
     UNUSED uint16_t ingress_id,
     Module_Event event,
@@ -173,7 +173,7 @@ ASKL_API void module_event_handler(
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void module_exit(void)
+CALLBACK void module_exit(void)
 {
     _set_done(& _exited);
 }
@@ -358,25 +358,26 @@ static ssize_t _send(Socket *s, const char *data, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static int _raw_listen(char *port, size_t len)
+static SOCKET _raw_listen(char *port, size_t len)
 {
     /** @brief a listener the hooks never see, on a port the kernel picks */
 
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    int fd = -1;
+    SOCKET fd = INVALID_SOCKET;
 
     memset(& addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-    if ( (fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) return -1;
+    if ( (fd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+        return INVALID_SOCKET;
 
     if (bind(fd, (struct sockaddr *) & addr, addrlen) == -1 ||
         listen(fd, 16) == -1 ||
         getsockname(fd, (struct sockaddr *) & addr, & addrlen) == -1) {
-        close(fd);
-        return -1;
+        closesocket(fd);
+        return INVALID_SOCKET;
     }
 
     snprintf(port, len, "%u", ntohs(addr.sin_port));
@@ -386,7 +387,7 @@ static int _raw_listen(char *port, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static int _raw_wait(int fd, int ms)
+static int _raw_wait(SOCKET fd, int ms)
 {
     /** @brief wait for one descriptor to become readable: poll(2) where it
         exists, because the flood case watches descriptors past FD_SETSIZE
@@ -406,22 +407,23 @@ static int _raw_wait(int fd, int ms)
     tv.tv_sec = ms / 1000; tv.tv_usec = (ms % 1000) * 1000;
     FD_ZERO(& r); FD_SET(fd, & r);
 
-    return select(fd + 1, & r, NULL, NULL, & tv);
+    /* Winsock ignores the first argument, and a SOCKET does not fit in it */
+    return select(0, & r, NULL, NULL, & tv);
     #endif
 }
 
 /* -------------------------------------------------------------------------- */
 
-static int _raw_accept(int listener)
+static SOCKET _raw_accept(SOCKET listener)
 {
-    if (_raw_wait(listener, ATTEMPTS * 10) < 1) return -1;
+    if (_raw_wait(listener, ATTEMPTS * 10) < 1) return INVALID_SOCKET;
 
     return accept(listener, NULL, NULL);
 }
 
 /* -------------------------------------------------------------------------- */
 
-static ssize_t _raw_read(int fd, char *out, size_t len)
+static ssize_t _raw_read(SOCKET fd, char *out, size_t len)
 {
     if (_raw_wait(fd, ATTEMPTS * 10) < 1) return -1;
 
@@ -430,21 +432,22 @@ static ssize_t _raw_read(int fd, char *out, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static int _raw_connect(const char *port)
+static SOCKET _raw_connect(const char *port)
 {
     struct sockaddr_in addr;
-    int fd = -1;
+    SOCKET fd = INVALID_SOCKET;
 
     memset(& addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(atoi(port));
 
-    if ( (fd = socket(AF_INET, SOCK_STREAM, 0)) == -1) return -1;
+    if ( (fd = socket(AF_INET, SOCK_STREAM, 0)) == INVALID_SOCKET)
+        return INVALID_SOCKET;
 
     if (connect(fd, (struct sockaddr *) & addr, sizeof(addr)) == -1) {
-        close(fd);
-        return -1;
+        closesocket(fd);
+        return INVALID_SOCKET;
     }
 
     return fd;
@@ -452,7 +455,11 @@ static int _raw_connect(const char *port)
 
 /* -------------------------------------------------------------------------- */
 
-static unsigned int _raw_closed(const int *fd, unsigned int n, int *first)
+static unsigned int _raw_closed(
+    const SOCKET *fd,
+    unsigned int n,
+    int *first
+)
 {
     /** @brief count the connections the peer closed, note the first one */
 
@@ -473,7 +480,7 @@ static unsigned int _raw_closed(const int *fd, unsigned int n, int *first)
 
 /* -------------------------------------------------------------------------- */
 
-static int _raw_talk(int fd)
+static int _raw_talk(SOCKET fd)
 {
     /** @brief one exchange with the echo module */
 
@@ -487,16 +494,17 @@ static int _raw_talk(int fd)
 
 /* -------------------------------------------------------------------------- */
 
-static int _raw_client(const char *port, unsigned int *attempts)
+static SOCKET _raw_client(const char *port, unsigned int *attempts)
 {
     /** @brief connect and get served, again when the server refuses */
 
-    int fd = -1;
+    SOCKET fd = INVALID_SOCKET;
 
     for (*attempts = 1; *attempts <= 10; (*attempts) ++) {
-        if ( (fd = _raw_connect(port)) == -1) return -1;
+        if ( (fd = _raw_connect(port)) == INVALID_SOCKET)
+            return INVALID_SOCKET;
         if (_raw_talk(fd) == 0) return fd;
-        close(fd);
+        closesocket(fd);
         usleep(50000);
     }
 
@@ -511,20 +519,20 @@ static int _raw_udp_port(char *port, size_t len)
 
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    int fd = -1;
+    SOCKET fd = INVALID_SOCKET;
 
     memset(& addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
-    if ( (fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) return -1;
+    if ( (fd = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET) return -1;
     if (bind(fd, (struct sockaddr *) & addr, addrlen) == -1 ||
         getsockname(fd, (struct sockaddr *) & addr, & addrlen) == -1) {
-        close(fd);
+        closesocket(fd);
         return -1;
     }
     snprintf(port, len, "%u", ntohs(addr.sin_port));
-    close(fd);
+    closesocket(fd);
 
     return 0;
 }
@@ -537,20 +545,21 @@ static int _raw_udp_echo(const char *port)
 
     struct sockaddr_in addr;
     char buffer[64];
-    int fd = -1, ret = -1;
+    SOCKET fd = INVALID_SOCKET;
+    int ret = -1;
 
     memset(& addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = htons(atoi(port));
 
-    if ( (fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) return -1;
+    if ( (fd = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET) return -1;
     if (sendto(fd, "ping", 4, 0, (struct sockaddr *) & addr, sizeof(addr))
         == 4) {
         if (_raw_wait(fd, ATTEMPTS * 10) == 1 && recv(fd, buffer, 4, 0) == 4)
             ret = memcmp(buffer, "ping", 4) ? -1 : 0;
     }
-    close(fd);
+    closesocket(fd);
 
     return ret;
 }
@@ -820,7 +829,7 @@ static int _outgoing_connection(void)
     /* the module opens a managed connection to a peer: the server
        completes it, reports it, and sends through it on request */
 
-    int listener = -1, peer = -1;
+    SOCKET listener = INVALID_SOCKET, peer = INVALID_SOCKET;
     char buffer[64];
 
     if (_start(MODE_SILENT, 0) == -1) return -1;
@@ -828,10 +837,10 @@ static int _outgoing_connection(void)
     /* the peer listens outside of the hooks, so that the server cannot
        race this test for the connection; then the module asks for it */
     listener = _raw_listen(_peer_port, sizeof(_peer_port));
-    ASSERT_TRUE(listener != -1);
+    ASSERT_TRUE(listener != INVALID_SOCKET);
     _client_id = server_open_managed_socket(_token, HOST, _peer_port, 0);
     ASSERT_TRUE(_client_id > 0);
-    ASSERT_TRUE( (peer = _raw_accept(listener)) != -1);
+    ASSERT_TRUE( (peer = _raw_accept(listener)) != INVALID_SOCKET);
     ASSERT_EQ_INT(_wait_event(MODULE_EVENT_OUTGOING_CONNECTION, 1), 0);
 
     /* the module side sends, the peer receives */
@@ -844,7 +853,7 @@ static int _outgoing_connection(void)
     ASSERT_EQ_INT(_raw_read(peer, buffer, sizeof(buffer)), 0);
     ASSERT_EQ_INT(_wait_event(MODULE_EVENT_SOCKET_DISCONNECTED, 1), 0);
 
-    close(peer); close(listener);
+    closesocket(peer); closesocket(listener);
 
     return _stop();
 }
@@ -856,7 +865,7 @@ static int _flood(void)
        two oldest connections never served and the served one idle the
        longest, so a client that talks gets in on its next attempt */
 
-    static int fd[SOCKET_MAX];
+    static SOCKET fd[SOCKET_MAX];
     static char udp_port[8];
     #ifndef _WIN32
     struct rlimit limit;
@@ -864,7 +873,8 @@ static int _flood(void)
     struct timespec ts;
     char buffer[64];
     unsigned int n = 0, i = 0, refused = 0, pruned = 0, attempt = 0;
-    int a = -1, b = -1, c = -1, first = -1;
+    SOCKET a = INVALID_SOCKET, b = INVALID_SOCKET, c = INVALID_SOCKET;
+    int first = -1;
 
     /* select() closes every socket whose descriptor reaches FD_SETSIZE, so
        on a build without poll(2) the descriptors run out long before the
@@ -895,7 +905,7 @@ static int _flood(void)
     monotonic_timer(& ts);
     usleep((1000000000 - ts.tv_nsec) / 1000 + 10000);
     for (n = 0; n < SOCKET_MAX; n ++) {
-        if ( (fd[n] = _raw_connect(_port)) == -1) break;
+        if ( (fd[n] = _raw_connect(_port)) == INVALID_SOCKET) break;
         if (n % 256 == 255) usleep(20000);
     }
     ASSERT_EQ_UINT(n, SOCKET_MAX);
@@ -918,11 +928,11 @@ static int _flood(void)
     usleep(1100000);
     a = _raw_client(_port, & attempt);
     printf("flood: a served on attempt %u\n", attempt);
-    ASSERT_TRUE(a != -1);
+    ASSERT_TRUE(a != INVALID_SOCKET);
     ASSERT_EQ_UINT(attempt, 2);
     b = _raw_client(_port, & attempt);
     printf("flood: b served on attempt %u\n", attempt);
-    ASSERT_TRUE(b != -1);
+    ASSERT_TRUE(b != INVALID_SOCKET);
     ASSERT_EQ_UINT(attempt, 1);
 
     /* a second later a is the served connection idle the longest: the
@@ -933,7 +943,7 @@ static int _flood(void)
     ASSERT_EQ_INT(_raw_talk(b), 0);
     c = _raw_client(_port, & attempt);
     printf("flood: c served on attempt %u\n", attempt);
-    ASSERT_TRUE(c != -1);
+    ASSERT_TRUE(c != INVALID_SOCKET);
     ASSERT_EQ_UINT(attempt, 2);
     ASSERT_TRUE(_raw_read(a, buffer, sizeof(buffer)) <= 0);
     ASSERT_EQ_INT(_raw_talk(b), 0);
@@ -942,8 +952,8 @@ static int _flood(void)
     ASSERT_EQ_UINT(pruned, 4);
     ASSERT_EQ_INT(_raw_udp_echo(udp_port), 0);
 
-    close(a); close(b); close(c);
-    for (i = 0; i < n; i ++) close(fd[i]);
+    closesocket(a); closesocket(b); closesocket(c);
+    for (i = 0; i < n; i ++) closesocket(fd[i]);
 
     return _stop();
 }

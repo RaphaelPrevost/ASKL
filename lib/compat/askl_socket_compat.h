@@ -50,9 +50,7 @@
 #include <ws2tcpip.h>
 #include <mswsock.h>
 #include <io.h>
-#if defined(_MSC_VER) && (_MSC_VER < 1300)
 #include <process.h>
-#endif
 
 #ifndef off_t
     #ifdef _off_t
@@ -63,7 +61,7 @@
 #endif
 
 #ifndef socklen_t
-    #define socklen_t size_t
+    #define socklen_t int
 #endif
 
 #ifndef INVALID_FILE_HANDLE

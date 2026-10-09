@@ -219,10 +219,6 @@
 
     #define INTERNAL
 
-    #ifndef socklen_t
-        #define socklen_t size_t
-    #endif
-
     #ifndef ssize_t
         #define ssize_t long
     #endif
@@ -245,21 +241,6 @@
         #define debug(__VA_ARGS__) do { } while (0)
     #else
         #define debug(...) do { } while (0)
-    #endif
-#endif
-
-#ifndef CALLBACK
-    #ifdef __GNUC__
-        #ifdef __i386
-            #define CALLBACK __attribute__ ((regparm(1)))
-        #else
-            /* x86_64 already uses registers to pass function parameters */
-            #define CALLBACK
-        #endif
-    #else
-        /* XXX the WIN32 __fastcall calling convention uses too many
-           registers to be suitable for callbacks */
-        #define CALLBACK
     #endif
 #endif
 
@@ -312,6 +293,14 @@
     #define OP_CONF 0x0C
     #define OP_EXIT 0x0E
     extern int server_privileged_call(int opcode, const void *cmd, size_t len);
+#endif
+
+/* modules entrypoints */
+#undef CALLBACK
+#ifdef WIN32
+    #define CALLBACK __declspec(dllexport)
+#else
+    #define CALLBACK ASKL_API
 #endif
 
 /* environment */

@@ -61,9 +61,9 @@ typedef struct JSON_Parser {
     } primitive;
     int strict;
     int parent;
-    int (CALLBACK *init)(int, struct JSON_Parser *);
-    int (CALLBACK *data)(String *, struct JSON_Parser *);
-    int (CALLBACK *exit)(int, struct JSON_Parser *);
+    int (*init)(int, struct JSON_Parser *);
+    int (*data)(String *, struct JSON_Parser *);
+    int (*exit)(int, struct JSON_Parser *);
 } JSON_Parser;
 
 /**
