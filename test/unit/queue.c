@@ -164,18 +164,18 @@ static int _wait(void)
     queue_wait(q, 0);
     ASSERT_EQ_INT(queue_empty(q), 1);
 
-    clock_gettime(CLOCK_MONOTONIC, & before);
+    monotonic_timer(& before);
     queue_wait(q, 10000);
-    clock_gettime(CLOCK_MONOTONIC, & after);
+    monotonic_timer(& after);
     elapsed = (after.tv_sec - before.tv_sec) * 1000000L +
               (after.tv_nsec - before.tv_nsec) / 1000L;
     ASSERT_TRUE(elapsed >= 9000);
     ASSERT_EQ_INT(queue_empty(q), 1);
 
     ASSERT_EQ_INT(pthread_create(& producer, NULL, _late_producer, q), 0);
-    clock_gettime(CLOCK_MONOTONIC, & before);
+    monotonic_timer(& before);
     queue_wait(q, 5000000);
-    clock_gettime(CLOCK_MONOTONIC, & after);
+    monotonic_timer(& after);
     pthread_join(producer, NULL);
     elapsed = (after.tv_sec - before.tv_sec) * 1000000L +
               (after.tv_nsec - before.tv_nsec) / 1000L;
@@ -184,9 +184,9 @@ static int _wait(void)
 
     /* waiting on a queue with items returns at once */
     ASSERT_EQ_INT(queue_enqueue(q, ITEM(2)), 0);
-    clock_gettime(CLOCK_MONOTONIC, & before);
+    monotonic_timer(& before);
     queue_wait(q, 1000000);
-    clock_gettime(CLOCK_MONOTONIC, & after);
+    monotonic_timer(& after);
     elapsed = (after.tv_sec - before.tv_sec) * 1000000L +
               (after.tv_nsec - before.tv_nsec) / 1000L;
     ASSERT_TRUE(elapsed < 500000);

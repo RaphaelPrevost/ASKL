@@ -43,8 +43,10 @@
 #include "../../lib/askl_module.h"
 #include "../../lib/arcane/socket.c"
 
-#include <poll.h>
-#include <sys/resource.h>
+#ifndef _WIN32
+    #include <poll.h>
+    #include <sys/resource.h>
+#endif
 
 /* the builtin module of the test binary: the server finds it in the
    executable through dlsym(), as it finds the one in main.c; each test
@@ -384,13 +386,35 @@ static int _raw_listen(char *port, size_t len)
 
 /* -------------------------------------------------------------------------- */
 
-static int _raw_accept(int listener)
+static int _raw_wait(int fd, int ms)
 {
+    /** @brief wait for one descriptor to become readable: poll(2) where it
+        exists, because the flood case watches descriptors past FD_SETSIZE
+        and FD_SET() would write past its set, and select() on Windows,
+        which the library uses there too and where that case is skipped */
+
+    #ifndef _WIN32
     struct pollfd p = { 0, POLLIN, 0 };
 
-    p.fd = listener;
+    p.fd = fd;
 
-    if (poll(& p, 1, ATTEMPTS * 10) < 1) return -1;
+    return poll(& p, 1, ms);
+    #else
+    struct timeval tv;
+    fd_set r;
+
+    tv.tv_sec = ms / 1000; tv.tv_usec = (ms % 1000) * 1000;
+    FD_ZERO(& r); FD_SET(fd, & r);
+
+    return select(fd + 1, & r, NULL, NULL, & tv);
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
+static int _raw_accept(int listener)
+{
+    if (_raw_wait(listener, ATTEMPTS * 10) < 1) return -1;
 
     return accept(listener, NULL, NULL);
 }
@@ -399,11 +423,7 @@ static int _raw_accept(int listener)
 
 static ssize_t _raw_read(int fd, char *out, size_t len)
 {
-    struct pollfd p = { 0, POLLIN, 0 };
-
-    p.fd = fd;
-
-    if (poll(& p, 1, ATTEMPTS * 10) < 1) return -1;
+    if (_raw_wait(fd, ATTEMPTS * 10) < 1) return -1;
 
     return recv(fd, out, len, 0);
 }
@@ -436,15 +456,13 @@ static unsigned int _raw_closed(const int *fd, unsigned int n, int *first)
 {
     /** @brief count the connections the peer closed, note the first one */
 
-    struct pollfd p = { 0, POLLIN, 0 };
     unsigned int i = 0, closed = 0;
     char c = 0;
 
     if (first) *first = -1;
 
     for (i = 0; i < n; i ++) {
-        p.fd = fd[i]; p.revents = 0;
-        if (poll(& p, 1, 0) < 1) continue;
+        if (_raw_wait(fd[i], 0) < 1) continue;
         if (recv(fd[i], & c, 1, MSG_PEEK) > 0) continue;
         if (first && *first == -1) *first = i;
         closed ++;
@@ -518,7 +536,6 @@ static int _raw_udp_echo(const char *port)
     /** @brief one datagram to the module and its echo back */
 
     struct sockaddr_in addr;
-    struct pollfd p = { 0, POLLIN, 0 };
     char buffer[64];
     int fd = -1, ret = -1;
 
@@ -530,8 +547,7 @@ static int _raw_udp_echo(const char *port)
     if ( (fd = socket(AF_INET, SOCK_DGRAM, 0)) == -1) return -1;
     if (sendto(fd, "ping", 4, 0, (struct sockaddr *) & addr, sizeof(addr))
         == 4) {
-        p.fd = fd;
-        if (poll(& p, 1, ATTEMPTS * 10) == 1 && recv(fd, buffer, 4, 0) == 4)
+        if (_raw_wait(fd, ATTEMPTS * 10) == 1 && recv(fd, buffer, 4, 0) == 4)
             ret = memcmp(buffer, "ping", 4) ? -1 : 0;
     }
     close(fd);
@@ -842,7 +858,9 @@ static int _flood(void)
 
     static int fd[SOCKET_MAX];
     static char udp_port[8];
+    #ifndef _WIN32
     struct rlimit limit;
+    #endif
     struct timespec ts;
     char buffer[64];
     unsigned int n = 0, i = 0, refused = 0, pruned = 0, attempt = 0;
@@ -855,10 +873,12 @@ static int _flood(void)
     SKIP("select() drops descriptors above FD_SETSIZE before the ids run out");
     #endif
 
+    #ifndef _WIN32
     if (getrlimit(RLIMIT_NOFILE, & limit) == -1) SKIP("getrlimit() failed");
     if (limit.rlim_max < 2 * SOCKET_MAX + 256) SKIP("descriptor limit too low");
     limit.rlim_cur = 2 * SOCKET_MAX + 256;
     if (setrlimit(RLIMIT_NOFILE, & limit) == -1) SKIP("setrlimit() failed");
+    #endif
 
     if (_start(MODE_ECHO_ACK, 0) == -1) return -1;
 

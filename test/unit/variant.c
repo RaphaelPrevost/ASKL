@@ -37,8 +37,12 @@
 #include "../../lib/askl_variant.h"
 
 #include <signal.h>
-#include <sys/wait.h>
+#ifndef _WIN32
+    #include <sys/wait.h>
+#endif
 
+/* -------------------------------------------------------------------------- */
+#ifndef _WIN32
 /* -------------------------------------------------------------------------- */
 
 static void _caught(int sig)
@@ -86,6 +90,9 @@ static int _aborts(int which)
 
     return (WIFEXITED(status) && WEXITSTATUS(status) == 128 + SIGABRT);
 }
+
+/* -------------------------------------------------------------------------- */
+#endif
 
 /* -------------------------------------------------------------------------- */
 
@@ -232,6 +239,9 @@ static int _equality(void)
 
 /* -------------------------------------------------------------------------- */
 
+#ifndef _WIN32
+/* -------------------------------------------------------------------------- */
+
 static int _type_errors(void)
 {
     /* reading a value as the wrong type is fatal */
@@ -244,12 +254,17 @@ static int _type_errors(void)
 }
 
 /* -------------------------------------------------------------------------- */
+#endif
+
+/* -------------------------------------------------------------------------- */
 
 static const Test_Case _cases[] = {
     TEST("constructors", _constructors),
     TEST("accessors", _accessors),
     TEST("equality", _equality),
+    #ifndef _WIN32
     TEST("type_errors", _type_errors)
+    #endif
 };
 
 TEST_SUITE(test_suite_variant, "variant", NULL, NULL, _cases);

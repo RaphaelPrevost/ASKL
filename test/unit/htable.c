@@ -1436,7 +1436,7 @@ static uint64_t _now(void)
 {
     struct timespec ts;
 
-    clock_gettime(CLOCK_MONOTONIC, & ts);
+    monotonic_timer(& ts);
 
     return (uint64_t) ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 }

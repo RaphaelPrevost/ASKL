@@ -39,7 +39,12 @@
 
 #include "../askl_test.h"
 #include "../../lib/askl_json.h"
-#include <unistd.h>
+
+/* askl.h brings <unistd.h> for dup(), dup2() and close() everywhere the
+   header exists; Visual C++ keeps them in <io.h> instead */
+#ifdef _MSC_VER
+    #include <io.h>
+#endif
 
 /* shorthand for the n-th token of a String */
 #define T(s, n) (& (s)->tokens[n])
