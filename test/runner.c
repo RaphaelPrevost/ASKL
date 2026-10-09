@@ -698,15 +698,39 @@ static void _usage(const char *argv0)
 
 /* -------------------------------------------------------------------------- */
 
+static void _socket_api_exit(void)
+{
+    /** @brief release Winsock where it had to be started by hand */
+
+    #ifdef _WIN32
+    WSACleanup();
+    #endif
+}
+
+/* -------------------------------------------------------------------------- */
+
 int main(int argc, char **argv)
 {
     int i = 0;
     char **filter = NULL;
+    #ifdef _WIN32
+    WSADATA winsock;
+    #endif
 
     #ifdef SIGPIPE
     signal(SIGPIPE, SIG_IGN);
     #endif
     monotonic_timer_init();
+
+    /* socket_api_init() only takes the registry lock: starting Winsock is
+       the caller's business, as it is in main.c, and every case isolated
+       with CreateProcess() comes back through here to do it again */
+    #ifdef _WIN32
+    if (WSAStartup(MAKEWORD(2, 0), & winsock)) {
+        fprintf(stderr, "WSAStartup() failed, no socket can be opened\n");
+        return 2;
+    }
+    #endif
 
     _opt.seed = _getenv_uint("ASKL_TEST_SEED", (unsigned int) time(NULL));
     _opt.timeout = _getenv_uint("ASKL_TEST_TIMEOUT", 0);
@@ -744,17 +768,21 @@ int main(int argc, char **argv)
     if (_opt.child) {
         i = _run_child();
         free(filter);
+        _socket_api_exit();
         return i;
     }
 
     if (_opt.list) {
         _list(); free(filter);
+        _socket_api_exit();
         return 0;
     }
 
     i = _run();
 
     free(filter);
+
+    _socket_api_exit();
 
     return (i == -1) ? 1 : 0;
 }

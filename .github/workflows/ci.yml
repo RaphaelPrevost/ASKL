@@ -103,6 +103,41 @@ jobs:
         shell: cmd
         run: nmake /F win32\Makefile.nmake check
 
+  # the suites above fault with a bare 0xc0000005, which names nothing: this
+  # job rebuilds both images under the Visual C++ AddressSanitizer and runs
+  # only the two suites that fail, for the file and line of the first bad
+  # access; it is expected to fail while the defect is there, so it reports
+  # through its log rather than through the status of the run
+  windows-asan:
+    name: windows x64 cl asan
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up the Microsoft toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install the Visual C++ 2010 runtime
+        run: choco install vcredist2010 -y --no-progress
+
+      - name: Build the DLL and the test binary with the sanitizer
+        shell: cmd
+        run: |
+          set VCL=%VCToolsInstallDir%lib\x64
+          set UCL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%ucrt\x64
+          set SDL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64
+          nmake /F win32\Makefile.nmake "VCLIB=%VCL%" "UCRTLIB=%UCL%" ^
+            "SDKLIB=%SDL%" "BUILD=/Od /Zi /DDEBUG /fsanitize=address"
+
+      # the trie faults first and the index, the queries and the strings
+      # follow it; one report from each is enough to place the defect
+      - name: Instrumented run of the faulting suites
+        shell: cmd
+        run: test.exe cbtrie string
+
   sanitizers:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest

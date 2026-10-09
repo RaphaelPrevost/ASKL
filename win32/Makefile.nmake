@@ -68,6 +68,13 @@ CONFIG   = /D_ENABLE_SERVER /D_ENABLE_UDP /D_ENABLE_SSL /D_ENABLE_RANDOM \
 
 # cl predefines _WIN32 but not WIN32, which is what askl.h keys on; the two
 # _CRT_ macros silence the deprecation of the standard names the tree uses
+
+# BUILD takes a value from the command line, which is the only way nmake
+# reads one; adding the Visual C++ AddressSanitizer names the file and the
+# line of an access violation, where the exit status alone says 0xc0000005:
+#
+#   nmake /F win32\Makefile.nmake "BUILD=/Od /Zi /DDEBUG /fsanitize=address"
+#
 BUILD    = /Od /Zi /DDEBUG
 FLAGS    = /nologo /std:c11 /experimental:c11atomics /W3 /MD $(BUILD) /DWIN32 \
            /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_WARNINGS \
