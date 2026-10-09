@@ -38,6 +38,9 @@
 
 #define _UINT(c) ((unsigned int) ((unsigned char) c))
 
+/* enough room to store a NUL wchar_t */
+#define _STRING_PAD 4
+
 struct _String_Pattern {
     size_t _len;
     size_t _shift;
@@ -58,7 +61,7 @@ ASKL_API String *string_reserve(const char *string, size_t len, size_t extra)
     /** @brief allocate a String and initialize it with the given data */
 
     String *new = NULL;
-    int32_t allocsize = 0;
+    size_t allocsize = 0;
     size_t total = len + extra;
 
     if (total < len) {
@@ -82,13 +85,13 @@ ASKL_API String *string_reserve(const char *string, size_t len, size_t extra)
         return new;
     }
 
-    allocsize = (total + sizeof(wchar_t)) * sizeof(*new->data);
-
-    if ((size_t) allocsize < total) {
+    if (total > UINT32_MAX - _STRING_PAD) {
         debug("string_reserve(): integer overflow.\n");
         free(new);
         return NULL;
     }
+
+    allocsize = (total + _STRING_PAD) * sizeof(*new->data);
 
     if (! (new->data = malloc(allocsize)) ) {
         perror(ERR(string_reserve, malloc));
@@ -100,7 +103,7 @@ ASKL_API String *string_reserve(const char *string, size_t len, size_t extra)
     /* copy the given data in the internal buffer */
     if (string) memcpy(new->data, string, len);
 
-    memset(new->data + len, 0, sizeof(wchar_t));
+    memset(new->data + len, 0, _STRING_PAD);
 
     new->len = len; new->internal.flags = 0;
     new->parent = NULL; new->tokens = NULL;
@@ -634,7 +637,7 @@ ASKL_API int string_resize(String *string, size_t size)
         return -1;
     }
 
-    if (string->internal.capacity == size + sizeof(wchar_t)) {
+    if (string->internal.capacity == size + _STRING_PAD) {
         debug("string_resize(): correctly sized.\n");
         return 0;
     }
@@ -669,7 +672,7 @@ ASKL_API int string_resize(String *string, size_t size)
     /* resize the internal buffer, ensure the buffer is on wchar_t boundary */
     if (need > 0 && ~string->internal.flags & _STRING_STATIC_ALLOC) {
         /* a string is never actually shrunk, only realloc to expand */
-        allocsize = (string->internal.capacity + need + sizeof(wchar_t)) * sizeof(*data);
+        allocsize = (string->internal.capacity + need + _STRING_PAD) * sizeof(*data);
         if ((size_t) allocsize < string->len) {
             debug("string_resize(): integer overflow.\n");
             return -1;

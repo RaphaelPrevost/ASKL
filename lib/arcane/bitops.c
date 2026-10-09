@@ -267,7 +267,7 @@ static inline uint32_t __msb(uint32_t i)
 
     _BitScanReverse(& idx, (unsigned long) i);
 
-    return 1 << (idx ^ 31);
+    return 1 << idx;
 
     #else
     /* portable software implementation (de Bruijn sequence) */
