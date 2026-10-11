@@ -91,9 +91,23 @@ jobs:
         with:
           arch: x64
 
+      # the Visual Studio image sets VCPKG_ROOT to its own bundled vcpkg,
+      # which the vcpkg on PATH reports as a mismatch and then ignores, so
+      # the headers land under the runner's root and not under VCPKG_ROOT.
+      # Resolve it once here and assert the header is really there.
       - name: Install PCRE
-        shell: cmd
-        run: vcpkg install pcre:x64-windows-static-md
+        shell: bash
+        run: |
+          root="${VCPKG_INSTALLATION_ROOT:-C:/vcpkg}"
+          vcpkg install pcre:x64-windows-static-md --vcpkg-root "$root"
+          prefix="$root/installed/x64-windows-static-md"
+          if [ ! -f "$prefix/include/pcre.h" ]; then
+            echo "pcre.h is not under $prefix"
+            ls -la "$prefix/include" 2>&1 | head
+            exit 1
+          fi
+          win="$(cygpath -w "$prefix" 2> /dev/null || echo "$prefix")"
+          echo "PCREDIR=$win" >> "$GITHUB_ENV"
 
       # the library first: it tells us whether the MSVC paths still compile
       # without the link and the test binary getting in the way
@@ -101,7 +115,7 @@ jobs:
         shell: cmd
         run: |
           nmake /F win32\Makefile.nmake objs ^
-            "PCREDIR=%VCPKG_ROOT%\installed\x64-windows-static-md"
+            "PCREDIR=%PCREDIR%"
 
       - name: Build the DLL and the test binary
         shell: cmd
@@ -111,7 +125,7 @@ jobs:
           set SDL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64
           nmake /F win32\Makefile.nmake "VCLIB=%VCL%" "UCRTLIB=%UCL%" ^
             "SDKLIB=%SDL%" ^
-            "PCREDIR=%VCPKG_ROOT%\installed\x64-windows-static-md"
+            "PCREDIR=%PCREDIR%"
 
       # the vendored pthreadVC2.dll of pthreads-win32 2.9.1 was built in
       # 2012 against the Visual C++ 2010 runtime, which it imports by name;
@@ -132,7 +146,7 @@ jobs:
           set SDL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64
           nmake /F win32\Makefile.nmake askl.exe "VCLIB=%VCL%" ^
             "UCRTLIB=%UCL%" "SDKLIB=%SDL%" ^
-            "PCREDIR=%VCPKG_ROOT%\installed\x64-windows-static-md"
+            "PCREDIR=%PCREDIR%"
 
       # the runner account is an administrator, so the service control
       # manager is reachable; the script skips rather than fails otherwise
