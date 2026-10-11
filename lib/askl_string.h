@@ -41,6 +41,9 @@
 
 #ifdef HAS_PCRE
 #include <pcre.h>
+#define ASKL_MATCH_LIMIT_RECURSION 100
+#define ASKL_MATCH_LIMIT           1000000
+#define ASKL_QUERY_MATCH_LIMIT     10000
 #endif
 
 #ifdef HAS_ICONV

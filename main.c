@@ -1201,6 +1201,7 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
 
     return;
 
+#ifdef _ENABLE_PRIVILEGE_SEPARATION
 _error_3:
     FreeSid(& drop_sids[1].Sid);
 _error_2:
@@ -1211,6 +1212,7 @@ _error_0:
     FreeLibrary(advapi32);
 
     _service_die();
+#endif
 }
 
 /* -------------------------------------------------------------------------- */

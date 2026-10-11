@@ -1168,6 +1168,7 @@ static int _matches(_Eval *ev, _Op *op, _Value *a, _Value *b)
 {
     #ifdef HAS_PCRE
     pcre *regex = NULL;
+    pcre_extra limits = { 0 };
     int r = 0;
 
     if (a->kind != V_STR || b->kind != V_STR) return 0;
@@ -1176,7 +1177,13 @@ static int _matches(_Eval *ev, _Op *op, _Value *a, _Value *b)
     else regex = _regex(b->u.s, b->len, (op->code == OP_MATCH));
     if (! regex) return 0;
 
-    r = pcre_exec(regex, NULL, a->u.s, a->len, 0, PCRE_NO_UTF8_CHECK, NULL, 0);
+    limits.flags = PCRE_EXTRA_MATCH_LIMIT | PCRE_EXTRA_MATCH_LIMIT_RECURSION;
+    limits.match_limit = ASKL_QUERY_MATCH_LIMIT;
+    limits.match_limit_recursion = ASKL_MATCH_LIMIT_RECURSION;
+
+    r = pcre_exec(
+        regex, & limits, a->u.s, a->len, 0, PCRE_NO_UTF8_CHECK, NULL, 0
+    );
 
     if (op->a < 0) pcre_free(regex);
 

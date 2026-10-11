@@ -67,6 +67,19 @@ jobs:
         env:
           EXTRA: ${{ matrix.packages == 'none' && 'ENABLE_FILE=0' || '' }}
 
+      # a missing PCRE leaves the regex code out and only turns the cases
+      # into skips, which no exit status reports: assert the capability
+      # wherever the optional libraries were asked for
+      - name: Check that PCRE was enabled
+        if: matrix.packages == 'full'
+        run: |
+          out=$(LD_LIBRARY_PATH=. DYLD_LIBRARY_PATH=. ./test.out \
+                jsonpath.regex || true)
+          echo "$out"
+          case "$out" in
+            *SKIP*) echo "PCRE was not compiled in"; exit 1 ;;
+          esac
+
   windows:
     name: windows x64 cl
     runs-on: windows-latest
@@ -78,11 +91,17 @@ jobs:
         with:
           arch: x64
 
+      - name: Install PCRE
+        shell: cmd
+        run: vcpkg install pcre:x64-windows-static-md
+
       # the library first: it tells us whether the MSVC paths still compile
       # without the link and the test binary getting in the way
       - name: Compile the library
         shell: cmd
-        run: nmake /F win32\Makefile.nmake objs
+        run: |
+          nmake /F win32\Makefile.nmake objs ^
+            "PCREDIR=%VCPKG_ROOT%\installed\x64-windows-static-md"
 
       - name: Build the DLL and the test binary
         shell: cmd
@@ -90,7 +109,9 @@ jobs:
           set VCL=%VCToolsInstallDir%lib\x64
           set UCL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%ucrt\x64
           set SDL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64
-          nmake /F win32\Makefile.nmake "VCLIB=%VCL%" "UCRTLIB=%UCL%" "SDKLIB=%SDL%"
+          nmake /F win32\Makefile.nmake "VCLIB=%VCL%" "UCRTLIB=%UCL%" ^
+            "SDKLIB=%SDL%" ^
+            "PCREDIR=%VCPKG_ROOT%\installed\x64-windows-static-md"
 
       # the vendored pthreadVC2.dll of pthreads-win32 2.9.1 was built in
       # 2012 against the Visual C++ 2010 runtime, which it imports by name;
@@ -102,6 +123,33 @@ jobs:
       - name: Unit tests
         shell: cmd
         run: nmake /F win32\Makefile.nmake check
+
+      - name: Build the server binary
+        shell: cmd
+        run: |
+          set VCL=%VCToolsInstallDir%lib\x64
+          set UCL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%ucrt\x64
+          set SDL=%WindowsSdkDir%Lib\%WindowsSDKLibVersion%um\x64
+          nmake /F win32\Makefile.nmake askl.exe "VCLIB=%VCL%" ^
+            "UCRTLIB=%UCL%" "SDKLIB=%SDL%" ^
+            "PCREDIR=%VCPKG_ROOT%\installed\x64-windows-static-md"
+
+      # the runner account is an administrator, so the service control
+      # manager is reachable; the script skips rather than fails otherwise
+      - name: NT service tests
+        shell: pwsh
+        run: ./win32/test-service.ps1
+
+      # a missing PCRE leaves the regex code out and only turns the cases
+      # into skips, which no exit status reports: assert the capability
+      - name: Check that PCRE was enabled
+        shell: bash
+        run: |
+          out=$(./test.exe jsonpath.regex || true)
+          echo "$out"
+          case "$out" in
+            *SKIP*) echo "PCRE was not compiled in"; exit 1 ;;
+          esac
 
   sanitizers:
     name: ${{ matrix.name }}

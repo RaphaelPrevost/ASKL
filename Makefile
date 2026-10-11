@@ -181,6 +181,7 @@ HAS_SSL      = $(shell $(GCC_INC) openssl/ssl.h /dev/null 2> /dev/null; echo $$?
 HAS_SHADOW   = $(shell $(GCC_INC) shadow.h /dev/null 2> /dev/null; echo $$?)
 HAS_ZLIB     = $(shell $(GCC_INC) zlib.h /dev/null 2> /dev/null; echo $$?)
 HAS_POLL     = $(shell $(GCC_INC) poll.h /dev/null 2> /dev/null; echo $$?)
+HAS_PCRECFG  = $(shell pcre-config --cflags > /dev/null 2>&1; echo $$?)
 HAS_PCRE     = $(shell $(GCC_INC) pcre.h /dev/null 2> /dev/null; echo $$?)
 HAS_LIBXML   = $(shell which xml2-config 2> /dev/null)
 HAS_MYSQL    = $(shell which mysql_config 2> /dev/null)
@@ -259,9 +260,15 @@ PCRE_ENABLED=$(shell echo $(CONFIG) | grep -c D_ENABLE_PCRE)
 
 # check for PCRE
 ifeq ($(PCRE_ENABLED),1)
+ifeq ($(HAS_PCRECFG),0)
+CONFIG += -DHAS_PCRE
+FLAGS += $(shell pcre-config --cflags)
+LIBS += $(shell pcre-config --libs)
+else
 ifeq ($(HAS_PCRE),0)
 CONFIG += -DHAS_PCRE
 LIBS += -lpcre
+endif
 endif
 endif
 

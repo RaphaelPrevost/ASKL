@@ -202,7 +202,6 @@
     #endif
 #endif
 
-/* basic fixes for WIN32 includes (Wine) */
 #ifdef WIN32
     #define WIN32_LEAN_AND_MEAN
     #include <windows.h>
@@ -219,8 +218,14 @@
 
     #define INTERNAL
 
-    #ifndef ssize_t
-        #define ssize_t long
+    #ifdef _MSC_VER
+        #if (_MSC_VER >= 1600)
+            #define ssize_t intptr_t
+        #elif (_MSC_VER >= 1300)
+            #define ssize_t SSIZE_T
+        #else
+            #define ssize_t long
+        #endif
     #endif
 #endif
 

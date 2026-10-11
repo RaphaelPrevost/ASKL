@@ -1635,6 +1635,7 @@ ASKL_API int string_parse(String *string, const char *pattern, size_t len)
     unsigned int i = 0, j = 0, k = 0, last = 0, size = 0;
     String *token = NULL, *new_token = NULL;
     pcre *regex = NULL;
+    pcre_extra limits = { 0 };
     int erroff = 0;
     int r = 0;
     const char *err = NULL;
@@ -1648,6 +1649,10 @@ ASKL_API int string_parse(String *string, const char *pattern, size_t len)
         debug("string_parse(): %s\n", err);
         return -1;
     }
+
+    limits.flags = PCRE_EXTRA_MATCH_LIMIT | PCRE_EXTRA_MATCH_LIMIT_RECURSION;
+    limits.match_limit = ASKL_MATCH_LIMIT;
+    limits.match_limit_recursion = ASKL_MATCH_LIMIT_RECURSION;
 
     if (pcre_fullinfo(regex, NULL, PCRE_INFO_CAPTURECOUNT, & r) || r < 0) {
         debug("string_parse(): cannot count the captures.\n");
@@ -1663,7 +1668,9 @@ ASKL_API int string_parse(String *string, const char *pattern, size_t len)
 
     for (i = 0, last = 0; ; last = off[1], i ++) {
         /* match the pattern */
-        r = pcre_exec(regex, NULL, string->data, string->len, last, 0x0, off, size);
+        r = pcre_exec(
+            regex, & limits, string->data, string->len, last, 0x0, off, size
+        );
 
         if (r <= 0) {
             if (i) break;

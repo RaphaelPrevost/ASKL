@@ -46,10 +46,6 @@
 # libxml2, zlib, iconv, MySQL, SQLite) are left out: every HAS_XXX is
 # undefined, so the code takes the same fallbacks as a build on a machine
 # without them.
-#
-# The library is a DLL and the test binary links against its import library,
-# so ASKL_API resolves to __declspec(dllexport) on one side and to
-# __declspec(dllimport) on the other.
 
 CC       = cl
 
@@ -58,6 +54,7 @@ PTHREADS = lib\compat\libpthread-win32
 
 LIB      = libaskl
 BIN      = test.exe
+SRV      = askl.exe
 
 # _ENABLE_FILE is left out: the file API is incomplete, and its prototypes
 # take an m_auth, which m_security.h only declares with libxml2
@@ -76,6 +73,22 @@ CONFIG   = /D_ENABLE_SERVER /D_ENABLE_UDP /D_ENABLE_SSL /D_ENABLE_RANDOM \
 #   nmake /F win32\Makefile.nmake "BUILD=/Od /Zi /DDEBUG /fsanitize=address"
 #
 BUILD    = /Od /Zi /DDEBUG
+
+# PCREDIR is the prefix of a static PCRE built against the dynamic CRT, as
+# vcpkg installs one for the x64-windows-static-md triplet:
+#
+#   nmake /F win32\Makefile.nmake "PCREDIR=<vcpkg>\x64-windows-static-md"
+#
+# PCRE_STATIC stops pcre.h declaring its entry points __declspec(dllimport)
+PCREDIR  =
+!IF "$(PCREDIR)" != ""
+PCRECONF = /DHAS_PCRE /DPCRE_STATIC /I"$(PCREDIR)\include"
+PCRELIB  = "$(PCREDIR)\lib\pcre.lib"
+!ELSE
+PCRECONF =
+PCRELIB  =
+!ENDIF
+
 FLAGS    = /nologo /std:c11 /experimental:c11atomics /W3 /MD $(BUILD) /DWIN32 \
            /D_CRT_SECURE_NO_WARNINGS /D_CRT_NONSTDC_NO_WARNINGS \
            /Ilib /I$(PTHREADS)\include
@@ -103,28 +116,37 @@ TESTSRC  = test\runner.c test\legacy.c test\m_db_test.c test\m_file_test.c \
            test\unit\rwlock.c test\unit\server.c test\unit\socket.c \
            test\unit\string.c test\unit\variant.c
 
-all: $(BIN)
+all: $(BIN) $(SRV)
 
 objs:
-	$(CC) $(FLAGS) $(CONFIG) /DBUILDING_DLL /c $(LIBSRC)
+	$(CC) $(FLAGS) $(PCRECONF) $(CONFIG) /DBUILDING_DLL /c $(LIBSRC)
 
 $(LIB).dll:
 	@echo SDKLIB is [$(SDKLIB)]
-	$(CC) $(FLAGS) $(CONFIG) /DBUILDING_DLL /LD /Fe$(LIB).dll $(LIBSRC) \
-	/link $(LFLAGS)
+	$(CC) $(FLAGS) $(PCRECONF) $(CONFIG) /DBUILDING_DLL /LD /Fe$(LIB).dll \
+	$(LIBSRC) /link $(LFLAGS) $(PCRELIB)
 
 $(BIN): $(LIB).dll
-	$(CC) $(FLAGS) $(CONFIG) /Fe$(BIN) $(TESTSRC) \
+	$(CC) $(FLAGS) $(PCRECONF) $(CONFIG) /Fe$(BIN) $(TESTSRC) \
 	/link $(LFLAGS) $(LIB).lib
 	copy /Y $(PTHREADS)\dll\$(ARCH)\pthreadVC2.dll . > nul
 
+$(SRV): $(LIB).dll
+	$(CC) $(FLAGS) $(PCRECONF) $(CONFIG) /Fe$(SRV) main.c \
+	/link $(LFLAGS) $(LIB).lib advapi32.lib
+
 check: $(BIN)
 	$(BIN)
+
+# needs Administrator
+check-service: $(SRV)
+	powershell -ExecutionPolicy Bypass -File win32\test-service.ps1
 
 clean:
 	-@if exist *.obj del /Q *.obj
 	-@if exist $(LIB).dll del /Q $(LIB).dll $(LIB).lib $(LIB).exp
 	-@if exist $(BIN) del /Q $(BIN)
+	-@if exist $(SRV) del /Q $(SRV)
 	-@if exist pthreadVC2.dll del /Q pthreadVC2.dll
 	-@if exist *.pdb del /Q *.pdb
 	-@if exist *.ilk del /Q *.ilk
