@@ -126,6 +126,7 @@ typedef BOOL(WINAPI * fpCreateRestrictedToken) (HANDLE, DWORD, DWORD,
 static LPSTR service_name = NULL;
 static SERVICE_STATUS_HANDLE service_controller;
 static HANDLE termination_event;
+static BOOL service_dying = FALSE;
 
 /* NT service functions */
 static BOOL _service_install(VOID);
@@ -623,13 +624,14 @@ static void main_process(int option_daemon, int argc, char **argv)
         /* check if the handles have been set */
         if (argc - 2 <= 0) goto _end;
 
-        sockpair[1] = (SOCKET) atoi(argv[argc - 1]);
+        sockpair[1] = (SOCKET) strtoull(argv[argc - 1], NULL, 10);
 
         /* get the unprivileged socket */
         __server_set_privileged_channel(sockpair[1]);
 
         /* get the termination event */
-        termination_event = (HANDLE) atoi(argv[argc - 2]);
+        termination_event =
+            (HANDLE) (uintptr_t) strtoull(argv[argc - 2], NULL, 10);
 
         if (server_init() == 0) {
             WaitForSingleObject(termination_event, INFINITE);
@@ -656,7 +658,7 @@ static void main_process(int option_daemon, int argc, char **argv)
         /* check if the pipe handles have been set */
         if (argc - 1 <= 0) goto _end;
 
-        sockpair[0] = (SOCKET) atoi(argv[argc - 1]);
+        sockpair[0] = (SOCKET) strtoull(argv[argc - 1], NULL, 10);
 
         /* process privilege elevation requests from the unprivileged process */
         __server_privileged_process(sockpair[0]);
@@ -743,8 +745,8 @@ static VOID _spawn_child(UNUSED VOID *dummy)
     _snprintf(
         command,
         sizeof(command),
-        "\"%s\" %i /p",
-        buffer, child.in
+        "\"%s\" %" PRIuPTR " /p",
+        buffer, (uintptr_t) child.in
     );
 
     memset(& startup_info, 0, sizeof(startup_info));
@@ -786,7 +788,7 @@ static VOID _spawn_child(UNUSED VOID *dummy)
 static BOOL _service_install(VOID)
 {
     SC_HANDLE manager = NULL, service = NULL;
-    CHAR buffer[PATH_MAX];
+    CHAR buffer[PATH_MAX], path[PATH_MAX + 2];
     int ret = 0;
 
     /* get the current binary path */
@@ -798,6 +800,11 @@ static BOOL _service_install(VOID)
         debug("_service_install(): cannot get path to the executable.\n");
         return FALSE;
     }
+
+    /* the SCM splits an unquoted path on spaces and runs the first token */
+    path[0] = '"';
+    memcpy(path + 1, buffer, ret);
+    path[ret + 1] = '"'; path[ret + 2] = '\0';
 
     /* open the service control manager */
     manager = OpenSCManager(NULL, NULL, SC_MANAGER_ALL_ACCESS);
@@ -815,7 +822,7 @@ static BOOL _service_install(VOID)
         SERVICE_WIN32_OWN_PROCESS,
         SERVICE_AUTO_START,
         SERVICE_ERROR_IGNORE,
-        buffer,
+        path,
         NULL,
         NULL,
         NULL,
@@ -886,7 +893,7 @@ static BOOL _service_uninstall(VOID)
         case ERROR_ACCESS_DENIED: err = "access denied.\n"; break;
         case ERROR_INVALID_HANDLE: err = "invalid handle.\n"; break;
         case ERROR_SERVICE_MARKED_FOR_DELETE: err = "already deleted.\n"; break;
-        default: "unknown error.\n";
+        default: err = "unknown error.\n";
         }
 
         fprintf(stderr, ERR(_service_uninstall, DeleteService)": %s", err);
@@ -984,14 +991,17 @@ static VOID _service_status(DWORD s, DWORD r)
     state.dwCurrentState = s; state.dwWin32ExitCode = r;
     state.dwCheckPoint = 0; state.dwWaitHint = 0;
 
-    /* report service status to the service controller */
-    if (! SetServiceStatus(service_controller, & state)) _service_die();
+    /* XXX avoid recursion in _service_die() */
+    if (! SetServiceStatus(service_controller, & state) && ! service_dying)
+        _service_die();
 }
 
 /* -------------------------------------------------------------------------- */
 
 static VOID _service_die(VOID)
 {
+    service_dying = TRUE;
+
     _service_status(SERVICE_STOP_PENDING, NO_ERROR);
 
     if (termination_event) CloseHandle(termination_event);
@@ -1134,8 +1144,8 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
         goto _error_3;
     }
 
-    FreeSid(& drop_sids[0].Sid);
-    FreeSid(& drop_sids[1].Sid);
+    FreeSid(drop_sids[0].Sid);
+    FreeSid(drop_sids[1].Sid);
     FreeLibrary(advapi32);
 
     /* create the channel between privileged and unprivileged processes */
@@ -1148,8 +1158,8 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
     _snprintf(
         command,
         sizeof(command),
-        "\"%s\" %i %i /d",
-        buffer, termination_event, sockpair[0]
+        "\"%s\" %" PRIuPTR " %" PRIuPTR " /d",
+        buffer, (uintptr_t) termination_event, (uintptr_t) sockpair[0]
     );
 
     memset(& startup_info, 0, sizeof(startup_info));
@@ -1175,7 +1185,12 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
         _service_die();
     }
 
-    /* close unused handle */
+    /* close unused handles */
+    CloseHandle(process_info.hThread);
+    CloseHandle(process_info.hProcess);
+    CloseHandle(restricted_token);
+    CloseHandle(process_token);
+
     closesocket(sockpair[0]);
     #endif
 
@@ -1203,9 +1218,9 @@ static VOID WINAPI _service_main(DWORD argc, LPSTR *argv)
 
 #ifdef _ENABLE_PRIVILEGE_SEPARATION
 _error_3:
-    FreeSid(& drop_sids[1].Sid);
+    FreeSid(drop_sids[1].Sid);
 _error_2:
-    FreeSid(& drop_sids[0].Sid);
+    FreeSid(drop_sids[0].Sid);
 _error_1:
     CloseHandle(process_token);
 _error_0:

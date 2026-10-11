@@ -74,7 +74,6 @@ static struct _conf server_conf = { CONFIG_PROFILE_ANY, 0, SERVER_CONCURRENCY };
 
 /* -------------------------------------------------------------------------- */
 
-#ifndef _ENABLE_PRIVILEGE_SEPARATION
 static int _config_load(const char *fullpath)
 {
     struct stat info;
@@ -105,7 +104,6 @@ static int _config_load(const char *fullpath)
 
     return ret;
 }
-#endif
 
 /* -------------------------------------------------------------------------- */
 
@@ -143,18 +141,47 @@ INTERNAL int configure(const char *path, const char *configfile)
 
     memset(fullpath, 0, sizeof(fullpath));
 
-    /* check the path */
-    if (path && *path) {
-        if (access(path, F_OK) == -1) {
-            fprintf(stderr, "configure(): wrong path to configuration file.\n");
-            return -1;
-        } else {
+    /* a custom config file is read without privileges */
+    if (path) {
+        if (*path) {
+            if (access(path, F_OK) == -1) {
+                fprintf(stderr,
+                        "configure(): wrong path to configuration file.\n");
+                return -1;
+            }
+
             strncpy(fullpath, path, sizeof(fullpath) - 1);
             pathlen = strlen(fullpath) + 1;
             strncat(fullpath, DIR_SEP_STR, sizeof(fullpath) - pathlen);
         }
+
+        strncat(fullpath, configfile, sizeof(fullpath) - (pathlen + 1));
+
+        if (access(fullpath, F_OK) == -1) {
+            fprintf(stderr, "configure(): configuration file %s not found.\n",
+                    fullpath);
+            return -1;
+        }
+
+        if (_config_load(fullpath) == -1) {
+            fprintf(stderr,
+                    "configure(): cannot process configuration file.\n");
+            return -1;
+        }
+
+        return 0;
     }
 
+    #ifdef _ENABLE_PRIVILEGE_SEPARATION
+    /* the default config file is read by the privileged process */
+    if (server_privileged_call(OP_CONF, NULL, 0) == -1) {
+        fprintf(stderr, "configure(): cannot process configuration file.\n");
+        return -1;
+    }
+    #else
+    strncpy(fullpath, CONFDIR, sizeof(fullpath) - 1);
+    pathlen = strlen(fullpath) + 1;
+    strncat(fullpath, DIR_SEP_STR, sizeof(fullpath) - pathlen);
     strncat(fullpath, configfile, sizeof(fullpath) - (pathlen + 1));
 
     if (access(fullpath, F_OK) == -1) {
@@ -163,12 +190,6 @@ INTERNAL int configure(const char *path, const char *configfile)
         return -1;
     }
 
-    #ifdef _ENABLE_PRIVILEGE_SEPARATION
-    if (server_privileged_call(OP_CONF, fullpath, strlen(fullpath)) == -1) {
-        fprintf(stderr, "configure(): cannot process configuration file.\n");
-        return -1;
-    }
-    #else
     if (_config_load(fullpath) == -1) {
         fprintf(stderr, "configure(): cannot process configuration file.\n");
         return -1;

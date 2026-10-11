@@ -56,12 +56,18 @@ LIB      = libaskl
 BIN      = test.exe
 SRV      = askl.exe
 
+# privilege separation is enabled nowhere by default; the CI turns it on for
+# this build, the only one that exercises the restricted token and
+# CreateProcessAsUser path of the NT service. It has to reach the DLL as well
+# as the binary, because __server_privileged_process lives in askl_server.c
+PRIVSEP  =
+
 # _ENABLE_FILE is left out: the file API is incomplete, and its prototypes
 # take an m_auth, which m_security.h only declares with libxml2
 CONFIG   = /D_ENABLE_SERVER /D_ENABLE_UDP /D_ENABLE_SSL /D_ENABLE_RANDOM \
            /D_ENABLE_HASHMAP /D_ENABLE_TRIE /D_ENABLE_PCRE \
            /D_ENABLE_JSON /D_ENABLE_CONFIG /D_BUILTIN_MODULE \
-           /D_USE_BIG_FDS=4095
+           /D_USE_BIG_FDS=4095 $(PRIVSEP)
 
 # cl predefines _WIN32 but not WIN32, which is what askl.h keys on; the two
 # _CRT_ macros silence the deprecation of the standard names the tree uses

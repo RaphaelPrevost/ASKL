@@ -133,8 +133,11 @@ static String *_frag[SOCKET_MAX];
 #ifdef _ENABLE_PRIVILEGE_SEPARATION
 #define _OP_LEN 4
 static pthread_mutex_t _priv_lock = PTHREAD_MUTEX_INITIALIZER;
-static int _priv_com = -1;
+static SOCKET _priv_com = INVALID_SOCKET;
 #endif
+
+/* default config file */
+#define _CONFIG_FILE "concrete.xml"
 
 /* -------------------------------------------------------------------------- */
 /* Server internal data structures */
@@ -1049,7 +1052,7 @@ ASKL_API int server_init(void)
     }
 
     #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
-    if (configure(CONFDIR, "concrete.xml") == -1) {
+    if (configure(NULL, _CONFIG_FILE) == -1) {
         fprintf(stderr, "server_init(): server configuration failed.\n");
         goto _err_config;
     }
@@ -1133,14 +1136,14 @@ _err_string:
 #ifdef _ENABLE_PRIVILEGE_SEPARATION
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void __server_set_privileged_channel(int channel)
+ASKL_API void __server_set_privileged_channel(SOCKET channel)
 {
     _priv_com = channel;
 }
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void __server_privileged_process(int channel)
+ASKL_API void __server_privileged_process(SOCKET channel)
 {
     /* this is the only piece of code running with privileges.
      * it may perform UNIX authentication, or bind to privileged ports.
@@ -1154,45 +1157,60 @@ ASKL_API void __server_privileged_process(int channel)
     int shutdown = 0;
     char buffer[BUFSIZ];
     off_t ret = 1;
+    ssize_t len = 0;
 
     while (! shutdown) {
 
-        /* cleanup - ret keeps its default value of 1 (error) */
+        /* cleanup */
         memset(buffer, 0, sizeof(buffer)); ret = 1;
 
-        if (recv(channel, buffer, sizeof(buffer), 0x0) <= 0) {
+        if ( (len = recv(channel, buffer, sizeof(buffer) - 1, 0x0)) <= 0) {
             debug("server_privileged_process(): child process died.\n");
             _socket_perror(ERR(server_privileged_process, recv));
             exit(EXIT_FAILURE);
         }
 
-        /* opcodes are *always* four chars long */
+        /* opcodes are four chars long */
         if (memcmp(buffer, "BIND", _OP_LEN) == 0) {
             /* bind a socket to a privileged port */
             char *sep1 = NULL, *sep2 = NULL;
             char host[NI_MAXHOST], serv[NI_MAXSERV];
             int flags = 0, fd = 0;
+            ssize_t hostlen = 0, servlen = 0;
             struct addrinfo hint, *a = NULL;
 
+            /* a matching opcode means at least _OP_LEN bytes arrived */
+
             /* params format: ip|port|flags */
-            if (! (sep1 = memchr(buffer, '|', sizeof(buffer))) ) {
+            if (! (sep1 = memchr(buffer + _OP_LEN, '|', len - _OP_LEN)) ) {
                 if (send(channel, (char *) & ret, sizeof(ret), 0x0) <= 0)
                     _socket_perror(ERR(_privileged_process, send));
                 continue;
             }
 
-            sep2 = memchr(sep1 + 1, '|', sizeof(buffer) - (sep1 - buffer));
+            sep2 = memchr(sep1 + 1, '|', (buffer + len) - (sep1 + 1));
             if (! sep2) {
                 if (send(channel, (char *) & ret, sizeof(ret), 0x0) <= 0)
                     _socket_perror(ERR(server_privileged_process, write));
                 continue;
             }
 
+            hostlen = sep1 - (buffer + _OP_LEN);
+            servlen = (sep2 - sep1) - 1;
+
+            if (hostlen >= (ssize_t) sizeof(host) ||
+                servlen >= (ssize_t) sizeof(serv) ||
+                (buffer + len) - (sep2 + 1) < (ssize_t) sizeof(flags)) {
+                if (send(channel, (char *) & ret, sizeof(ret), 0x0) <= 0)
+                    _socket_perror(ERR(server_privileged_process, send));
+                continue;
+            }
+
             /* get the params */
             memset(host, 0, sizeof(host));
             memset(serv, 0, sizeof(serv));
-            memcpy(host, buffer + _OP_LEN, sep1 - (buffer + _OP_LEN));
-            memcpy(serv, sep1 + 1, (sep2 - sep1) - 1);
+            memcpy(host, buffer + _OP_LEN, hostlen);
+            memcpy(serv, sep1 + 1, servlen);
             /* we are only interested in the lower 16 bits of the flags */
             memcpy(& flags, sep2 + 1, sizeof(flags)); flags &= 0xFFFF;
 
@@ -1250,13 +1268,14 @@ ASKL_API void __server_privileged_process(int channel)
             /* authenticate a user */
             #ifndef WIN32
             char *sep = NULL, *pass = NULL, usr[BUFSIZ], pwd[BUFSIZ];
+            ssize_t usrlen = 0, pwdlen = 0;
             struct passwd *user_info;
             #ifdef HAS_SHADOW
             struct spwd *spwd;
             #endif
 
             /* params format: login:passwd */
-            if (! (sep = memchr(buffer, ':', sizeof(buffer))) ) {
+            if (! (sep = memchr(buffer + _OP_LEN, ':', len - _OP_LEN)) ) {
                 if (send(channel, & ret, sizeof(int), 0x0) <= 0)
                     _socket_perror(ERR(server_privileged_process, send));
                 continue;
@@ -1265,8 +1284,10 @@ ASKL_API void __server_privileged_process(int channel)
             /* get the user provided login and password */
             memset(usr, 0, sizeof(usr));
             memset(pwd, 0, sizeof(pwd));
-            memcpy(usr, buffer + _OP_LEN, sep - (buffer + _OP_LEN));
-            memcpy(pwd, sep + 1, buffer + sizeof(buffer) - sep);
+            usrlen = sep - (buffer + _OP_LEN);
+            pwdlen = (buffer + len) - (sep + 1);
+            memcpy(usr, buffer + _OP_LEN, usrlen);
+            memcpy(pwd, sep + 1, pwdlen);
 
             /* perform auth */
             if (! (user_info = getpwnam(usr)) ) {
@@ -1318,19 +1339,25 @@ ASKL_API void __server_privileged_process(int channel)
             struct stat info;
             int fd = -1;
             char *conf = NULL;
+            char path[PATH_MAX];
 
             /* for this call, the semantic is reversed;
                0 means an error occured, > 0 is the size of the file */
             ret = 0;
 
-            if (stat(buffer + _OP_LEN, & info) == -1) {
+            memset(path, 0, sizeof(path));
+            strncpy(path, CONFDIR, sizeof(path) - 1);
+            strncat(path, DIR_SEP_STR, sizeof(path) - strlen(path) - 1);
+            strncat(path, _CONFIG_FILE, sizeof(path) - strlen(path) - 1);
+
+            if (stat(path, & info) == -1) {
                 perror(ERR(_privileged_process, stat));
                 if (send(channel, (char *) & ret, sizeof(int), 0x0) <= 0)
                     _socket_perror(ERR(server_privileged_process, send));
                 continue;
             }
 
-            if ( (fd = open(buffer + _OP_LEN, O_RDONLY)) == -1) {
+            if ( (fd = open(path, O_RDONLY)) == -1) {
                 perror(ERR(_privileged_process, open));
                 if (send(channel, (char *) & ret, sizeof(int), 0x0) <= 0)
                     _socket_perror(ERR(server_privileged_process, send));
@@ -1423,8 +1450,8 @@ ASKL_API int server_privileged_call(int opcode, const void *cmd, size_t len)
             b += strlen(host); *b ++ = '|';
             memcpy(b, serv, strlen(serv));
             b += strlen(serv); *b ++ = '|';
-            memcpy(b, & s->internal.flags, sizeof(s->internal.flags));
-            b += sizeof(s->internal.flags);
+            memcpy(b, & s->_flags, sizeof(s->_flags));
+            b += sizeof(s->_flags);
 
             pthread_mutex_lock(& _priv_lock);
 
@@ -1508,26 +1535,13 @@ ASKL_API int server_privileged_call(int opcode, const void *cmd, size_t len)
 
         #if defined(_ENABLE_CONFIG) && defined(HAS_LIBXML)
         case OP_CONF:
-            if (! (buf = calloc(sizeof("CONF") + len, sizeof(char))) ) {
-                perror(ERR(privileged, calloc));
-                return -1;
-            }
-
-            b = buf;
-            memcpy(b, "CONF", sizeof("CONF") - 1);
-            b += sizeof("CONF") - 1;
-            memcpy(b, cmd, len);
-
             pthread_mutex_lock(& _priv_lock);
 
-            if (send(_priv_com, buf, sizeof("CONF") + len, 0x0) <= 0) {
+            if (send(_priv_com, "CONF", _OP_LEN, 0x0) <= 0) {
                 pthread_mutex_unlock(& _priv_lock);
                 _socket_perror(ERR(privileged, send));
-                free(buf);
                 return -1;
             }
-
-            free(buf);
 
             if (recv(_priv_com, (char *) & ret, sizeof(ret), 0x0) <= 0) {
                 pthread_mutex_unlock(& _priv_lock);

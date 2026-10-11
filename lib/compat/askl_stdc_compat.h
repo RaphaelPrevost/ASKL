@@ -99,7 +99,7 @@
 /* on Win32, both \ and / are valid path separators */
 #define isdirsepchr(c) ( ((c) == '\\' || (c) == '/') )
 
-#ifndef snprintf
+#if (defined(_MSC_VER) && (_MSC_VER < 1900))
     #define snprintf _snprintf
 #endif
 

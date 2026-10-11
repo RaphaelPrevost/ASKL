@@ -106,7 +106,7 @@ ASKL_API int server_init(void);
 #ifdef _ENABLE_PRIVILEGE_SEPARATION
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void __server_set_privileged_channel(int channel);
+ASKL_API void __server_set_privileged_channel(SOCKET channel);
 
 /**
  * @ingroup server
@@ -127,7 +127,7 @@ ASKL_API void __server_set_privileged_channel(int channel);
 
 /* -------------------------------------------------------------------------- */
 
-ASKL_API void __server_privileged_process(int channel);
+ASKL_API void __server_privileged_process(SOCKET channel);
 
 /**
  * @ingroup server
