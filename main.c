@@ -299,7 +299,7 @@ int main(int argc, char **argv)
 
         if (! strcmp(argv[argc], _WIN32_OPTSHRT_STOP) ||
             ! strcmp(argv[argc], _WIN32_OPTLONG_STOP)) {
-            if (_service_uninstall()) {
+            if (_service_stop()) {
                 printf(WINMAIN_SERVICENAME " was successfully stopped.\n");
                 exit(EXIT_SUCCESS);
             } else {

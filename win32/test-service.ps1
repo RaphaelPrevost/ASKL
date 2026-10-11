@@ -112,23 +112,26 @@ try {
     Emit-Diag "state after /start = [$state]"
     Emit-Tap ($state -eq 'Running') 'service.start_runs'
 
-    # /stop is wired to _service_uninstall(), not _service_stop(), which is
-    # dead code: on a running service it fails, and on a stopped one it
-    # deletes the registration while printing that it stopped
+    # ControlService() returns once the stop is accepted, not once it has
+    # happened, so this polls rather than reading the state straight back
     Invoke-Askl '/stop'
     $state = Wait-State 'Stopped' 25
     $still = $null -ne (Get-Svc)
     Emit-Diag "state after /stop = [$state], still registered = $still"
     Emit-Tap ($still -and $state -eq 'Stopped') `
-        'service.stop_keeps_registration' `
-        'TODO /stop calls _service_uninstall(), _service_stop() is dead code'
+        'service.stop_keeps_registration'
 
     # ---- removal ---------------------------------------------------------
-    if (Get-Svc) {
-        Invoke-Askl '/uninstall'
-    } else {
-        Emit-Diag '/stop already removed the registration'
+    # reach Stopped through the SCM if /stop did not, so this case exercises
+    # _service_uninstall() alone: a /stop regression should fail once rather
+    # than cascade into a second failure here
+    $s = Get-Svc
+    if ($s -and $s.State -ne 'Stopped') {
+        Emit-Diag 'still running, stopping it through the SCM'
+        & sc.exe stop $svc 2>&1 | Out-Null
+        Wait-State 'Stopped' 25 | Out-Null
     }
+    Invoke-Askl '/uninstall'
     Emit-Tap ($null -eq (Get-Svc)) 'service.uninstall_removes'
 }
 finally {
