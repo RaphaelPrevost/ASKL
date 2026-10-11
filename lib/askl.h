@@ -297,7 +297,8 @@
     #define OP_BIND 0x0B
     #define OP_CONF 0x0C
     #define OP_EXIT 0x0E
-    extern int server_privileged_call(int opcode, const void *cmd, size_t len);
+
+    ASKL_API int server_privileged_call(int opcode, const void *cmd, size_t len);
 #endif
 
 /* modules entrypoints */

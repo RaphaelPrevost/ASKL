@@ -1175,7 +1175,8 @@ ASKL_API void __server_privileged_process(SOCKET channel)
             /* bind a socket to a privileged port */
             char *sep1 = NULL, *sep2 = NULL;
             char host[NI_MAXHOST], serv[NI_MAXSERV];
-            int flags = 0, fd = 0;
+            int flags = 0;
+            SOCKET fd = INVALID_SOCKET;
             ssize_t hostlen = 0, servlen = 0;
             struct addrinfo hint, *a = NULL;
 
@@ -1396,7 +1397,7 @@ ASKL_API void __server_privileged_process(SOCKET channel)
         }
     }
 
-    close(channel);
+    closesocket(channel);
 }
 
 /* -------------------------------------------------------------------------- */
